@@ -1,0 +1,29 @@
+R_DEF: Internal format may change without notice
+local
+color black
+color white
+drawable ic_face_24dp
+drawable ic_launcher_background
+drawable ic_launcher_foreground
+drawable ic_mic_24dp
+drawable ic_navigation_24dp
+drawable ic_settings_24dp
+id btnBack
+id btnNavigation
+id btnPeopleRecognition
+id btnSettings
+id btnStartRecognition
+id btnStopRecognition
+id btnVoiceCommand
+id resultsText
+id statusText
+layout activity_main
+layout activity_people_recognition
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+style Base.Theme.BlindAssistant
+style FeatureButton
+style Theme.BlindAssistant
+xml backup_rules
+xml data_extraction_rules
