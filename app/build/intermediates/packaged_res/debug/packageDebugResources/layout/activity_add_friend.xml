@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:background="@color/background_primary"
+        android:gravity="center"
+        tools:context=".AddFriendActivity">
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="24dp">
+
+        <ImageView
+                android:id="@+id/captureIndicator"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_camera_off"
+                android:layout_marginEnd="12dp"
+                android:contentDescription="Capture status indicator" app:tint="@color/accent_primary"/>
+
+        <TextView
+                android:id="@+id/statusText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/waiting_for_name"
+                android:textSize="24sp"
+                android:textColor="@color/accent_primary"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium" />
+    </LinearLayout>
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/name_display_background"
+            android:padding="20dp"
+            android:layout_marginBottom="24dp">
+
+        <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/registering_person"
+                android:textSize="16sp"
+                android:textColor="@color/text_secondary"
+                android:gravity="center"
+                android:layout_marginBottom="8dp" />
+
+        <TextView
+                android:id="@+id/nameDisplayText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/no_name_set"
+                android:textSize="28sp"
+                android:textColor="@color/accent_secondary"
+                android:gravity="center"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"
+                android:contentDescription="Person name display" />
+    </LinearLayout>
+
+    <TextView
+            android:id="@+id/instructionsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/add_friend_instructions"
+            android:textSize="18sp"
+            android:textColor="@color/text_secondary"
+            android:gravity="center"
+            android:padding="16dp"
+            android:background="@drawable/instruction_background"
+            android:layout_marginBottom="24dp"
+            android:contentDescription="Instructions" />
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/preview_background"
+            android:padding="20dp"
+            android:layout_marginBottom="24dp">
+
+        <ImageView
+                android:id="@+id/previewImage"
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:src="@drawable/ic_face_preview_placeholder"
+                android:alpha="0.5"
+                android:layout_marginBottom="16dp"
+                android:contentDescription="Face preview"
+                android:visibility="visible" app:tint="@color/text_secondary"/>
+
+        <TextView
+                android:id="@+id/captureProgressText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/ready_to_capture"
+                android:textSize="16sp"
+                android:textColor="@color/text_primary"
+                android:gravity="center"
+                android:fontFamily="sans-serif" />
+
+        <LinearLayout
+                android:id="@+id/progressIndicator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp"
+                android:visibility="gone">
+
+            <View
+                    android:id="@+id/progress1"
+                    style="@style/ProgressDot" />
+            <View
+                    android:id="@+id/progress2"
+                    style="@style/ProgressDot" />
+            <View
+                    android:id="@+id/progress3"
+                    style="@style/ProgressDot" />
+            <View
+                    android:id="@+id/progress4"
+                    style="@style/ProgressDot" />
+            <View
+                    android:id="@+id/progress5"
+                    style="@style/ProgressDot" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="20dp">
+
+        <Button
+                android:id="@+id/btnStartCapture"
+                style="@style/PrimaryActionButton"
+                android:layout_width="wrap_content"
+                android:layout_height="72dp"
+                android:text="@string/start_capture"
+                android:paddingStart="32dp"
+                android:paddingEnd="32dp"
+                android:drawableStart="@drawable/ic_camera"
+                android:contentDescription="@string/start_capture_desc"
+                android:enabled="false" />
+
+        <Button
+                android:id="@+id/btnRetake"
+                style="@style/SecondaryActionButton"
+                android:layout_width="wrap_content"
+                android:layout_height="72dp"
+                android:text="@string/retake"
+                android:paddingStart="32dp"
+                android:paddingEnd="32dp"
+                android:drawableStart="@drawable/ic_refresh"
+                android:contentDescription="@string/retake_desc"
+                android:visibility="gone"
+                android:layout_marginStart="12dp" />
+    </LinearLayout>
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+        <Button
+                android:id="@+id/btnCancel"
+                style="@style/DangerActionButton"
+                android:layout_width="0dp"
+                android:layout_height="60dp"
+                android:layout_weight="1"
+                android:text="@string/cancel"
+                android:drawableStart="@drawable/ic_close"
+                android:contentDescription="@string/cancel_desc"
+                android:layout_marginEnd="8dp" />
+
+        <Button
+                android:id="@+id/btnSaveFriend"
+                style="@style/SuccessActionButton"
+                android:layout_width="0dp"
+                android:layout_height="60dp"
+                android:layout_weight="1"
+                android:text="@string/save_friend"
+                android:drawableStart="@drawable/ic_save"
+                android:contentDescription="@string/save_friend_desc"
+                android:layout_marginStart="8dp"
+                android:visibility="gone" />
+    </LinearLayout>
+
+</LinearLayout>

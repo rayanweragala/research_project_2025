@@ -1,3 +1,69 @@
 <resources>
-    <string name="app_name">BlindAssistant</string>
+    <string name="app_name">Blind Assistant</string>
+
+    <!-- Add Friend Activity -->
+    <string name="waiting_for_name">Waiting for name</string>
+    <string name="registering_person">Registering Person</string>
+    <string name="no_name_set">No name set</string>
+    <string name="add_friend_instructions">Say the person\'s name to begin registration</string>
+    <string name="ready_to_capture">Ready to capture</string>
+    <string name="start_capture">Start Capture</string>
+    <string name="start_capture_desc">Start capturing face photos</string>
+    <string name="retake">Retake</string>
+    <string name="retake_desc">Retake face photos</string>
+    <string name="cancel">Cancel</string>
+    <string name="cancel_desc">Cancel face registration</string>
+    <string name="save_friend">Save Friend</string>
+    <string name="save_friend_desc">Save friend to contacts</string>
+
+    <!-- Face Recognition Activity -->
+    <string name="recognition_ready">Recognition Ready</string>
+    <string name="face_recognition_instructions">Press start to begin face recognition through smart glasses</string>
+    <string name="no_results">No faces detected yet</string>
+    <string name="start">Start</string>
+    <string name="start_recognition_desc">Start face recognition</string>
+    <string name="stop">Stop</string>
+    <string name="stop_recognition_desc">Stop face recognition</string>
+    <string name="back">Back</string>
+    <string name="back_desc">Go back to previous screen</string>
+    <string name="add_friend">Add Friend</string>
+    <string name="add_friend_desc">Add new friend to recognition database</string>
+
+    <!-- Status Messages -->
+    <string name="capturing_face">Capturing face data</string>
+    <string name="face_capture_completed">Face capture completed</string>
+    <string name="saving_friend">Saving friend profile</string>
+    <string name="successfully_registered">Successfully registered!</string>
+    <string name="recognition_active">Recognition active</string>
+    <string name="recognition_stopped">Recognition stopped</string>
+
+    <!-- Progress Messages -->
+    <string name="photo_captured">Photo %1$d of %2$d captured</string>
+    <string name="processing_faces">Processing faces…</string>
+    <string name="face_detected">Face detected: %1$s</string>
+    <string name="unknown_person">Unknown person detected</string>
+
+    <!-- Error Messages -->
+    <string name="error_no_permission">Camera permission required</string>
+    <string name="error_camera_unavailable">Camera unavailable</string>
+    <string name="error_recognition_failed">Face recognition failed</string>
+    <string name="error_save_failed">Failed to save friend</string>
+
+    <!-- Accessibility -->
+    <string name="capture_indicator_desc">Face capture status indicator</string>
+    <string name="status_indicator_desc">Recognition status indicator</string>
+    <string name="face_preview_desc">Face preview image</string>
+    <string name="progress_indicator_desc">Capture progress indicator</string>
+
+    <string name="app_name_description">Blind Assistant app title</string>
+    <string name="ready_status">Ready</string>
+    <string name="people_recognition">People Recognition</string>
+    <string name="people_recognition_desc">Start people recognition feature</string>
+    <string name="voice_assistant">Voice Assistant</string>
+    <string name="voice_assistant_desc">Start voice assistant feature</string>
+    <string name="navigation">Navigation</string>
+    <string name="navigation_desc">Open navigation feature</string>
+    <string name="settings">Settings</string>
+    <string name="settings_desc">Open app settings</string>
+    <string name="main_instructions">Tap a feature to get started. Use voice commands or touch gestures to navigate.</string>
 </resources>
