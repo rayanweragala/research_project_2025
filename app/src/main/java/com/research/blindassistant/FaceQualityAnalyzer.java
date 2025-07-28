@@ -36,7 +36,7 @@ public class FaceQualityAnalyzer {
         faceDetector = FaceDetection.getClient(options);
     }
 
-    private void analyzeFaceQuality(Bitmap bitmap,FaceQualityCallback callBack){
+    void analyzeFaceQuality(Bitmap bitmap, FaceQualityCallback callBack){
         if(bitmap == null){
             callBack.onQualityResult(new FaceQualityResult(false,0f,"No image provided"));
             return;
