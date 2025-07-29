@@ -19,7 +19,7 @@ public class FaceRecognitionActivity extends AppCompatActivity
         implements TextToSpeech.OnInitListener, RecognitionListener {
 
     private TextView statusText, resultsText, instructionsText;
-    private Button btnStartRecognition, btnStopRecognition, btnBack;
+    private Button btnStartRecognition, btnStopRecognition, btnBack,btnAddFriend;
     private ImageView statusIndicator;
     private TextToSpeech ttsEngine;
     private SpeechRecognizer speechRecognizer;
@@ -52,6 +52,7 @@ public class FaceRecognitionActivity extends AppCompatActivity
         btnStopRecognition = findViewById(R.id.btnStopRecognition);
         btnBack = findViewById(R.id.btnBack);
         statusIndicator = findViewById(R.id.statusIndicator);
+        btnAddFriend = findViewById(R.id.btnAddFriend);
 
         updateConnectionStatus();
         updateInstructions("Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
@@ -75,10 +76,14 @@ public class FaceRecognitionActivity extends AppCompatActivity
             speak("Going back to main menu");
             finish();
         });
+        btnAddFriend.setOnClickListener(v -> {
+            speak("Opening face registration");
+            startActivity(new Intent(this, AddFriendActivity.class));
+        });
     }
 
     private void addHapticFeedback() {
-        View[] buttons = {btnStartRecognition, btnStopRecognition, btnBack};
+        View[] buttons = {btnStartRecognition, btnStopRecognition, btnBack,btnAddFriend};
 
         for (View button : buttons) {
             button.setOnLongClickListener(v -> {
