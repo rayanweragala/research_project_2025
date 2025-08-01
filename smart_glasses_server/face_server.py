@@ -13,7 +13,6 @@ import io
 from PIL import Image
 import traceback
 
-# Enhanced logging setup
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -40,7 +39,6 @@ class EnhancedFaceRecognitionServer:
             'errors': 0
         }
         
-        # Initialize components
         self.init_database()
         self.init_face_model()
         self.load_face_database()
@@ -50,7 +48,6 @@ class EnhancedFaceRecognitionServer:
         try:
             logging.info("Initializing InsightFace model...")
             
-            # Try to import insightface
             try:
                 import insightface
                 logging.info("InsightFace imported successfully")
@@ -59,7 +56,6 @@ class EnhancedFaceRecognitionServer:
                 logging.info("Please install with: pip install insightface")
                 return False
             
-            # Try to initialize the model
             try:
                 self.model = insightface.app.FaceAnalysis(
                     providers=['CPUExecutionProvider'] 
@@ -159,10 +155,8 @@ class EnhancedFaceRecognitionServer:
             if len(faces) == 0:
                 return None, 0.0, None
 
-            # Get the largest face
             face = max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
             
-            # Calculate quality score
             face_area = (face.bbox[2] - face.bbox[0]) * (face.bbox[3] - face.bbox[1])
             image_area = image.shape[0] * image.shape[1]
             size_ratio = face_area / image_area
@@ -170,7 +164,7 @@ class EnhancedFaceRecognitionServer:
             
             face_info = {
                 'bbox': face.bbox.tolist(),
-                'area_ratio': size_ratio,
+                'area_ratio': float(size_ratio),
                 'landmarks': face.kps.tolist() if hasattr(face, 'kps') else None
             }
             
@@ -184,7 +178,6 @@ class EnhancedFaceRecognitionServer:
     def fallback_face_detection(self, image):
         """Fallback face detection using OpenCV when InsightFace fails"""
         try:
-            # Use OpenCV's Haar cascade for basic face detection
             face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             faces = face_cascade.detectMultiScale(gray, 1.1, 4)
@@ -192,24 +185,21 @@ class EnhancedFaceRecognitionServer:
             if len(faces) == 0:
                 return None, 0.0, None
             
-            # Get the largest face
             largest_face = max(faces, key=lambda x: x[2] * x[3])
             x, y, w, h = largest_face
             
-            # Calculate basic quality score
             face_area = w * h
             image_area = image.shape[0] * image.shape[1]
             size_ratio = face_area / image_area
             quality_score = min(1.0, size_ratio * 5)
             
-            # Create a simple "encoding" (this won't work for actual recognition)
             face_roi = gray[y:y+h, x:x+w]
             face_resized = cv2.resize(face_roi, (128, 128))
             encoding = face_resized.flatten().astype(np.float32) / 255.0
             
             face_info = {
                 'bbox': [x, y, x+w, y+h],
-                'area_ratio': size_ratio,
+                'area_ratio': float(size_ratio),
                 'landmarks': None,
                 'fallback_mode': True
             }
@@ -226,26 +216,22 @@ class EnhancedFaceRecognitionServer:
         self.recognition_stats['total_requests'] += 1
         
         try:
-            # Validate image
             if image is None:
                 raise ValueError("Image is None")
             
             if len(image.shape) != 3:
                 raise ValueError(f"Invalid image shape: {image.shape}")
             
-            # Create image hash for caching
             try:
                 image_hash = hash(image.tobytes()[:1000])
             except Exception as e:
                 logging.warning(f"Could not create image hash: {e}")
                 image_hash = hash(str(time.time()))
             
-            # Check cache
             cached_result = self.check_cache(image_hash)
             if cached_result:
                 return cached_result
             
-            # Extract face encoding
             encoding, quality, face_info = self.extract_face_encoding(image)
             
             if encoding is None:
@@ -255,7 +241,7 @@ class EnhancedFaceRecognitionServer:
                     'confidence': 0.0,
                     'message': "No face detected",
                     'quality_score': 0.0,
-                    'processing_time': time.time() - start_time,
+                    'processing_time': float(time.time() - start_time),
                     'model_loaded': self.model_loaded
                 }
                 self.cache_result(image_hash, result)
@@ -265,22 +251,20 @@ class EnhancedFaceRecognitionServer:
                 result = {
                     'recognized': False,
                     'name': None,
-                    'confidence': quality,
+                    'confidence': float(quality),
                     'message': "Face quality too low for recognition",
-                    'quality_score': quality,
-                    'processing_time': time.time() - start_time,
+                    'quality_score': float(quality),
+                    'processing_time': float(time.time() - start_time),
                     'face_info': face_info,
                     'model_loaded': self.model_loaded
                 }
                 self.cache_result(image_hash, result)
                 return result
             
-            # Perform recognition
             best_match = None
             best_similarity = 0.0
             
             if self.model_loaded:
-                # Use cosine similarity for InsightFace embeddings
                 try:
                     from sklearn.metrics.pairwise import cosine_similarity
                     
@@ -296,7 +280,6 @@ class EnhancedFaceRecognitionServer:
                     logging.warning("sklearn not available, using basic similarity")
                     best_similarity = 0.0
             else:
-                # Fallback similarity (won't work well, but won't crash)
                 best_similarity = 0.0
             
             processing_time = time.time() - start_time
@@ -310,8 +293,8 @@ class EnhancedFaceRecognitionServer:
                     'name': best_match,
                     'confidence': float(best_similarity),
                     'message': f"Recognized {best_match}",
-                    'quality_score': quality,
-                    'processing_time': processing_time,
+                    'quality_score': float(quality),  
+                    'processing_time': float(processing_time),
                     'face_info': face_info,
                     'model_loaded': self.model_loaded
                 }
@@ -321,13 +304,12 @@ class EnhancedFaceRecognitionServer:
                     'name': None,
                     'confidence': float(best_similarity),
                     'message': "Unknown person" if self.model_loaded else "Model not loaded - detection only",
-                    'quality_score': quality,
-                    'processing_time': processing_time,
+                    'quality_score': float(quality),
+                    'processing_time': float(processing_time),
                     'face_info': face_info,
                     'model_loaded': self.model_loaded
                 }
             
-            # Update stats
             total_requests = self.recognition_stats['total_requests']
             current_avg = self.recognition_stats['avg_processing_time']
             self.recognition_stats['avg_processing_time'] = (
@@ -348,7 +330,7 @@ class EnhancedFaceRecognitionServer:
                 'confidence': 0.0,
                 'message': f"Error: {str(e)}",
                 'quality_score': 0.0,
-                'processing_time': time.time() - start_time,
+                'processing_time': float(time.time() - start_time),
                 'error': True,
                 'model_loaded': self.model_loaded
             }
@@ -358,7 +340,6 @@ class EnhancedFaceRecognitionServer:
         try:
             current_time = time.time()
             
-            # Clean expired entries
             expired_keys = [k for k, v in self.recognition_cache.items() 
                            if current_time - v['timestamp'] > self.cache_duration]
             for key in expired_keys:
@@ -463,7 +444,6 @@ class EnhancedFaceRecognitionServer:
                 conn.commit()
                 avg_quality = total_quality / len(successful_encodings)
                 
-                # Clear cache when new person is added
                 self.recognition_cache.clear()
                 
                 return {
@@ -491,10 +471,8 @@ class EnhancedFaceRecognitionServer:
         finally:
             conn.close()
 
-# Initialize the face server
 face_server = EnhancedFaceRecognitionServer()
 
-# Updated web interface with better error handling
 WEB_INTERFACE = '''
 <!DOCTYPE html>
 <html>
@@ -782,7 +760,6 @@ WEB_INTERFACE = '''
 </html>
 '''
 
-# Routes with enhanced error handling
 @app.route('/')
 def web_interface():
     """Web interface for testing"""
@@ -811,7 +788,6 @@ def recognize_realtime():
         if 'image' not in data:
             return jsonify({'error': 'No image data provided'}), 400
 
-        # Decode and validate image
         try:
             img_data = base64.b64decode(data['image'])
             nparr = np.frombuffer(img_data, np.uint8)
@@ -823,7 +799,6 @@ def recognize_realtime():
         if image is None:
             return jsonify({'error': 'Invalid image data - could not decode'}), 400
 
-        # Perform recognition
         result = face_server.recognize_face_realtime(image)
         result['timestamp'] = datetime.now().isoformat()
         
@@ -1060,7 +1035,6 @@ if __name__ == '__main__':
     print("🌐 Open http://localhost:5000 in your browser to test")
     print()
     
-    # Check dependencies
     print("📦 Checking dependencies...")
     try:
         import insightface
