@@ -6,34 +6,29 @@ import json
 import os
 import sqlite3
 from datetime import datetime
-import insightface
-from sklearn.metrics.pairwise import cosine_similarity
-import threading
 import logging
 import time
 from flask_cors import CORS
 import io
 from PIL import Image
+import traceback
+
+# Enhanced logging setup
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 app = Flask(__name__)
 CORS(app) 
-logging.basicConfig(level=logging.INFO)
 
 class EnhancedFaceRecognitionServer:
     def __init__(self):
-        self.model = insightface.app.FaceAnalysis(
-            providers=['CPUExecutionProvider'] 
-        )
-        self.model.prepare(ctx_id=0, det_size=(640, 640))
- 
+        self.model = None
+        self.model_loaded = False
         self.db_path = "face_database.db"
-        self.init_database()
- 
         self.face_encodings = {}
-        self.load_face_database()
-        
         self.recognition_threshold = 0.6
-        
         self.recognition_cache = {}
         self.cache_duration = 3.0 
         
@@ -41,125 +36,136 @@ class EnhancedFaceRecognitionServer:
             'total_requests': 0,
             'successful_recognitions': 0,
             'cache_hits': 0,
-            'avg_processing_time': 0.0
+            'avg_processing_time': 0.0,
+            'errors': 0
         }
         
-        self.camera = None
-        self.camera_active = False
-        self.latest_frame = None
-        self.frame_lock = threading.Lock()
+        # Initialize components
+        self.init_database()
+        self.init_face_model()
+        self.load_face_database()
+
+    def init_face_model(self):
+        """Initialize InsightFace model with error handling"""
+        try:
+            logging.info("Initializing InsightFace model...")
+            
+            # Try to import insightface
+            try:
+                import insightface
+                logging.info("InsightFace imported successfully")
+            except ImportError as e:
+                logging.error(f"InsightFace not installed: {e}")
+                logging.info("Please install with: pip install insightface")
+                return False
+            
+            # Try to initialize the model
+            try:
+                self.model = insightface.app.FaceAnalysis(
+                    providers=['CPUExecutionProvider'] 
+                )
+                self.model.prepare(ctx_id=0, det_size=(640, 640))
+                self.model_loaded = True
+                logging.info("InsightFace model loaded successfully")
+                return True
+                
+            except Exception as e:
+                logging.error(f"Failed to initialize InsightFace model: {e}")
+                logging.error(f"Traceback: {traceback.format_exc()}")
+                self.model_loaded = False
+                return False
+                
+        except Exception as e:
+            logging.error(f"Unexpected error in model initialization: {e}")
+            self.model_loaded = False
+            return False
 
     def init_database(self):
         """Initialize SQLite database for face storage"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS people (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                photo_count INTEGER DEFAULT 0
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS face_encodings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                person_id INTEGER,
-                encoding BLOB NOT NULL,
-                image_quality REAL DEFAULT 0.0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (person_id) REFERENCES people (id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS recognition_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                person_name TEXT,
-                confidence REAL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                source TEXT DEFAULT 'realtime'
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS people (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    photo_count INTEGER DEFAULT 0
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS face_encodings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    person_id INTEGER,
+                    encoding BLOB NOT NULL,
+                    image_quality REAL DEFAULT 0.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (person_id) REFERENCES people (id)
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS recognition_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    person_name TEXT,
+                    confidence REAL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    source TEXT DEFAULT 'realtime'
+                )
+            ''')
+            
+            conn.commit()
+            conn.close()
+            logging.info("Database initialized successfully")
+            
+        except Exception as e:
+            logging.error(f"Database initialization error: {e}")
 
     def load_face_database(self):
         """Load existing face encodings from database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT p.name, fe.encoding FROM people p
-            JOIN face_encodings fe ON p.id = fe.person_id
-        ''')
-        
-        results = cursor.fetchall()
-        
-        for name, encoding_blob in results:
-            encoding = np.frombuffer(encoding_blob, dtype=np.float32)
-            if name not in self.face_encodings:
-                self.face_encodings[name] = []
-            self.face_encodings[name].append(encoding)
-        
-        conn.close()
-        print(f"Loaded {len(self.face_encodings)} people from database")
-
-    def start_camera(self):
-        """Start camera capture"""
-        if not self.camera_active:
-            self.camera = cv2.VideoCapture(0)
-            if self.camera.isOpened():
-                self.camera_active = True
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                self.camera.set(cv2.CAP_PROP_FPS, 30)
-                
-                # Start camera thread
-                self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
-                self.camera_thread.start()
-                return True
-            else:
-                return False
-        return True
-    
-    def stop_camera(self):
-        """Stop camera capture"""
-        self.camera_active = False
-        if self.camera:
-            self.camera.release()
-            self.camera = None
-    
-    def _camera_loop(self):
-        """Camera capture loop"""
-        while self.camera_active and self.camera:
-            ret, frame = self.camera.read()
-            if ret:
-                with self.frame_lock:
-                    self.latest_frame = frame.copy()
-            time.sleep(0.033) 
-
-    def get_current_frame(self):
-        """Get the latest camera frame"""
-        with self.frame_lock:
-            return self.latest_frame.copy() if self.latest_frame is not None else None
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT p.name, fe.encoding FROM people p
+                JOIN face_encodings fe ON p.id = fe.person_id
+            ''')
+            
+            results = cursor.fetchall()
+            
+            for name, encoding_blob in results:
+                encoding = np.frombuffer(encoding_blob, dtype=np.float32)
+                if name not in self.face_encodings:
+                    self.face_encodings[name] = []
+                self.face_encodings[name].append(encoding)
+            
+            conn.close()
+            logging.info(f"Loaded {len(self.face_encodings)} people from database")
+            
+        except Exception as e:
+            logging.error(f"Error loading face database: {e}")
 
     def extract_face_encoding(self, image):
-        """Extract face encoding from image using InsightFace"""
+        """Extract face encoding from image using InsightFace with fallback"""
         try:
+            if not self.model_loaded:
+                logging.warning("InsightFace model not loaded, using fallback")
+                return self.fallback_face_detection(image)
+            
             faces = self.model.get(image)
             if len(faces) == 0:
                 return None, 0.0, None
 
+            # Get the largest face
             face = max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
             
+            # Calculate quality score
             face_area = (face.bbox[2] - face.bbox[0]) * (face.bbox[3] - face.bbox[1])
             image_area = image.shape[0] * image.shape[1]
             size_ratio = face_area / image_area
-            
             quality_score = min(1.0, size_ratio * 10)
             
             face_info = {
@@ -171,114 +177,211 @@ class EnhancedFaceRecognitionServer:
             return face.embedding, quality_score, face_info
             
         except Exception as e:
-            print(f"Error extracting face encoding: {e}")
+            logging.error(f"Error extracting face encoding: {e}")
+            logging.error(f"Traceback: {traceback.format_exc()}")
             return None, 0.0, None
 
-    def check_cache(self, image_hash):
-        """Check if we have a recent recognition for similar image"""
-        current_time = time.time()
-        
-        expired_keys = [k for k, v in self.recognition_cache.items() 
-                       if current_time - v['timestamp'] > self.cache_duration]
-        for key in expired_keys:
-            del self.recognition_cache[key]
-        
-        if image_hash in self.recognition_cache:
-            self.recognition_stats['cache_hits'] += 1
-            return self.recognition_cache[image_hash]['result']
-        
-        return None
-
-    def cache_result(self, image_hash, result):
-        """Cache recognition result"""
-        self.recognition_cache[image_hash] = {
-            'result': result,
-            'timestamp': time.time()
-        }
+    def fallback_face_detection(self, image):
+        """Fallback face detection using OpenCV when InsightFace fails"""
+        try:
+            # Use OpenCV's Haar cascade for basic face detection
+            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+            
+            if len(faces) == 0:
+                return None, 0.0, None
+            
+            # Get the largest face
+            largest_face = max(faces, key=lambda x: x[2] * x[3])
+            x, y, w, h = largest_face
+            
+            # Calculate basic quality score
+            face_area = w * h
+            image_area = image.shape[0] * image.shape[1]
+            size_ratio = face_area / image_area
+            quality_score = min(1.0, size_ratio * 5)
+            
+            # Create a simple "encoding" (this won't work for actual recognition)
+            face_roi = gray[y:y+h, x:x+w]
+            face_resized = cv2.resize(face_roi, (128, 128))
+            encoding = face_resized.flatten().astype(np.float32) / 255.0
+            
+            face_info = {
+                'bbox': [x, y, x+w, y+h],
+                'area_ratio': size_ratio,
+                'landmarks': None,
+                'fallback_mode': True
+            }
+            
+            return encoding, quality_score, face_info
+            
+        except Exception as e:
+            logging.error(f"Fallback face detection error: {e}")
+            return None, 0.0, None
 
     def recognize_face_realtime(self, image):
-        """Enhanced face recognition for real-time use"""
+        """Enhanced face recognition for real-time use with better error handling"""
         start_time = time.time()
         self.recognition_stats['total_requests'] += 1
         
-        image_hash = hash(image.tobytes()[:1000])
-        
-        cached_result = self.check_cache(image_hash)
-        if cached_result:
-            return cached_result
-        
-        encoding, quality, face_info = self.extract_face_encoding(image)
-        
-        if encoding is None:
-            result = {
+        try:
+            # Validate image
+            if image is None:
+                raise ValueError("Image is None")
+            
+            if len(image.shape) != 3:
+                raise ValueError(f"Invalid image shape: {image.shape}")
+            
+            # Create image hash for caching
+            try:
+                image_hash = hash(image.tobytes()[:1000])
+            except Exception as e:
+                logging.warning(f"Could not create image hash: {e}")
+                image_hash = hash(str(time.time()))
+            
+            # Check cache
+            cached_result = self.check_cache(image_hash)
+            if cached_result:
+                return cached_result
+            
+            # Extract face encoding
+            encoding, quality, face_info = self.extract_face_encoding(image)
+            
+            if encoding is None:
+                result = {
+                    'recognized': False,
+                    'name': None,
+                    'confidence': 0.0,
+                    'message': "No face detected",
+                    'quality_score': 0.0,
+                    'processing_time': time.time() - start_time,
+                    'model_loaded': self.model_loaded
+                }
+                self.cache_result(image_hash, result)
+                return result
+            
+            if quality < 0.3:
+                result = {
+                    'recognized': False,
+                    'name': None,
+                    'confidence': quality,
+                    'message': "Face quality too low for recognition",
+                    'quality_score': quality,
+                    'processing_time': time.time() - start_time,
+                    'face_info': face_info,
+                    'model_loaded': self.model_loaded
+                }
+                self.cache_result(image_hash, result)
+                return result
+            
+            # Perform recognition
+            best_match = None
+            best_similarity = 0.0
+            
+            if self.model_loaded:
+                # Use cosine similarity for InsightFace embeddings
+                try:
+                    from sklearn.metrics.pairwise import cosine_similarity
+                    
+                    for name, stored_encodings in self.face_encodings.items():
+                        for stored_encoding in stored_encodings:
+                            similarity = cosine_similarity([encoding], [stored_encoding])[0][0]
+                            
+                            if similarity > best_similarity:
+                                best_similarity = similarity
+                                best_match = name
+                                
+                except ImportError:
+                    logging.warning("sklearn not available, using basic similarity")
+                    best_similarity = 0.0
+            else:
+                # Fallback similarity (won't work well, but won't crash)
+                best_similarity = 0.0
+            
+            processing_time = time.time() - start_time
+            
+            if best_similarity > self.recognition_threshold:
+                self.recognition_stats['successful_recognitions'] += 1
+                self.log_recognition(best_match, best_similarity)
+                
+                result = {
+                    'recognized': True,
+                    'name': best_match,
+                    'confidence': float(best_similarity),
+                    'message': f"Recognized {best_match}",
+                    'quality_score': quality,
+                    'processing_time': processing_time,
+                    'face_info': face_info,
+                    'model_loaded': self.model_loaded
+                }
+            else:
+                result = {
+                    'recognized': False,
+                    'name': None,
+                    'confidence': float(best_similarity),
+                    'message': "Unknown person" if self.model_loaded else "Model not loaded - detection only",
+                    'quality_score': quality,
+                    'processing_time': processing_time,
+                    'face_info': face_info,
+                    'model_loaded': self.model_loaded
+                }
+            
+            # Update stats
+            total_requests = self.recognition_stats['total_requests']
+            current_avg = self.recognition_stats['avg_processing_time']
+            self.recognition_stats['avg_processing_time'] = (
+                (current_avg * (total_requests - 1) + processing_time) / total_requests
+            )
+            
+            self.cache_result(image_hash, result)
+            return result
+            
+        except Exception as e:
+            self.recognition_stats['errors'] += 1
+            logging.error(f"Recognition error: {e}")
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            
+            return {
                 'recognized': False,
                 'name': None,
                 'confidence': 0.0,
-                'message': "No face detected",
+                'message': f"Error: {str(e)}",
                 'quality_score': 0.0,
-                'processing_time': time.time() - start_time
-            }
-            self.cache_result(image_hash, result)
-            return result
-        
-        if quality < 0.3:
-            result = {
-                'recognized': False,
-                'name': None,
-                'confidence': quality,
-                'message': "Face quality too low for recognition",
-                'quality_score': quality,
                 'processing_time': time.time() - start_time,
-                'face_info': face_info
+                'error': True,
+                'model_loaded': self.model_loaded
             }
-            self.cache_result(image_hash, result)
-            return result
-        
-        best_match = None
-        best_similarity = 0.0
-        
-        for name, stored_encodings in self.face_encodings.items():
-            for stored_encoding in stored_encodings:
-                similarity = cosine_similarity([encoding], [stored_encoding])[0][0]
-                
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_match = name
-        
-        processing_time = time.time() - start_time
-        
-        if best_similarity > self.recognition_threshold:
-            self.recognition_stats['successful_recognitions'] += 1
-            self.log_recognition(best_match, best_similarity)
+
+    def check_cache(self, image_hash):
+        """Check if we have a recent recognition for similar image"""
+        try:
+            current_time = time.time()
             
-            result = {
-                'recognized': True,
-                'name': best_match,
-                'confidence': float(best_similarity),
-                'message': f"Recognized {best_match}",
-                'quality_score': quality,
-                'processing_time': processing_time,
-                'face_info': face_info
+            # Clean expired entries
+            expired_keys = [k for k, v in self.recognition_cache.items() 
+                           if current_time - v['timestamp'] > self.cache_duration]
+            for key in expired_keys:
+                del self.recognition_cache[key]
+            
+            if image_hash in self.recognition_cache:
+                self.recognition_stats['cache_hits'] += 1
+                return self.recognition_cache[image_hash]['result']
+            
+            return None
+        except Exception as e:
+            logging.error(f"Cache check error: {e}")
+            return None
+
+    def cache_result(self, image_hash, result):
+        """Cache recognition result"""
+        try:
+            self.recognition_cache[image_hash] = {
+                'result': result,
+                'timestamp': time.time()
             }
-        else:
-            result = {
-                'recognized': False,
-                'name': None,
-                'confidence': float(best_similarity),
-                'message': "Unknown person",
-                'quality_score': quality,
-                'processing_time': processing_time,
-                'face_info': face_info
-            }
-        
-        total_requests = self.recognition_stats['total_requests']
-        current_avg = self.recognition_stats['avg_processing_time']
-        self.recognition_stats['avg_processing_time'] = (
-            (current_avg * (total_requests - 1) + processing_time) / total_requests
-        )
-        
-        self.cache_result(image_hash, result)
-        return result
+        except Exception as e:
+            logging.error(f"Cache store error: {e}")
 
     def log_recognition(self, person_name, confidence):
         """Log recognition for analytics"""
@@ -292,11 +395,18 @@ class EnhancedFaceRecognitionServer:
             conn.commit()
             conn.close()
         except Exception as e:
-            print(f"Error logging recognition: {e}")
+            logging.error(f"Error logging recognition: {e}")
 
     def add_person(self, name, images_base64):
         """Add new person with multiple images"""
         try:
+            if not self.model_loaded:
+                return {
+                    'success': False,
+                    'message': 'Face recognition model not loaded. Please check server logs.',
+                    'photos_processed': 0
+                }
+            
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
@@ -320,6 +430,7 @@ class EnhancedFaceRecognitionServer:
                     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     
                     if image is None:
+                        logging.warning(f"Could not decode image {i+1} for {name}")
                         continue
 
                     encoding, quality, _ = self.extract_face_encoding(image)
@@ -334,10 +445,12 @@ class EnhancedFaceRecognitionServer:
                         successful_encodings.append(encoding)
                         total_quality += quality
                         
-                        print(f"Processed image {i+1} for {name}, quality: {quality:.2f}")
+                        logging.info(f"Processed image {i+1} for {name}, quality: {quality:.2f}")
+                    else:
+                        logging.warning(f"Poor quality or no face in image {i+1} for {name}")
                     
                 except Exception as e:
-                    print(f"Error processing image {i+1} for {name}: {e}")
+                    logging.error(f"Error processing image {i+1} for {name}: {e}")
                     continue
             
             if successful_encodings:
@@ -350,6 +463,7 @@ class EnhancedFaceRecognitionServer:
                 conn.commit()
                 avg_quality = total_quality / len(successful_encodings)
                 
+                # Clear cache when new person is added
                 self.recognition_cache.clear()
                 
                 return {
@@ -368,6 +482,7 @@ class EnhancedFaceRecognitionServer:
                 
         except Exception as e:
             conn.rollback()
+            logging.error(f"Error adding person: {e}")
             return {
                 'success': False,
                 'message': f'Database error: {str(e)}',
@@ -376,8 +491,10 @@ class EnhancedFaceRecognitionServer:
         finally:
             conn.close()
 
+# Initialize the face server
 face_server = EnhancedFaceRecognitionServer()
 
+# Updated web interface with better error handling
 WEB_INTERFACE = '''
 <!DOCTYPE html>
 <html>
@@ -399,9 +516,14 @@ WEB_INTERFACE = '''
         .recognition-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
         .recognized { background: #d4edda; border: 1px solid #c3e6cb; }
         .unknown { background: #fff3cd; border: 1px solid #ffeaa7; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; }
         .stats { display: flex; gap: 20px; margin-top: 20px; }
         .stat-box { flex: 1; padding: 15px; background: #e9ecef; border-radius: 5px; text-align: center; }
         input[type="text"] { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .status.success { background: #d4edda; color: #155724; }
     </style>
 </head>
 <body>
@@ -425,7 +547,7 @@ WEB_INTERFACE = '''
                 <button class="button register" onclick="registerPerson()">Register Current Face</button>
                 
                 <h3>System Status</h3>
-                <div id="status">Ready</div>
+                <div id="status" class="status">Ready</div>
             </div>
         </div>
         
@@ -442,6 +564,10 @@ WEB_INTERFACE = '''
                 <h4>Total Requests</h4>
                 <div id="totalRequests">0</div>
             </div>
+            <div class="stat-box">
+                <h4>Error Rate</h4>
+                <div id="errorRate">0%</div>
+            </div>
         </div>
         
         <div class="results">
@@ -457,55 +583,46 @@ WEB_INTERFACE = '''
         let recognitionActive = false;
         let recognitionInterval;
 
-    #     async function initCamera() {
-    #     try {
-    #         if (navigator.mediaDevices === undefined) {
-    #             navigator.mediaDevices = {};
-    #         }
+        async function initCamera() {
+            try {
+                if (navigator.mediaDevices === undefined) {
+                    navigator.mediaDevices = {};
+                }
 
-    #         if (navigator.mediaDevices.getUserMedia === undefined) {
-    #             navigator.mediaDevices.getUserMedia = function(constraints) {
-    #                 const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-    #                 if (!getUserMedia) {
-    #                     throw new Error('getUserMedia not supported');
-    #                 }
-    #                 return new Promise((resolve, reject) => {
-    #                     getUserMedia.call(navigator, constraints, resolve, reject);
-    #                 });
-    #             }
-    #         }
+                if (navigator.mediaDevices.getUserMedia === undefined) {
+                    navigator.mediaDevices.getUserMedia = function(constraints) {
+                        const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+                        if (!getUserMedia) {
+                            throw new Error('getUserMedia not supported');
+                        }
+                        return new Promise((resolve, reject) => {
+                            getUserMedia.call(navigator, constraints, resolve, reject);
+                        });
+                    }
+                }
 
-    #         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    #         video.srcObject = stream;
-    #         video.onloadedmetadata = () => {
-    #             canvas.width = video.videoWidth;
-    #             canvas.height = video.videoHeight;
-    #         };
-    #     } catch (err) {
-    #         console.error('Camera error:', err);
-    #         document.getElementById('status').innerHTML = 
-    #             '❌ Camera error: ' + err.message + 
-    #             '<br>Try accessing via HTTPS://localhost:5000';
-    #     }
-    # }
-
-
-    # initCamera();
-        
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 video.srcObject = stream;
                 video.onloadedmetadata = () => {
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                 };
-            })
-            .catch(err => console.error('Camera error:', err));
+            } catch (err) {
+                console.error('Camera error:', err);
+                document.getElementById('status').innerHTML = 
+                    '❌ Camera error: ' + err.message + 
+                    '<br>Try accessing via HTTPS://localhost:5000';
+                document.getElementById('status').className = 'status error';
+            }
+        }
 
+        initCamera();
+        
         function startRecognition() {
             if (!recognitionActive) {
                 recognitionActive = true;
                 document.getElementById('status').innerHTML = '🔍 Recognition Active';
+                document.getElementById('status').className = 'status success';
                 recognitionInterval = setInterval(performRecognition, 2000); 
             }
         }
@@ -513,6 +630,7 @@ WEB_INTERFACE = '''
         function stopRecognition() {
             recognitionActive = false;
             document.getElementById('status').innerHTML = '⏸️ Recognition Stopped';
+            document.getElementById('status').className = 'status warning';
             if (recognitionInterval) {
                 clearInterval(recognitionInterval);
             }
@@ -532,9 +650,25 @@ WEB_INTERFACE = '''
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ image: base64 })
                     })
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        return response.json();
+                    })
                     .then(data => displayResult(data))
-                    .catch(err => console.error('Recognition error:', err));
+                    .catch(err => {
+                        console.error('Recognition error:', err);
+                        displayResult({
+                            recognized: false,
+                            name: null,
+                            confidence: 0,
+                            message: `Error: ${err.message}`,
+                            quality_score: 0,
+                            processing_time: 0,
+                            error: true
+                        });
+                    });
                 };
                 reader.readAsDataURL(blob);
             }, 'image/jpeg', 0.8);
@@ -570,7 +704,10 @@ WEB_INTERFACE = '''
                             alert(`Registration failed: ${data.message}`);
                         }
                     })
-                    .catch(err => console.error('Registration error:', err));
+                    .catch(err => {
+                        console.error('Registration error:', err);
+                        alert(`Registration error: ${err.message}`);
+                    });
                 };
                 reader.readAsDataURL(blob);
             }, 'image/jpeg', 0.8);
@@ -578,27 +715,40 @@ WEB_INTERFACE = '''
 
         function displayResult(data) {
             let resultsDiv = document.getElementById('results');
-            let resultClass = data.recognized ? 'recognized' : 'unknown';
-            let message = data.recognized ? 
-                `✅ ${data.name} (${(data.confidence * 100).toFixed(1)}% confidence)` :
-                `❓ ${data.message} (${(data.confidence * 100).toFixed(1)}% similarity)`;
+            let resultClass = data.error ? 'error' : (data.recognized ? 'recognized' : 'unknown');
+            
+            // Handle missing values
+            let confidence = data.confidence || 0;
+            let quality = data.quality_score || 0;
+            let processingTime = data.processing_time || 0;
+            
+            let message = data.error ? 
+                `❌ ${data.message}` :
+                (data.recognized ? 
+                    `✅ ${data.name} (${(confidence * 100).toFixed(1)}% confidence)` :
+                    `❓ ${data.message} (${(confidence * 100).toFixed(1)}% similarity)`);
+            
+            let modelStatus = data.model_loaded ? '🟢' : '🔴';
             
             let resultHtml = `
                 <div class="recognition-result ${resultClass}">
                     <strong>${new Date().toLocaleTimeString()}</strong>: ${message}
-                    <br><small>Quality: ${(data.quality_score * 100).toFixed(1)}%, 
-                    Processing: ${(data.processing_time * 1000).toFixed(0)}ms</small>
+                    <br><small>Quality: ${(quality * 100).toFixed(1)}%, 
+                    Processing: ${(processingTime * 1000).toFixed(0)}ms, 
+                    Model: ${modelStatus}</small>
                 </div>
             `;
             
             resultsDiv.innerHTML = resultHtml + resultsDiv.innerHTML;
             
+            // Keep only last 10 results
             let results = resultsDiv.children;
             while (results.length > 10) {
                 resultsDiv.removeChild(results[results.length - 1]);
             }
         }
 
+        // Update stats
         setInterval(() => {
             fetch('/api/health')
                 .then(response => response.json())
@@ -607,10 +757,22 @@ WEB_INTERFACE = '''
                         let stats = data.recognition_stats;
                         let rate = stats.total_requests > 0 ? 
                             (stats.successful_recognitions / stats.total_requests * 100).toFixed(1) : 0;
+                        let errorRate = stats.total_requests > 0 ?
+                            (stats.errors / stats.total_requests * 100).toFixed(1) : 0;
                         
                         document.getElementById('recognitionRate').textContent = rate + '%';
                         document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
                         document.getElementById('totalRequests').textContent = stats.total_requests;
+                        document.getElementById('errorRate').textContent = errorRate + '%';
+                        
+                        // Update status based on model
+                        if (!recognitionActive) {
+                            let statusEl = document.getElementById('status');
+                            if (!data.model_loaded) {
+                                statusEl.innerHTML = '⚠️ Model not loaded - basic detection only';
+                                statusEl.className = 'status warning';
+                            }
+                        }
                     }
                 })
                 .catch(err => console.error('Stats error:', err));
@@ -620,7 +782,7 @@ WEB_INTERFACE = '''
 </html>
 '''
 
-# Routes
+# Routes with enhanced error handling
 @app.route('/')
 def web_interface():
     """Web interface for testing"""
@@ -631,66 +793,55 @@ def health_check():
     """Enhanced health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'model_loaded': face_server.model is not None,
+        'model_loaded': face_server.model_loaded,
         'people_count': len(face_server.face_encodings),
         'recognition_stats': face_server.recognition_stats,
-        'cache_size': len(face_server.recognition_cache),
-        'camera_active': face_server.camera_active
+        'cache_size': len(face_server.recognition_cache)
     })
-
-@app.route('/api/camera/start', methods=['POST'])
-def start_camera():
-    """Start camera capture"""
-    if face_server.start_camera():
-        return jsonify({'success': True, 'message': 'Camera started'})
-    else:
-        return jsonify({'success': False, 'message': 'Failed to start camera'}), 500
-
-@app.route('/api/camera/stop', methods=['POST'])
-def stop_camera():
-    """Stop camera capture"""
-    face_server.stop_camera()
-    return jsonify({'success': True, 'message': 'Camera stopped'})
-
-@app.route('/api/camera/frame', methods=['GET'])
-def get_camera_frame():
-    """Get current camera frame for recognition"""
-    frame = face_server.get_current_frame()
-    if frame is not None:
-        _, buffer = cv2.imencode('.jpg', frame)
-        img_base64 = base64.b64encode(buffer).decode('utf-8')
-        
-        result = face_server.recognize_face_realtime(frame)
-        result['image'] = img_base64
-        result['timestamp'] = datetime.now().isoformat()
-        
-        return jsonify(result)
-    else:
-        return jsonify({'error': 'No frame available'}), 404
 
 @app.route('/api/recognize_realtime', methods=['POST'])
 def recognize_realtime():
-    """Real-time recognition endpoint optimized for continuous use"""
+    """Real-time recognition endpoint with enhanced error handling"""
     try:
         data = request.json
+        
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
         
         if 'image' not in data:
             return jsonify({'error': 'No image data provided'}), 400
 
-        img_data = base64.b64decode(data['image'])
-        nparr = np.frombuffer(img_data, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        # Decode and validate image
+        try:
+            img_data = base64.b64decode(data['image'])
+            nparr = np.frombuffer(img_data, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        except Exception as e:
+            logging.error(f"Image decoding error: {e}")
+            return jsonify({'error': f'Image decoding failed: {str(e)}'}), 400
 
         if image is None:
-            return jsonify({'error': 'Invalid image data'}), 400
+            return jsonify({'error': 'Invalid image data - could not decode'}), 400
 
+        # Perform recognition
         result = face_server.recognize_face_realtime(image)
         result['timestamp'] = datetime.now().isoformat()
         
         return jsonify(result)
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logging.error(f"Recognition endpoint error: {e}")
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': str(e),
+            'recognized': False,
+            'name': None,
+            'confidence': 0.0,
+            'message': f'Server error: {str(e)}',
+            'quality_score': 0.0,
+            'processing_time': 0.0,
+            'model_loaded': face_server.model_loaded
+        }), 500
 
 @app.route('/api/recognize', methods=['POST'])
 def recognize_person():
@@ -718,17 +869,22 @@ def recognize_person():
             'name': result['name'],
             'confidence': result['confidence'],
             'message': result['message'],
-            'timestamp': result['timestamp']
+            'timestamp': result['timestamp'],
+            'model_loaded': result.get('model_loaded', False)
         })
 
     except Exception as e:
+        logging.error(f"File recognition error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/register', methods=['POST'])
 def register_person():
-    """Register new person"""
+    """Register new person with enhanced error handling"""
     try:
         data = request.json
+        
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
         
         if 'name' not in data or 'images' not in data:
             return jsonify({'error': 'Name and images required'}), 400
@@ -750,6 +906,7 @@ def register_person():
             return jsonify(result), 400
             
     except Exception as e:
+        logging.error(f"Registration error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/people', methods=['GET'])
@@ -780,6 +937,7 @@ def list_people():
         })
         
     except Exception as e:
+        logging.error(f"List people error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/delete_person', methods=['DELETE'])
@@ -787,6 +945,9 @@ def delete_person():
     """Delete a person and their face data"""
     try:
         data = request.json
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+            
         name = data.get('name', '').strip()
         
         if not name:
@@ -820,6 +981,7 @@ def delete_person():
         })
         
     except Exception as e:
+        logging.error(f"Delete person error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/analytics', methods=['GET'])
@@ -861,22 +1023,32 @@ def get_analytics():
         })
         
     except Exception as e:
+        logging.error(f"Analytics error: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/test', methods=['GET'])
+def test_endpoint():
+    """Test endpoint to check if server is working"""
+    return jsonify({
+        'status': 'Server is working',
+        'model_loaded': face_server.model_loaded,
+        'timestamp': datetime.now().isoformat()
+    })
 
 if __name__ == '__main__':
     print("="*60)
-    print("🧠 Enhanced InsightFace Recognition Server (Complete)")
+    print("🧠 Enhanced Face Recognition Server - Debug Version")
     print("="*60)
     print("📊 Features:")
-    print("  ✅ Real-time recognition with caching")
-    print("  ✅ Laptop camera integration (smart glasses mock)")
-    print("  ✅ Web interface for testing")
-    print("  ✅ Performance analytics")
-    print("  ✅ Recognition history logging")
-    print("  ✅ Optimized for continuous use")
+    print("  ✅ Enhanced error handling and logging")
+    print("  ✅ Fallback face detection (OpenCV)")
+    print("  ✅ Better debugging information")
+    print("  ✅ Model loading status reporting")
+    print("  ✅ Graceful degradation when InsightFace fails")
     print()
     print("🔗 API Endpoints:")
     print("  GET  /                       - Web interface")
+    print("  GET  /api/test               - Test server status")
     print("  POST /api/recognize_realtime - For continuous recognition")
     print("  POST /api/recognize          - Original recognition")
     print("  POST /api/register           - Register new person")
@@ -884,12 +1056,33 @@ if __name__ == '__main__':
     print("  GET  /api/analytics          - Recognition analytics")
     print("  GET  /api/people             - List registered people")
     print("  DELETE /api/delete_person    - Delete person")
-    print("  POST /api/camera/start       - Start camera")
-    print("  POST /api/camera/stop        - Stop camera")
-    print("  GET  /api/camera/frame       - Get camera frame + recognition")
     print()
     print("🌐 Open http://localhost:5000 in your browser to test")
-    print("💡 Ready to replace with Raspberry Pi when available!")
+    print()
+    
+    # Check dependencies
+    print("📦 Checking dependencies...")
+    try:
+        import insightface
+        print("  ✅ InsightFace available")
+    except ImportError:
+        print("  ❌ InsightFace not installed - pip install insightface")
+    
+    try:
+        from sklearn.metrics.pairwise import cosine_similarity
+        print("  ✅ scikit-learn available")
+    except ImportError:
+        print("  ❌ scikit-learn not installed - pip install scikit-learn")
+    
+    try:
+        import cv2
+        print("  ✅ OpenCV available")
+    except ImportError:
+        print("  ❌ OpenCV not installed - pip install opencv-python")
+        
+    print()
+    print("💡 If InsightFace fails to load, the server will use OpenCV fallback")
+    print("   (Face detection only - no recognition without InsightFace)")
     print("="*60)
     
     app.run(

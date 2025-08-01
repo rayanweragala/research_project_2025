@@ -139,7 +139,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if(lowerCommand.equals("face") || lowerCommand.contains("people") ||
         lowerCommand.contains("recognition") || lowerCommand.contains("recognize")){
             speak("Opening face recognition");
-            startActivity(new Intent(this,FaceRecognitionActivity.class));
+            startActivity(new Intent(this,EnhancedFaceRecognitionActivity.class));
         } else if(lowerCommand.contains("navigation") || lowerCommand.contains("navigate")){
             speak("opening navigation assistance");
         } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting")){

@@ -1,33 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-        xmlns:android="http://schemas.android.com/apk/res/android"
-        xmlns:app="http://schemas.android.com/apk/res-auto"
-        xmlns:tools="http://schemas.android.com/tools"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:padding="20dp"
-        android:background="@color/background_primary"
-        android:gravity="center"
-        tools:context=".AddFriendActivity">
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              xmlns:tools="http://schemas.android.com/tools"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:padding="16dp"
+              android:background="@color/background_color"
+              tools:context=".AddFriendActivity">
 
     <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="24dp"
-            android:background="@drawable/status_card_background"
-            android:padding="16dp">
+            android:padding="8dp"
+            android:background="@color/header_background">
 
         <ImageView
                 android:id="@+id/captureIndicator"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:src="@drawable/ic_person"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
                 android:layout_marginEnd="12dp"
-                android:contentDescription="Capture status indicator"
-                app:tint="@color/accent_primary"/>
+                android:src="@drawable/ic_person_add"
+                android:contentDescription="Add friend status indicator"
+                app:tint="@color/accent_text" />
 
         <LinearLayout
                 android:layout_width="0dp"
@@ -40,168 +37,296 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/waiting_for_name"
-                    android:textSize="22sp"
-                    android:textColor="@color/accent_primary"
+                    android:textSize="16sp"
                     android:textStyle="bold"
-                    android:fontFamily="sans-serif-medium" />
+                    android:textColor="@color/primary_text"
+                    android:contentDescription="Current status" />
 
             <TextView
-                    android:id="@+id/progressText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="0 / 5 photos captured"
-                    android:textSize="14sp"
-                    android:textColor="@color/text_secondary"
-                    android:visibility="gone"
-                    android:layout_marginTop="4dp" />
+                    android:text="👓 Smart Glasses Face Registration"
+                    android:textSize="12sp"
+                    android:textColor="@color/secondary_text"
+                    android:layout_marginTop="2dp" />
+
         </LinearLayout>
+
         <ImageView
                 android:id="@+id/qualityIndicator"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
                 android:src="@drawable/ic_quality_unknown"
-                android:layout_marginStart="8dp"
                 android:contentDescription="Image quality indicator"
                 android:visibility="gone"
-                app:tint="@color/accent_secondary"/>
+                app:tint="@color/accent_text" />
+
     </LinearLayout>
 
     <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/name_display_background"
-            android:padding="20dp"
-            android:layout_marginBottom="24dp">
+            android:background="@color/results_background"
+            android:padding="16dp"
+            android:layout_margin="8dp">
 
-        <TextView
+        <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/registering_person"
-                android:textSize="16sp"
-                android:textColor="@color/text_secondary"
-                android:gravity="center"
-                android:layout_marginBottom="8dp" />
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="👤 Person Registration"
+                    android:textSize="12sp"
+                    android:textColor="@color/accent_text"
+                    android:textStyle="bold" />
+
+        </LinearLayout>
 
         <TextView
                 android:id="@+id/nameDisplayText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Name: Not set"
-                android:textSize="28sp"
-                android:textColor="@color/accent_secondary"
-                android:gravity="center"
+                android:textSize="18sp"
+                android:textColor="@color/primary_text"
                 android:textStyle="bold"
-                android:fontFamily="sans-serif-medium"
                 android:contentDescription="Person name display"
+                android:layout_marginBottom="4dp" />
+
+        <TextView
+                android:id="@+id/progressText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📊 Photos: 0/5 | Quality: Waiting..."
+                android:textSize="11sp"
+                android:textColor="@color/performance_text"
+                android:fontFamily="monospace"
                 android:visibility="gone" />
+
     </LinearLayout>
 
-    <TextView
-            android:id="@+id/instructionsText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Say the person's name to begin registration"
-            android:textSize="18sp"
-            android:textColor="@color/text_secondary"
-            android:gravity="center"
-            android:padding="16dp"
-            android:background="@drawable/instruction_background"
-            android:layout_marginBottom="24dp"
-            android:contentDescription="Instructions" />
-
-    <LinearLayout
+    <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:background="@drawable/capture_area_background"
-            android:padding="20dp"
-            android:layout_marginBottom="24dp">
+            android:layout_margin="8dp"
+            android:background="@color/camera_background">
 
         <ImageView
                 android:id="@+id/liveFeedPreview"
-                android:layout_width="200dp"
-                android:layout_height="150dp"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
                 android:src="@drawable/ic_camera_preview"
-                android:background="@drawable/preview_frame"
                 android:scaleType="centerCrop"
-                android:layout_marginBottom="16dp"
                 android:contentDescription="Live camera preview"
-                android:alpha="0.7" />
+                android:background="#f0f0f0" />
+
+        <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/smart_glasses_overlay_border" />
+
 
         <ProgressBar
                 android:id="@+id/captureProgress"
                 style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="8dp"
-                android:layout_marginBottom="16dp"
-                android:progressTint="@color/accent_primary"
-                android:progressBackgroundTint="@color/background_secondary"
+                android:layout_height="6dp"
+                android:layout_gravity="bottom"
+                android:layout_margin="16dp"
+                android:progressTint="@color/accent_text"
+                android:progressBackgroundTint="@color/divider_color"
                 android:max="5"
                 android:progress="0"
                 android:visibility="gone" />
 
         <LinearLayout
                 android:id="@+id/qualityFeedbackArea"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="32dp"
                 android:orientation="horizontal"
+                android:background="@drawable/overlay_background"
+                android:padding="8dp"
                 android:gravity="center"
                 android:visibility="gone">
 
             <ImageView
                     android:id="@+id/qualityIcon1"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
                     android:src="@drawable/ic_quality_dot_empty"
-                    android:layout_margin="4dp"
-                    app:tint="@color/text_secondary"/>
+                    android:layout_margin="3dp"
+                    app:tint="@color/secondary_text" />
 
             <ImageView
                     android:id="@+id/qualityIcon2"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
                     android:src="@drawable/ic_quality_dot_empty"
-                    android:layout_margin="4dp"
-                    app:tint="@color/text_secondary"/>
+                    android:layout_margin="3dp"
+                    app:tint="@color/secondary_text" />
 
             <ImageView
                     android:id="@+id/qualityIcon3"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
                     android:src="@drawable/ic_quality_dot_empty"
-                    android:layout_margin="4dp"
-                    app:tint="@color/text_secondary"/>
+                    android:layout_margin="3dp"
+                    app:tint="@color/secondary_text" />
 
             <ImageView
                     android:id="@+id/qualityIcon4"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
                     android:src="@drawable/ic_quality_dot_empty"
-                    android:layout_margin="4dp"
-                    app:tint="@color/text_secondary"/>
+                    android:layout_margin="3dp"
+                    app:tint="@color/secondary_text" />
 
             <ImageView
                     android:id="@+id/qualityIcon5"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
                     android:src="@drawable/ic_quality_dot_empty"
-                    android:layout_margin="4dp"
-                    app:tint="@color/text_secondary"/>
+                    android:layout_margin="3dp"
+                    app:tint="@color/secondary_text" />
+
         </LinearLayout>
 
-        <TextView
-                android:id="@+id/captureStatusText"
+        <LinearLayout
+                android:id="@+id/noPreviewMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="visible">
+
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📷"
+                    android:textSize="48sp"
+                    android:alpha="0.3" />
+
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Ready for\nFace Registration"
+                    android:textSize="14sp"
+                    android:textColor="@color/secondary_text"
+                    android:textAlignment="center"
+                    android:alpha="0.7"
+                    android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <TextView
+            android:id="@+id/instructionsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="8dp"
+            android:padding="12dp"
+            android:text="Say the person's name to begin registration"
+            android:textSize="14sp"
+            android:textColor="@color/instruction_text"
+            android:background="@color/instruction_background"
+            android:contentDescription="Current instructions"
+            android:drawableStart="@drawable/ic_info"
+            android:drawablePadding="8dp"
+            android:gravity="center_vertical" />
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_margin="8dp">
+
+        <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Ready to begin"
-                android:textSize="16sp"
-                android:textColor="@color/text_primary"
-                android:gravity="center"
-                android:fontFamily="sans-serif"
-                android:layout_marginTop="12dp" />
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+            <Button
+                    android:id="@+id/btnStartRegistration"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="START CAPTURE"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/button_primary"
+                    android:textColor="@color/button_text_primary"
+                    android:contentDescription="Start face registration"
+                    android:drawableTop="@drawable/ic_camera_alt"
+                    android:drawablePadding="4dp"
+                    android:visibility="gone" />
+
+            <Button
+                    android:id="@+id/btnStopRegistration"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="STOP CAPTURE"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/button_secondary"
+                    android:textColor="@color/button_text_secondary"
+                    android:visibility="gone"
+                    android:contentDescription="Stop face registration"
+                    android:drawableTop="@drawable/ic_stop"
+                    android:drawablePadding="4dp" />
+
+        </LinearLayout>
+
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+            <Button
+                    android:id="@+id/btnStartOver"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="START OVER"
+                    android:textSize="12sp"
+                    android:background="@drawable/button_accent"
+                    android:textColor="@color/button_text_accent"
+                    android:contentDescription="@string/start_over_desc"
+                    android:drawableStart="@drawable/ic_refresh"
+                    android:drawablePadding="6dp"
+                    android:gravity="center"
+                    android:visibility="gone" />
+
+            <Button
+                    android:id="@+id/btnCancel"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="@string/cancel"
+                    android:textSize="12sp"
+                    android:background="@drawable/button_neutral"
+                    android:textColor="@color/button_text_neutral"
+                    android:contentDescription="@string/cancel_desc"
+                    android:drawableStart="@drawable/ic_close"
+                    android:drawablePadding="6dp"
+                    android:gravity="center" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
@@ -209,30 +334,33 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:background="@color/voice_helper_background"
+            android:padding="8dp"
+            android:gravity="center_vertical">
 
-        <Button
-                android:id="@+id/btnCancel"
-                style="@style/DangerActionButton"
-                android:layout_width="0dp"
-                android:layout_height="60dp"
-                android:layout_weight="1"
-                android:text="@string/cancel"
-                android:drawableStart="@drawable/ic_close"
-                android:contentDescription="@string/cancel_desc"
-                android:layout_marginEnd="8dp" />
+        <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginEnd="8dp"
+                android:src="@drawable/ic_mic"
+                android:contentDescription="Voice commands available" />
 
-        <Button
-                android:id="@+id/btnStartOver"
-                style="@style/SecondaryActionButton"
+        <TextView
                 android:layout_width="0dp"
-                android:layout_height="60dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="@string/start_over"
-                android:drawableStart="@drawable/ic_refresh"
-                android:contentDescription="@string/start_over_desc"
-                android:layout_marginStart="8dp"
+                android:text="Voice Commands: 'START CAPTURE', 'STOP', 'START OVER', 'CANCEL'"
+                android:textSize="10sp"
+                android:textColor="@color/voice_helper_text" />
+
+        <ImageView
+                android:id="@+id/voiceIndicator"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:src="@drawable/voice_listening_indicator"
+                android:contentDescription="Voice listening indicator"
                 android:visibility="gone" />
+
     </LinearLayout>
 
     <LinearLayout
@@ -241,26 +369,27 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center"
-            android:background="@drawable/connection_status_background"
-            android:padding="12dp">
+            android:background="@color/results_background"
+            android:padding="8dp"
+            android:visibility="gone">
 
         <ImageView
                 android:id="@+id/connectionIcon"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
                 android:src="@drawable/ic_bluetooth_connected"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="6dp"
                 android:contentDescription="Connection status"
-                app:tint="@color/success_color"/>
+                app:tint="@color/accent_text" />
 
         <TextView
                 android:id="@+id/connectionText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Smart glasses connected"
-                android:textSize="14sp"
-                android:textColor="@color/success_color"
-                android:fontFamily="sans-serif" />
+                android:textSize="12sp"
+                android:textColor="@color/secondary_text" />
+
     </LinearLayout>
 
 </LinearLayout>

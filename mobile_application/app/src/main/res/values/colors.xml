@@ -50,6 +50,7 @@
     <!-- Overlay -->
     <color name="overlay_dark">#CC000000</color>
     <color name="overlay_light">#66FFFFFF</color>
+    <color name="overlay_text">#FFFFFF</color>
 
     <!-- Border -->
     <color name="border_light">#404040</color>
@@ -116,7 +117,7 @@
     <!-- Text Colors -->
     <color name="primary_text">#212121</color>
     <color name="secondary_text">#424242</color>
-    <color name="instruction_text">#E65100</color>
+    <color name="instruction_text">#BF360C</color>
     <color name="performance_text">#666666</color>
 
     <!-- Button Colors -->
@@ -139,5 +140,10 @@
     <color name="status_success">#4CAF50</color>
     <color name="status_warning">#FF9800</color>
     <color name="status_error">#F44336</color>
+    <color name="accent_text">#2196F3</color>
+    <color name="divider_color">#E0E0E0</color>
+
+    <color name="voice_helper_background">#F5F5F5</color>
+    <color name="voice_helper_text">#666666</color>
 
 </resources>
