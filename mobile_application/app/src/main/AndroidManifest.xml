@@ -43,11 +43,10 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".FaceRecognitionActivity"
+        <activity android:name=".EnhancedFaceRecognitionActivity"
                   android:exported="false" />
 
         <activity android:name=".AddFriendActivity"
-                  android:screenOrientation="portrait"
                   android:windowSoftInputMode="adjustResize"
                   android:exported="false" />
         <meta-data

@@ -72,7 +72,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         btnPeopleRecognition.setOnClickListener(v -> {
             speak("Starting face recognition");
             updateStatus("Opening face recognition...");
-            startActivity(new Intent(this, FaceRecognitionActivity.class));
+            startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
         });
 
         btnVoiceCommand.setOnClickListener(v -> {

@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 import cv2
 import numpy as np
 import base64
@@ -10,11 +10,16 @@ import insightface
 from sklearn.metrics.pairwise import cosine_similarity
 import threading
 import logging
+import time
+from flask_cors import CORS
+import io
+from PIL import Image
 
 app = Flask(__name__)
+CORS(app) 
 logging.basicConfig(level=logging.INFO)
 
-class FaceRecognitionServer:
+class EnhancedFaceRecognitionServer:
     def __init__(self):
         self.model = insightface.app.FaceAnalysis(
             providers=['CPUExecutionProvider'] 
@@ -27,7 +32,22 @@ class FaceRecognitionServer:
         self.face_encodings = {}
         self.load_face_database()
         
-        self.recognition_threshold = 0.6  
+        self.recognition_threshold = 0.6
+        
+        self.recognition_cache = {}
+        self.cache_duration = 3.0 
+        
+        self.recognition_stats = {
+            'total_requests': 0,
+            'successful_recognitions': 0,
+            'cache_hits': 0,
+            'avg_processing_time': 0.0
+        }
+        
+        self.camera = None
+        self.camera_active = False
+        self.latest_frame = None
+        self.frame_lock = threading.Lock()
 
     def init_database(self):
         """Initialize SQLite database for face storage"""
@@ -51,6 +71,16 @@ class FaceRecognitionServer:
                 image_quality REAL DEFAULT 0.0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (person_id) REFERENCES people (id)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS recognition_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_name TEXT,
+                confidence REAL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                source TEXT DEFAULT 'realtime'
             )
         ''')
         
@@ -78,12 +108,51 @@ class FaceRecognitionServer:
         conn.close()
         print(f"Loaded {len(self.face_encodings)} people from database")
 
+    def start_camera(self):
+        """Start camera capture"""
+        if not self.camera_active:
+            self.camera = cv2.VideoCapture(0)
+            if self.camera.isOpened():
+                self.camera_active = True
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                self.camera.set(cv2.CAP_PROP_FPS, 30)
+                
+                # Start camera thread
+                self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
+                self.camera_thread.start()
+                return True
+            else:
+                return False
+        return True
+    
+    def stop_camera(self):
+        """Stop camera capture"""
+        self.camera_active = False
+        if self.camera:
+            self.camera.release()
+            self.camera = None
+    
+    def _camera_loop(self):
+        """Camera capture loop"""
+        while self.camera_active and self.camera:
+            ret, frame = self.camera.read()
+            if ret:
+                with self.frame_lock:
+                    self.latest_frame = frame.copy()
+            time.sleep(0.033) 
+
+    def get_current_frame(self):
+        """Get the latest camera frame"""
+        with self.frame_lock:
+            return self.latest_frame.copy() if self.latest_frame is not None else None
+
     def extract_face_encoding(self, image):
         """Extract face encoding from image using InsightFace"""
         try:
             faces = self.model.get(image)
             if len(faces) == 0:
-                return None, 0.0
+                return None, 0.0, None
 
             face = max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
             
@@ -91,23 +160,79 @@ class FaceRecognitionServer:
             image_area = image.shape[0] * image.shape[1]
             size_ratio = face_area / image_area
             
-            quality_score = min(1.0, size_ratio * 10) 
+            quality_score = min(1.0, size_ratio * 10)
             
-            return face.embedding, quality_score
+            face_info = {
+                'bbox': face.bbox.tolist(),
+                'area_ratio': size_ratio,
+                'landmarks': face.kps.tolist() if hasattr(face, 'kps') else None
+            }
+            
+            return face.embedding, quality_score, face_info
             
         except Exception as e:
             print(f"Error extracting face encoding: {e}")
-            return None, 0.0
+            return None, 0.0, None
 
-    def recognize_face(self, image):
-        """Recognize face in image"""
-        encoding, quality = self.extract_face_encoding(image)
+    def check_cache(self, image_hash):
+        """Check if we have a recent recognition for similar image"""
+        current_time = time.time()
+        
+        expired_keys = [k for k, v in self.recognition_cache.items() 
+                       if current_time - v['timestamp'] > self.cache_duration]
+        for key in expired_keys:
+            del self.recognition_cache[key]
+        
+        if image_hash in self.recognition_cache:
+            self.recognition_stats['cache_hits'] += 1
+            return self.recognition_cache[image_hash]['result']
+        
+        return None
+
+    def cache_result(self, image_hash, result):
+        """Cache recognition result"""
+        self.recognition_cache[image_hash] = {
+            'result': result,
+            'timestamp': time.time()
+        }
+
+    def recognize_face_realtime(self, image):
+        """Enhanced face recognition for real-time use"""
+        start_time = time.time()
+        self.recognition_stats['total_requests'] += 1
+        
+        image_hash = hash(image.tobytes()[:1000])
+        
+        cached_result = self.check_cache(image_hash)
+        if cached_result:
+            return cached_result
+        
+        encoding, quality, face_info = self.extract_face_encoding(image)
         
         if encoding is None:
-            return None, 0.0, "No face detected"
+            result = {
+                'recognized': False,
+                'name': None,
+                'confidence': 0.0,
+                'message': "No face detected",
+                'quality_score': 0.0,
+                'processing_time': time.time() - start_time
+            }
+            self.cache_result(image_hash, result)
+            return result
         
         if quality < 0.3:
-            return None, quality, "Face quality too low"
+            result = {
+                'recognized': False,
+                'name': None,
+                'confidence': quality,
+                'message': "Face quality too low for recognition",
+                'quality_score': quality,
+                'processing_time': time.time() - start_time,
+                'face_info': face_info
+            }
+            self.cache_result(image_hash, result)
+            return result
         
         best_match = None
         best_similarity = 0.0
@@ -120,11 +245,54 @@ class FaceRecognitionServer:
                     best_similarity = similarity
                     best_match = name
         
+        processing_time = time.time() - start_time
+        
         if best_similarity > self.recognition_threshold:
-            confidence = best_similarity
-            return best_match, confidence, f"Recognized {best_match}"
+            self.recognition_stats['successful_recognitions'] += 1
+            self.log_recognition(best_match, best_similarity)
+            
+            result = {
+                'recognized': True,
+                'name': best_match,
+                'confidence': float(best_similarity),
+                'message': f"Recognized {best_match}",
+                'quality_score': quality,
+                'processing_time': processing_time,
+                'face_info': face_info
+            }
         else:
-            return None, best_similarity, "Unknown person"
+            result = {
+                'recognized': False,
+                'name': None,
+                'confidence': float(best_similarity),
+                'message': "Unknown person",
+                'quality_score': quality,
+                'processing_time': processing_time,
+                'face_info': face_info
+            }
+        
+        total_requests = self.recognition_stats['total_requests']
+        current_avg = self.recognition_stats['avg_processing_time']
+        self.recognition_stats['avg_processing_time'] = (
+            (current_avg * (total_requests - 1) + processing_time) / total_requests
+        )
+        
+        self.cache_result(image_hash, result)
+        return result
+
+    def log_recognition(self, person_name, confidence):
+        """Log recognition for analytics"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO recognition_logs (person_name, confidence)
+                VALUES (?, ?)
+            ''', (person_name, confidence))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error logging recognition: {e}")
 
     def add_person(self, name, images_base64):
         """Add new person with multiple images"""
@@ -154,7 +322,7 @@ class FaceRecognitionServer:
                     if image is None:
                         continue
 
-                    encoding, quality = self.extract_face_encoding(image)
+                    encoding, quality, _ = self.extract_face_encoding(image)
                     
                     if encoding is not None and quality > 0.3:
                         encoding_blob = encoding.tobytes()
@@ -182,6 +350,8 @@ class FaceRecognitionServer:
                 conn.commit()
                 avg_quality = total_quality / len(successful_encodings)
                 
+                self.recognition_cache.clear()
+                
                 return {
                     'success': True,
                     'message': f'Successfully registered {name}',
@@ -206,20 +376,325 @@ class FaceRecognitionServer:
         finally:
             conn.close()
 
-face_server = FaceRecognitionServer()
+face_server = EnhancedFaceRecognitionServer()
+
+WEB_INTERFACE = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Glasses Face Recognition Mock</title>
+    <style>
+        body { font-family: Arial; margin: 20px; background: #f0f0f0; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+        .camera-section { display: flex; gap: 20px; margin-bottom: 20px; }
+        .video-container { flex: 1; }
+        .controls { flex: 1; }
+        video { width: 100%; max-width: 640px; border: 2px solid #ddd; border-radius: 10px; }
+        canvas { display: none; }
+        .button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .start { background: #4CAF50; color: white; }
+        .stop { background: #f44336; color: white; }
+        .register { background: #2196F3; color: white; }
+        .results { margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px; }
+        .recognition-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .recognized { background: #d4edda; border: 1px solid #c3e6cb; }
+        .unknown { background: #fff3cd; border: 1px solid #ffeaa7; }
+        .stats { display: flex; gap: 20px; margin-top: 20px; }
+        .stat-box { flex: 1; padding: 15px; background: #e9ecef; border-radius: 5px; text-align: center; }
+        input[type="text"] { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤓 Smart Glasses Face Recognition Mock</h1>
+        <p>Using laptop camera to simulate smart glasses feed</p>
+        
+        <div class="camera-section">
+            <div class="video-container">
+                <video id="video" autoplay muted></video>
+                <canvas id="canvas"></canvas>
+            </div>
+            
+            <div class="controls">
+                <h3>Controls</h3>
+                <button class="button start" onclick="startRecognition()">Start Recognition</button>
+                <button class="button stop" onclick="stopRecognition()">Stop Recognition</button>
+                
+                <h3>Register New Person</h3>
+                <input type="text" id="personName" placeholder="Enter person's name">
+                <button class="button register" onclick="registerPerson()">Register Current Face</button>
+                
+                <h3>System Status</h3>
+                <div id="status">Ready</div>
+            </div>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <h4>Recognition Rate</h4>
+                <div id="recognitionRate">0%</div>
+            </div>
+            <div class="stat-box">
+                <h4>Avg Processing Time</h4>
+                <div id="avgTime">0ms</div>
+            </div>
+            <div class="stat-box">
+                <h4>Total Requests</h4>
+                <div id="totalRequests">0</div>
+            </div>
+        </div>
+        
+        <div class="results">
+            <h3>Recognition Results</h3>
+            <div id="results"></div>
+        </div>
+    </div>
+
+    <script>
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+        let recognitionActive = false;
+        let recognitionInterval;
+
+    #     async function initCamera() {
+    #     try {
+    #         if (navigator.mediaDevices === undefined) {
+    #             navigator.mediaDevices = {};
+    #         }
+
+    #         if (navigator.mediaDevices.getUserMedia === undefined) {
+    #             navigator.mediaDevices.getUserMedia = function(constraints) {
+    #                 const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+    #                 if (!getUserMedia) {
+    #                     throw new Error('getUserMedia not supported');
+    #                 }
+    #                 return new Promise((resolve, reject) => {
+    #                     getUserMedia.call(navigator, constraints, resolve, reject);
+    #                 });
+    #             }
+    #         }
+
+    #         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    #         video.srcObject = stream;
+    #         video.onloadedmetadata = () => {
+    #             canvas.width = video.videoWidth;
+    #             canvas.height = video.videoHeight;
+    #         };
+    #     } catch (err) {
+    #         console.error('Camera error:', err);
+    #         document.getElementById('status').innerHTML = 
+    #             '❌ Camera error: ' + err.message + 
+    #             '<br>Try accessing via HTTPS://localhost:5000';
+    #     }
+    # }
+
+
+    # initCamera();
+        
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                };
+            })
+            .catch(err => console.error('Camera error:', err));
+
+        function startRecognition() {
+            if (!recognitionActive) {
+                recognitionActive = true;
+                document.getElementById('status').innerHTML = '🔍 Recognition Active';
+                recognitionInterval = setInterval(performRecognition, 2000); 
+            }
+        }
+
+        function stopRecognition() {
+            recognitionActive = false;
+            document.getElementById('status').innerHTML = '⏸️ Recognition Stopped';
+            if (recognitionInterval) {
+                clearInterval(recognitionInterval);
+            }
+        }
+
+        function performRecognition() {
+            if (!recognitionActive) return;
+            
+            ctx.drawImage(video, 0, 0);
+            canvas.toBlob(blob => {
+                let reader = new FileReader();
+                reader.onload = () => {
+                    let base64 = reader.result.split(',')[1];
+                    
+                    fetch('/api/recognize_realtime', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: base64 })
+                    })
+                    .then(response => response.json())
+                    .then(data => displayResult(data))
+                    .catch(err => console.error('Recognition error:', err));
+                };
+                reader.readAsDataURL(blob);
+            }, 'image/jpeg', 0.8);
+        }
+
+        function registerPerson() {
+            let name = document.getElementById('personName').value.trim();
+            if (!name) {
+                alert('Please enter a name');
+                return;
+            }
+            
+            ctx.drawImage(video, 0, 0);
+            canvas.toBlob(blob => {
+                let reader = new FileReader();
+                reader.onload = () => {
+                    let base64 = reader.result.split(',')[1];
+                    
+                    fetch('/api/register', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            name: name, 
+                            images: [base64] 
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert(`Successfully registered ${name}!`);
+                            document.getElementById('personName').value = '';
+                        } else {
+                            alert(`Registration failed: ${data.message}`);
+                        }
+                    })
+                    .catch(err => console.error('Registration error:', err));
+                };
+                reader.readAsDataURL(blob);
+            }, 'image/jpeg', 0.8);
+        }
+
+        function displayResult(data) {
+            let resultsDiv = document.getElementById('results');
+            let resultClass = data.recognized ? 'recognized' : 'unknown';
+            let message = data.recognized ? 
+                `✅ ${data.name} (${(data.confidence * 100).toFixed(1)}% confidence)` :
+                `❓ ${data.message} (${(data.confidence * 100).toFixed(1)}% similarity)`;
+            
+            let resultHtml = `
+                <div class="recognition-result ${resultClass}">
+                    <strong>${new Date().toLocaleTimeString()}</strong>: ${message}
+                    <br><small>Quality: ${(data.quality_score * 100).toFixed(1)}%, 
+                    Processing: ${(data.processing_time * 1000).toFixed(0)}ms</small>
+                </div>
+            `;
+            
+            resultsDiv.innerHTML = resultHtml + resultsDiv.innerHTML;
+            
+            let results = resultsDiv.children;
+            while (results.length > 10) {
+                resultsDiv.removeChild(results[results.length - 1]);
+            }
+        }
+
+        setInterval(() => {
+            fetch('/api/health')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.recognition_stats) {
+                        let stats = data.recognition_stats;
+                        let rate = stats.total_requests > 0 ? 
+                            (stats.successful_recognitions / stats.total_requests * 100).toFixed(1) : 0;
+                        
+                        document.getElementById('recognitionRate').textContent = rate + '%';
+                        document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
+                        document.getElementById('totalRequests').textContent = stats.total_requests;
+                    }
+                })
+                .catch(err => console.error('Stats error:', err));
+        }, 3000);
+    </script>
+</body>
+</html>
+'''
+
+# Routes
+@app.route('/')
+def web_interface():
+    """Web interface for testing"""
+    return render_template_string(WEB_INTERFACE)
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
+    """Enhanced health check endpoint"""
     return jsonify({
         'status': 'healthy',
         'model_loaded': face_server.model is not None,
-        'people_count': len(face_server.face_encodings)
+        'people_count': len(face_server.face_encodings),
+        'recognition_stats': face_server.recognition_stats,
+        'cache_size': len(face_server.recognition_cache),
+        'camera_active': face_server.camera_active
     })
+
+@app.route('/api/camera/start', methods=['POST'])
+def start_camera():
+    """Start camera capture"""
+    if face_server.start_camera():
+        return jsonify({'success': True, 'message': 'Camera started'})
+    else:
+        return jsonify({'success': False, 'message': 'Failed to start camera'}), 500
+
+@app.route('/api/camera/stop', methods=['POST'])
+def stop_camera():
+    """Stop camera capture"""
+    face_server.stop_camera()
+    return jsonify({'success': True, 'message': 'Camera stopped'})
+
+@app.route('/api/camera/frame', methods=['GET'])
+def get_camera_frame():
+    """Get current camera frame for recognition"""
+    frame = face_server.get_current_frame()
+    if frame is not None:
+        _, buffer = cv2.imencode('.jpg', frame)
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        result = face_server.recognize_face_realtime(frame)
+        result['image'] = img_base64
+        result['timestamp'] = datetime.now().isoformat()
+        
+        return jsonify(result)
+    else:
+        return jsonify({'error': 'No frame available'}), 404
+
+@app.route('/api/recognize_realtime', methods=['POST'])
+def recognize_realtime():
+    """Real-time recognition endpoint optimized for continuous use"""
+    try:
+        data = request.json
+        
+        if 'image' not in data:
+            return jsonify({'error': 'No image data provided'}), 400
+
+        img_data = base64.b64decode(data['image'])
+        nparr = np.frombuffer(img_data, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if image is None:
+            return jsonify({'error': 'Invalid image data'}), 400
+
+        result = face_server.recognize_face_realtime(image)
+        result['timestamp'] = datetime.now().isoformat()
+        
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/recognize', methods=['POST'])
 def recognize_person():
-    """Recognize person from uploaded image file"""
+    """Original recognition endpoint - keeping for compatibility"""
     try:
         if 'image' not in request.files:
             return jsonify({'error': 'No image file provided'}), 400
@@ -235,23 +710,23 @@ def recognize_person():
         if image is None:
             return jsonify({'error': 'Invalid image file'}), 400
 
-        name, confidence, message = face_server.recognize_face(image)
+        result = face_server.recognize_face_realtime(image)
+        result['timestamp'] = datetime.now().isoformat()
 
         return jsonify({
-            'recognized': name is not None,
-            'name': name,
-            'confidence': float(confidence),
-            'message': message,
-            'timestamp': datetime.now().isoformat()
+            'recognized': result['recognized'],
+            'name': result['name'],
+            'confidence': result['confidence'],
+            'message': result['message'],
+            'timestamp': result['timestamp']
         })
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/api/register', methods=['POST'])
 def register_person():
-    """Register new person with multiple images"""
+    """Register new person"""
     try:
         data = request.json
         
@@ -329,7 +804,6 @@ def delete_person():
         person_id = result[0]
 
         cursor.execute("DELETE FROM face_encodings WHERE person_id = ?", (person_id,))
- 
         cursor.execute("DELETE FROM people WHERE id = ?", (person_id,))
         
         conn.commit()
@@ -337,6 +811,8 @@ def delete_person():
 
         if name in face_server.face_encodings:
             del face_server.face_encodings[name]
+        
+        face_server.recognition_cache.clear()
         
         return jsonify({
             'success': True,
@@ -346,14 +822,79 @@ def delete_person():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/analytics', methods=['GET'])
+def get_analytics():
+    """Get recognition analytics"""
+    try:
+        conn = sqlite3.connect(face_server.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT person_name, COUNT(*) as recognition_count, 
+                   AVG(confidence) as avg_confidence, 
+                   MAX(timestamp) as last_seen
+            FROM recognition_logs 
+            WHERE timestamp > datetime('now', '-24 hours')
+            GROUP BY person_name
+            ORDER BY recognition_count DESC
+        ''')
+        
+        recent_recognitions = []
+        for row in cursor.fetchall():
+            recent_recognitions.append({
+                'name': row[0],
+                'recognition_count': row[1],
+                'avg_confidence': row[2],
+                'last_seen': row[3]
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            'recognition_stats': face_server.recognition_stats,
+            'recent_recognitions': recent_recognitions,
+            'cache_performance': {
+                'cache_size': len(face_server.recognition_cache),
+                'cache_hit_rate': (face_server.recognition_stats['cache_hits'] / 
+                                 max(face_server.recognition_stats['total_requests'], 1)) * 100
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
-    print("Starting InsightFace Recognition Server...")
-    print("Install dependencies: pip install insightface flask opencv-python scikit-learn")
-    print("Server will run on http://localhost:5000")
+    print("="*60)
+    print("🧠 Enhanced InsightFace Recognition Server (Complete)")
+    print("="*60)
+    print("📊 Features:")
+    print("  ✅ Real-time recognition with caching")
+    print("  ✅ Laptop camera integration (smart glasses mock)")
+    print("  ✅ Web interface for testing")
+    print("  ✅ Performance analytics")
+    print("  ✅ Recognition history logging")
+    print("  ✅ Optimized for continuous use")
+    print()
+    print("🔗 API Endpoints:")
+    print("  GET  /                       - Web interface")
+    print("  POST /api/recognize_realtime - For continuous recognition")
+    print("  POST /api/recognize          - Original recognition")
+    print("  POST /api/register           - Register new person")
+    print("  GET  /api/health             - Server health + stats")
+    print("  GET  /api/analytics          - Recognition analytics")
+    print("  GET  /api/people             - List registered people")
+    print("  DELETE /api/delete_person    - Delete person")
+    print("  POST /api/camera/start       - Start camera")
+    print("  POST /api/camera/stop        - Stop camera")
+    print("  GET  /api/camera/frame       - Get camera frame + recognition")
+    print()
+    print("🌐 Open http://localhost:5000 in your browser to test")
+    print("💡 Ready to replace with Raspberry Pi when available!")
+    print("="*60)
     
     app.run(
         host='0.0.0.0',
         port=5000,
-        debug=True,
+        debug=False,
         threaded=True
     )
