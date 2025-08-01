@@ -1,11 +1,36 @@
+# === PYTHON & SERVER ===
+smart_glasses_server/face_recognition_env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# === ANDROID & GRADLE ===
+.gradle/
+build/
+**/build/
+mobile_application/app/build/
+
+# Gradle Wrapper
+gradle/wrapper/gradle-wrapper.properties
+gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Local config
+local.properties
+
+# === MISC ===
+.DS_Store
+Thumbs.db
 *.class
-
 *.log
-
 *.ctxt
-
 .mtj.tmp/
-
 *.jar
 *.war
 *.nar
@@ -13,12 +38,4 @@
 *.zip
 *.tar.gz
 *.rar
-
-./.idea
-./build
-./gradle
-/local.properties
-
-/*.iml
-
 *.kotlin_module
