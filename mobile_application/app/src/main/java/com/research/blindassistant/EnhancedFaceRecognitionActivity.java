@@ -1,6 +1,7 @@
 package com.research.blindassistant;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.*;
@@ -60,7 +61,6 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private boolean isListening = false;
     private boolean serverConnected = false;
     private boolean serverCameraActive = false;
-
     private int totalFramesReceived = 0;
     private int framesWithFaces = 0;
     private int framesSentToServer = 0;
@@ -70,11 +70,16 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private final int RECOGNITION_INTERVAL = 2000;
     private final int FRAME_REQUEST_INTERVAL = 500;
 
+    private StatusManager statusManager;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_enhanced_face_recognition_server);
+        setContentView(R.layout.activity_enhanced_face_recognition);
 
+        statusManager = new StatusManager(this);
+        statusManager.updateStatus(StatusManager.ConnectionStatus.DISCONNECTED,
+                "Smart Glasses Disconnected", "Connecting to server...");
         initializeComponents();
         checkPermissions();
         setupVoiceRecognition();
@@ -102,7 +107,6 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         statusIndicator = findViewById(R.id.statusIndicator);
         cameraFeedView = findViewById(R.id.cameraFeedView);
 
-        updateConnectionStatus();
         updateInstructions("Connecting to smart glasses camera server...");
 
         ttsEngine = new TextToSpeech(this, this);
@@ -155,22 +159,26 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private void testServerConnection() {
         String url = SERVER_URL + "/api/health";
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
+        @SuppressLint("DefaultLocale") JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
                 response -> {
                     try {
                         String status = response.getString("status");
                         if ("healthy".equals(status)) {
                             serverConnected = true;
+
                             int peopleCount = response.getInt("people_count");
                             boolean cameraActive = response.optBoolean("camera_active", false);
 
-                            updateConnectionStatus();
-
                             if (cameraActive) {
                                 serverCameraActive = true;
+                                statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,"Smart Glasses Connected",String.format("Camera active • %d people registered", peopleCount));
                                 speak(String.format("Smart glasses connected. Camera active. %d people registered.", peopleCount));
                                 updateInstructions("Smart glasses ready! Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
                             } else {
+                                statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTING,
+                                        "Server Connected",
+                                        String.format("Starting camera • %d people registered", peopleCount));
+
                                 speak(String.format("Server connected with %d people registered. Starting camera...", peopleCount));
                                 startServerCamera();
                             }
@@ -198,7 +206,9 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                         boolean success = response.getBoolean("success");
                         if (success) {
                             serverCameraActive = true;
-                            updateConnectionStatus();
+                            statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
+                                    "Smart Glasses Ready", "Camera active • Ready for recognition");
+
                             speak("Smart glasses camera activated");
                             updateInstructions("Smart glasses ready! Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
                         } else {
@@ -220,32 +230,48 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private void handleServerError(String message) {
         serverConnected = false;
         serverCameraActive = false;
-        updateConnectionStatus();
+        statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                "Connection Failed", message);
         updateInstructions(message);
         speak(message);
     }
 
     private void startRecognition() {
-        if (!isRecognizing && serverConnected && serverCameraActive) {
-            isRecognizing = true;
-            btnStartRecognition.setVisibility(View.GONE);
-            btnStopRecognition.setVisibility(View.VISIBLE);
-            statusIndicator.setImageResource(R.drawable.ic_visibility_on);
-
-            updateStatus("Recognition Active - Receiving Smart Glasses Feed");
-            updateResults("Analyzing smart glasses camera feed with AI...");
-            updateInstructions("Recognition running. Say 'STOP' to end or 'ADD FRIEND' if you see someone new");
-            speak("Face recognition started. Processing smart glasses camera feed.");
-
-            startVoiceListening();
-            resetPerformanceStats();
-            startFrameProcessing();
-
-        } else if (!serverConnected) {
+         if (!serverConnected) {
             speak("Smart glasses server not connected. Please check connection.");
-        } else if (!serverCameraActive) {
-            speak("Smart glasses camera not active. Please wait for camera initialization.");
+            return;
         }
+         if (!serverCameraActive) {
+            speak("starting smart glass camera....");
+            startServerCamera();
+            mainHandler.postDelayed(()->{
+                if(serverCameraActive){
+                    startRecognition();
+                }else{
+                    speak("Smart glasses camera not active. Please check connection.");
+                }
+            },3000);
+            return;
+        }
+
+         if(isRecognizing){
+             return;
+         }
+
+        isRecognizing = true;
+        btnStartRecognition.setVisibility(View.GONE);
+        btnStopRecognition.setVisibility(View.VISIBLE);
+        statusIndicator.setImageResource(R.drawable.ic_visibility_on);
+
+        statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
+                "Recognition Active", "Processing smart glasses feed...");
+        updateResults("Analyzing smart glasses camera feed with AI...");
+        updateInstructions("Recognition running. Say 'STOP' to end or 'ADD FRIEND' if you see someone new");
+        speak("Face recognition started. Processing smart glasses camera feed.");
+
+        startVoiceListening();
+        resetPerformanceStats();
+        startFrameProcessing();
     }
 
     private void stopRecognition() {
@@ -253,10 +279,10 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
             isRecognizing = false;
             btnStartRecognition.setVisibility(View.VISIBLE);
             btnStopRecognition.setVisibility(View.GONE);
-            statusIndicator.setImageResource(R.drawable.ic_visibility_off);
+            statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
+                    "Smart Glasses Ready", "Recognition stopped • Ready to start");
 
             updateStatus("Recognition Stopped");
-            updateResults("Press start to begin recognition");
             updateInstructions("Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
             speak("Face recognition stopped");
 
@@ -284,12 +310,34 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     }
 
     private void requestFrameFromServer() {
+
+        if (!serverCameraActive) {
+            Log.w(TAG, "Server camera not active, skipping frame request");
+            return;
+        }
+
         String url = SERVER_URL + "/api/camera/frame";
 
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
                 response -> {
                     try {
                         totalFramesReceived++;
+
+                        if(response.has("error")){
+                            String errorMsg = response.getString("error");
+                            Log.w(TAG, "Error requesting frame from server: " + errorMsg);
+                            statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                                    "Frame Error", errorMsg);
+                            mainHandler.post(() -> {
+                                updateResults("⚠️ " + errorMsg);
+                            });
+                            return;
+                        }
+
+                        if (serverConnected && serverCameraActive && isRecognizing) {
+                            statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
+                                    "Recognition Active", "Processing frames...");
+                        }
 
                         String imageBase64 = response.getString("image");
                         boolean serverRecognized = response.optBoolean("recognized", false);
@@ -306,6 +354,8 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                 },
                 error -> {
                     Log.e(TAG, "Frame request error", error);
+                    statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                            "Connection Issue", "Smart glasses feed interrupted");
                     if (isRecognizing) {
                         mainHandler.post(() -> {
                             updateResults("⚠️ Connection to smart glasses interrupted");
@@ -590,19 +640,6 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private void updateInstructions(String instructions) {
         instructionsText.setText(instructions);
         instructionsText.setContentDescription("Instructions: " + instructions);
-    }
-
-    private void updateConnectionStatus() {
-        if (serverConnected && serverCameraActive) {
-            statusIndicator.setImageResource(R.drawable.ic_check_circle);
-            statusIndicator.setContentDescription("Smart glasses connected and camera active");
-        } else if (serverConnected) {
-            statusIndicator.setImageResource(R.drawable.ic_warning);
-            statusIndicator.setContentDescription("Server connected, camera starting");
-        } else {
-            statusIndicator.setImageResource(R.drawable.ic_error);
-            statusIndicator.setContentDescription("Smart glasses server not connected");
-        }
     }
 
     private void speak(String text) {

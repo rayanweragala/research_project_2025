@@ -54,6 +54,8 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     private static final int TONE_COMPLETE = ToneGenerator.TONE_CDMA_CONFIRM;
     private static final int TONE_ERROR = ToneGenerator.TONE_CDMA_ABBR_ALERT;
 
+    private StatusManager statusManager;
+
     private enum CaptureState {
         WAITING_FOR_NAME,
         CHECKING_SERVER,
@@ -69,11 +71,10 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_add_friend_enhanced);
-
+        setupServices();
         initializeComponents();
         setupVoiceRecognition();
         setupButtons();
-        setupServices();
         addHapticFeedback();
 
         mainHandler = new Handler();
@@ -87,6 +88,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     }
 
     private void setupServices(){
+        statusManager = new StatusManager(this);
         faceRecognitionService = new FaceRecognitionService(this);
         faceRecognitionService.setCallback(this);
 
@@ -104,7 +106,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         progressText = findViewById(R.id.progressText);
         btnCancel = findViewById(R.id.btnCancel);
         btnStartOver = findViewById(R.id.btnStartOver);
-        captureIndicator = findViewById(R.id.captureIndicator);
+        captureIndicator = findViewById(R.id.statusIndicator);
         qualityIndicator = findViewById(R.id.qualityIndicator);
         captureProgress = findViewById(R.id.captureProgress);
 
@@ -159,9 +161,9 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
 
         switch (newState) {
             case WAITING_FOR_NAME:
-                statusText.setText("Waiting for name");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.WAITING_INPUT,
+                        "Waiting for name", "Say the person's name to begin");
                 instructionsText.setText("Say the person's name to begin registration");
-                captureIndicator.setImageResource(R.drawable.ic_person);
                 qualityIndicator.setVisibility(View.GONE);
                 captureProgress.setVisibility(View.GONE);
                 progressText.setVisibility(View.GONE);
@@ -169,21 +171,21 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                 break;
 
             case CHECKING_SERVER:
-                statusText.setText("Checking face recognition server");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CHECKING_SERVER,
+                        "Checking face recognition server", "Verifying face recognition system...");
                 instructionsText.setText("Please wait while I check the face recognition system...");
-                captureIndicator.setImageResource(R.drawable.ic_sync);
                 break;
 
             case CONNECTING_GLASSES:
-                statusText.setText("Connecting to smart glasses");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTING,
+                        "Connecting to smart glasses", "Establishing smart glasses connection...");
                 instructionsText.setText("Please wait while I connect to your smart glasses...");
-                captureIndicator.setImageResource(R.drawable.ic_bluetooth);
                 break;
 
             case READY_TO_CAPTURE:
-                statusText.setText("Ready to capture");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.READY_TO_CAPTURE,
+                        "Ready to capture", "Ask " + friendName + " to face the smart glasses");
                 instructionsText.setText("Ask " + friendName + " to face the smart glasses. I'll automatically take photos when ready.");
-                captureIndicator.setImageResource(R.drawable.ic_camera_ready);
                 qualityIndicator.setVisibility(View.VISIBLE);
                 captureProgress.setVisibility(View.VISIBLE);
                 progressText.setVisibility(View.VISIBLE);
@@ -192,26 +194,28 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                 break;
 
             case CAPTURING:
-                statusText.setText("Capturing face data");
-                captureIndicator.setImageResource(R.drawable.ic_camera_on);
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CAPTURING,
+                        "Capturing face data", "Taking photos automatically...");
+                instructionsText.setText("Stay still while I capture the best photos...");
                 break;
 
             case PROCESSING:
-                statusText.setText("Processing with AI model");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.PROCESSING,
+                        "Processing with AI model", "Saving " + friendName + "'s face data...");
                 instructionsText.setText("Please wait while the InsightFace AI processes and saves " + friendName + "'s face data...");
-                captureIndicator.setImageResource(R.drawable.ic_processing);
                 break;
 
             case COMPLETED:
-                statusText.setText("Registration completed!");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.SUCCESS,
+                        "Registration completed!", friendName + " successfully registered");
                 instructionsText.setText(friendName + " has been successfully registered and will be recognized automatically.");
-                captureIndicator.setImageResource(R.drawable.ic_check_circle);
                 btnStartOver.setVisibility(View.VISIBLE);
                 break;
 
             case ERROR:
-                statusText.setText("Error occurred");
-                captureIndicator.setImageResource(R.drawable.ic_error);
+                statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                        "Error occurred", "Registration failed");
+                instructionsText.setText("An error occurred. Press 'Start Over' to try again.");
                 btnStartOver.setVisibility(View.VISIBLE);
                 break;
         }

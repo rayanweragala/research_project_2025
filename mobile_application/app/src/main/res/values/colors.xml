@@ -4,6 +4,10 @@
     <color name="accent_secondary">#00BCD4</color>
     <!-- Background -->
     <color name="background_primary">#121212</color>
+    <color name="header_background_disconnected">#FFEBEE</color>
+    <color name="header_background_connecting">#FFF3E0</color>
+    <color name="header_background_connected">#E8F5E8</color>
+    <color name="header_background_error">#FFEBEE</color>
 
     <!-- Text -->
     <color name="text_primary">#FFFFFF</color>
@@ -57,6 +61,10 @@
     <color name="secondary_text">#424242</color>
     <color name="instruction_text">#BF360C</color>
     <color name="performance_text">#666666</color>
+    <color name="status_disconnected_text">#D32F2F</color>
+    <color name="status_connecting_text">#F57C00</color>
+    <color name="status_connected_text">#388E3C</color>
+    <color name="status_error_text">#D32F2F</color>
 
     <!-- Button Colors -->
     <color name="button_primary">#4CAF50</color>
@@ -79,8 +87,43 @@
     <color name="status_error">#F44336</color>
     <color name="accent_text">#2196F3</color>
     <color name="divider_color">#E0E0E0</color>
+    <color name="status_disconnected">#F44336</color>
+    <color name="status_connecting">#FF9800</color>
+    <color name="status_connected">#4CAF50</color>
 
     <color name="voice_helper_background">#F5F5F5</color>
     <color name="voice_helper_text">#666666</color>
+
+    <color name="status_idle">#6C757D</color>
+    <color name="status_idle_text">#495057</color>
+    <color name="header_background_idle">#F8F9FA</color>
+
+    <color name="status_waiting">#FFC107</color>
+    <color name="status_waiting_text">#856404</color>
+    <color name="header_background_waiting">#FFF3CD</color>
+
+    <color name="status_checking">#17A2B8</color>
+    <color name="status_checking_text">#0C5460</color>
+    <color name="header_background_checking">#D1ECF1</color>
+
+    <color name="status_ready">#28A745</color>
+    <color name="status_ready_text">#155724</color>
+    <color name="header_background_ready">#D4EDDA</color>
+
+    <color name="status_capturing">#FD7E14</color>
+    <color name="status_capturing_text">#8A2E02</color>
+    <color name="header_background_capturing">#FFE8D1</color>
+
+    <color name="status_processing">#6F42C1</color>
+    <color name="status_processing_text">#3D1A78</color>
+    <color name="header_background_processing">#E2D9F3</color>
+
+    <color name="status_success">#28A745</color>
+    <color name="status_success_text">#155724</color>
+    <color name="header_background_success">#D4EDDA</color>
+
+    <color name="status_active">#007BFF</color>
+    <color name="status_active_text">#004085</color>
+    <color name="header_background_active">#CCE5FF</color>
 
 </resources>

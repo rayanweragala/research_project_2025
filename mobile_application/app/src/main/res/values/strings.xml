@@ -74,7 +74,6 @@
     <string name="start_capture_btn">START CAPTURE</string>
     <string name="stop_capture_btn">STOP CAPTURE</string>
     <string name="start_over_btn">START OVER</string>
-    <string name="smart_glasses_connected">Smart glasses connected</string>
     <string name="voice_commands_add_friend">Voice Commands: \'START CAPTURE\', \'STOP\', \'START OVER\', \'CANCEL\'</string>
     
     <!-- Add Friend Enhanced Content Descriptions -->
@@ -85,4 +84,36 @@
     <string name="start_face_registration_desc">Start face registration</string>
     <string name="stop_face_registration_desc">Stop face registration</string>
     <string name="connection_status_desc">Connection status</string>
+
+    <string name="smart_glasses_disconnected">Smart Glasses Disconnected</string>
+    <string name="smart_glasses_connected">Smart Glasses Connected</string>
+    <string name="connection_failed">Connection Failed</string>
+    <string name="tap_to_connect">Tap to connect</string>
+    <string name="establishing_connection">Establishing connection...</string>
+    <string name="ready_for_recognition">Ready for face recognition</string>
+    <string name="check_connection_retry">Check connection and retry</string>
+
+    <string name="status_idle">Ready</string>
+    <string name="ready_to_start">Ready to start</string>
+
+    <string name="waiting_for_input">Waiting for input</string>
+    <string name="speak_to_continue">Speak to continue</string>
+
+    <string name="checking_server">Checking server</string>
+    <string name="verifying_system">Verifying face recognition system</string>
+
+    <string name="ready_to_capture">Ready to capture</string>
+    <string name="position_for_capture">Position person for capture</string>
+
+    <string name="capturing_face_data">Capturing face data</string>
+    <string name="taking_photos">Taking photos automatically</string>
+
+    <string name="processing_ai_model">Processing with AI</string>
+    <string name="saving_face_data">Processing and saving face data</string>
+
+    <string name="registration_completed">Registration completed!</string>
+    <string name="person_registered_successfully">Person registered successfully</string>
+
+    <string name="system_active">System active</string>
+    <string name="ready_for_operation">Ready for operation</string>
 </resources>

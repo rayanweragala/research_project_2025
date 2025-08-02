@@ -13,6 +13,7 @@ import io
 from PIL import Image
 import traceback
 import atexit
+import threading
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -31,6 +32,15 @@ class EnhancedFaceRecognitionServer:
         self.recognition_threshold = 0.6
         self.recognition_cache = {}
         self.cache_duration = 3.0 
+
+        self.camera= None
+        self.camera_active = False
+        self.camera_lock = threading.Lock()
+        self.last_frame = None
+        self.frame_capture_thread = None
+        self.stop_capture = False
+
+        self.camera_error = None
         
         self.recognition_stats = {
             'total_requests': 0,
@@ -378,6 +388,165 @@ class EnhancedFaceRecognitionServer:
             conn.close()
         except Exception as e:
             logging.error(f"Error logging recognition: {e}")
+
+    def start_camera(self):
+        """Initialize and start camera"""
+        try:
+            with self.camera_lock:
+                if self.camera_active:
+                    logging.info("camera already active")
+                    return True
+                
+                for camera_id in [0,1,2]:
+                    try:
+                        logging.info(f"Trying camera {camera_id}...")
+                        test_camera = cv2.VideoCapture(camera_id)
+                        
+                        if test_camera.isOpened():
+                            ret, frame = test_camera.read()
+                            if ret and frame is not None:
+                                logging.info(f"Camera {camera_id} works, frame shape: {frame.shape}")
+                                test_camera.release()
+
+                                self.camera = cv2.VideoCapture(camera_id)
+                                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT,480)
+                                self.camera.set(cv2.CAP_PROP_FPS,15)
+
+                                ret, frame = self.camera.read()
+                                if ret and frame is not None:
+                                    self.camera_active = True
+                                    self.stop_capture = False
+                                    self.camera_error = None
+
+                                self.frame_capture_thread = threading.Thread(
+                                    target=self._continuous_capture, 
+                                    daemon=True
+                                )
+                                self.frame_capture_thread.start()
+                                logging.info(f"Camera {camera_id} initialized successfully")
+                                return True
+                            else:
+                                self.camera.release()
+                                self.camera = None
+                        else:
+                            test_camera.release()
+
+                    except Exception as e:
+                        logging.error(f"Error initializing camera {camera_id}: {e}")
+                        if hasattr(self, 'camera') and self.camera:
+                            self.camera.release()
+                            self.camera = None
+                        continue
+
+                self.camera_error = "No working cameras found"
+                logging.error(self.camera_error)
+                return False
+            
+        except Exception as e:
+            logging.error(f"Camera initialization error: {e}")
+            self.camera_error = f"Camera initialization failed: {str(e)}"
+            return False
+        
+    
+    def _continuous_capture(self):
+        """Continuosly capture frames in background thread"""
+
+        frame_count = 0
+        error_count = 0
+        max_errors = 10
+
+        while not self.stop_capture and error_count < max_errors:
+            try:
+                if self.camera and self.camera.isOpened():
+                    ret, frame = self.camera.read()
+                    if ret and frame is not None:
+                        with self.camera_lock:
+                            self.last_frame = frame.copy()
+                        frame_count += 1
+                        error_count = 0
+
+                        if(frame_count % 100 == 0):
+                            logging.info(f"Captured {frame_count} frames")
+                    else:
+                        error_count += 1
+                        logging.warning("Failed to read frame from camera")
+                        time.sleep(0.1)
+                else:
+                    error_count += 1
+                    logging.warning("Camera not opened or already released")
+                    time.sleep(0.5)
+            except Exception as e:
+                error_count += 1
+                logging.error(f"Error capturing frame: {e}")
+                time.sleep(0.1)
+        
+        if error_count >= max_errors:
+            logging.error("Max frame capture errors reached, stopping camera")
+            self.camera_error = "Camera capture failed"
+            self.camera_active = False
+
+    def stop_camera(self):
+        """Stop camera and cleanup"""
+        try:
+            with self.camera_lock:
+                self.stop_capture = True
+                self.camera_active = False
+
+                if self.camera:
+                    self.camera.release()
+                    self.camera = None
+
+                self.last_frame = None
+                 
+                if self.frame_capture_thread and self.frame_capture_thread.is_alive():
+                    self.frame_capture_thread.join(timeout=2.0)
+
+                logging.info("Camera stopped successfully")
+                return True
+            
+        except Exception as e:
+            logging.error(f"Error stopping camera: {e}")
+            return False
+        
+    def capture_frame(self):
+        """Get the latest captured frame"""
+        try:
+            with self.camera_lock:
+                if self.last_frame is not None:
+                    return self.last_frame.copy()
+                elif self.camera and self.camera.isOpened():
+                    ret, frame = self.camera.read()
+                    if ret and frame is not None:
+                        self.last_frame = frame.copy()
+                        return self.last_frame
+                    else:
+                        logging.warning("Direct camera read failed")
+                        return None
+                else:
+                    logging.warning("No camera available for frame capture")
+                    return None
+        except Exception as e:
+            logging.error(f"Error capturing frame: {e}")
+            return None
+        
+    def frame_to_base64(self, frame):
+        """Convert frame to base64 string"""
+        try:
+            if frame is None:
+                return None
+            
+            ret,buffer = cv2.imencode('.jpg',frame, [cv2.IMWRITE_JPEG_QUALITY,80])
+            if not ret:
+                logging.error("Failed to encode frame to JPEG")
+                return None
+            
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            return jpg_as_text
+        
+        except Exception as e:
+            logging.error(f"Error converting frame to base64: {e}")
+            return None
 
     def add_person(self, name, images_base64):
         """Add new person with multiple images"""
@@ -769,7 +938,8 @@ def health_check():
         'status': 'healthy',
         'model_loaded': face_server.model_loaded,
         'people_count': len(face_server.face_encodings),
-        'camera_active': True,
+        'camera_active': face_server.camera_active,
+        'camera_error': face_server.camera_error,
         'recognition_stats': face_server.recognition_stats,
         'cache_size': len(face_server.recognition_cache)
     })
@@ -1010,14 +1180,23 @@ def test_endpoint():
 
 @app.route('/api/camera/start',methods=['POST'])
 def start_camera():
-    """start camera endpoint - since camera is already started in web interface, just return response"""
+    """start camera endpoint"""
     try:
-        return jsonify({
-            'success': True,
-            'message': 'Camera is already active',
-            'camera_active': True,
-            'timestamp': datetime.now().isoformat()
-        })
+        success = face_server.start_camera()
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Camera started successfully',
+                'camera_active': True,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            logging.error("Failed to start camera")
+            return jsonify({
+                'success': False,
+                'message': 'No available cameras found',
+                'camera_active': False
+            }), 500
     except Exception as e:
         logging.error(f"Camera start endpoint error: {e}")
         return jsonify({
@@ -1030,6 +1209,23 @@ def start_camera():
 def stop_camera():
     """Stop camera endpoint"""
     try:
+        success = face_server.stop_camera()
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Camera stopped successfully',
+                'camera_active': False,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            logging.error("Failed to stop camera")
+            return jsonify({
+                'success': False,
+                'message': 'No active camera found',
+                'camera_active': True
+            }), 500
+    except Exception as e:
+        logging.error(f"Camera stop endpoint error: {e}")
         return jsonify({
             'success': True,
             'message': 'Camera stop requested',
@@ -1043,11 +1239,13 @@ def stop_camera():
             'message': f'Camera error: {str(e)}'
         }), 500
     
+    
 @app.route('/api/camera/frame', methods=['GET'])
 def get_camera_frame():
     """Get current camera frame with face recognition"""
     try:
         if not face_server.camera_active:
+            logging.warning("Camera not active")
             return jsonify({
                 'error': 'Camera not active',
                 'image': '',
@@ -1057,16 +1255,32 @@ def get_camera_frame():
                 'timestamp': datetime.now().isoformat()
             }), 500
         
-        frame = face_server.capture_frame()
-        if frame is None:
+        if face_server.camera_error:
+            logging.error(f"Camera error: {face_server.camera_error}")
             return jsonify({
-                'error': 'Failed to capture frame',
+                'error': face_server.camera_error,
                 'image': '',
                 'recognized': False,
-                'message': 'Frame capture failed',
+                'message': 'Camera error',
                 'confidence': 0.0,
                 'timestamp': datetime.now().isoformat()
             }), 500
+        
+        frame = face_server.capture_frame()
+        if frame is None:
+            logging.info("Attempting to restart camera...")
+            if face_server.start_camera():
+                frame = face_server.capture_frame()
+                
+            if frame is None:
+                return jsonify({
+                    'error': 'Failed to capture frame',
+                    'image': '',
+                    'recognized': False,
+                    'message': 'Frame capture failed',
+                    'confidence': 0.0,
+                    'timestamp': datetime.now().isoformat()
+                }), 500
         
         frame_base64 = face_server.frame_to_base64(frame)
         if frame_base64 is None:
@@ -1107,21 +1321,14 @@ def get_camera_frame():
 def cleanup_camera():
     """Cleanup camera resources"""
     if hasattr(face_server, 'camera') and face_server.camera:
-        face_server.camera.release()
+        face_server.stop_camera()
         logging.info("Camera resources cleaned up")
 
 atexit.register(cleanup_camera)
 
 if __name__ == '__main__':
     print("="*60)
-    print("🧠 Enhanced Face Recognition Server - Debug Version")
-    print("="*60)
-    print("📊 Features:")
-    print("  ✅ Enhanced error handling and logging")
-    print("  ✅ Fallback face detection (OpenCV)")
-    print("  ✅ Better debugging information")
-    print("  ✅ Model loading status reporting")
-    print("  ✅ Graceful degradation when InsightFace fails")
+
     print()
     print("🔗 API Endpoints:")
     print("  GET  /                       - Web interface")
