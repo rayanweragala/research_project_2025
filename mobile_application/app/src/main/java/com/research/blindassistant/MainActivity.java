@@ -75,6 +75,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
         });
 
+
+
         btnVoiceCommand.setOnClickListener(v -> {
             toggleVoiceListening();
         });
