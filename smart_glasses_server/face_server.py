@@ -12,6 +12,7 @@ from flask_cors import CORS
 import io
 from PIL import Image
 import traceback
+import atexit
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -477,7 +478,7 @@ WEB_INTERFACE = '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Smart Glasses Face Recognition Mock</title>
+    <title>Smart Glasses Face Recognition</title>
     <style>
         body { font-family: Arial; margin: 20px; background: #f0f0f0; }
         .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
@@ -506,7 +507,7 @@ WEB_INTERFACE = '''
 </head>
 <body>
     <div class="container">
-        <h1>🤓 Smart Glasses Face Recognition Mock</h1>
+        <h1>🤓 Smart Glasses Face Recognition</h1>
         <p>Using laptop camera to simulate smart glasses feed</p>
         
         <div class="camera-section">
@@ -695,7 +696,6 @@ WEB_INTERFACE = '''
             let resultsDiv = document.getElementById('results');
             let resultClass = data.error ? 'error' : (data.recognized ? 'recognized' : 'unknown');
             
-            // Handle missing values
             let confidence = data.confidence || 0;
             let quality = data.quality_score || 0;
             let processingTime = data.processing_time || 0;
@@ -718,15 +718,13 @@ WEB_INTERFACE = '''
             `;
             
             resultsDiv.innerHTML = resultHtml + resultsDiv.innerHTML;
-            
-            // Keep only last 10 results
+          
             let results = resultsDiv.children;
             while (results.length > 10) {
                 resultsDiv.removeChild(results[results.length - 1]);
             }
         }
 
-        // Update stats
         setInterval(() => {
             fetch('/api/health')
                 .then(response => response.json())
@@ -743,7 +741,6 @@ WEB_INTERFACE = '''
                         document.getElementById('totalRequests').textContent = stats.total_requests;
                         document.getElementById('errorRate').textContent = errorRate + '%';
                         
-                        // Update status based on model
                         if (!recognitionActive) {
                             let statusEl = document.getElementById('status');
                             if (!data.model_loaded) {
@@ -772,6 +769,7 @@ def health_check():
         'status': 'healthy',
         'model_loaded': face_server.model_loaded,
         'people_count': len(face_server.face_encodings),
+        'camera_active': True,
         'recognition_stats': face_server.recognition_stats,
         'cache_size': len(face_server.recognition_cache)
     })
@@ -1009,6 +1007,110 @@ def test_endpoint():
         'model_loaded': face_server.model_loaded,
         'timestamp': datetime.now().isoformat()
     })
+
+@app.route('/api/camera/start',methods=['POST'])
+def start_camera():
+    """start camera endpoint - since camera is already started in web interface, just return response"""
+    try:
+        return jsonify({
+            'success': True,
+            'message': 'Camera is already active',
+            'camera_active': True,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logging.error(f"Camera start endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Camera error: {str(e)}',
+            'camera_active': False
+        }), 500
+    
+@app.route('/api/camera/stop', methods=['POST'])
+def stop_camera():
+    """Stop camera endpoint"""
+    try:
+        return jsonify({
+            'success': True,
+            'message': 'Camera stop requested',
+            'camera_active': False,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logging.error(f"Camera stop endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Camera error: {str(e)}'
+        }), 500
+    
+@app.route('/api/camera/frame', methods=['GET'])
+def get_camera_frame():
+    """Get current camera frame with face recognition"""
+    try:
+        if not face_server.camera_active:
+            return jsonify({
+                'error': 'Camera not active',
+                'image': '',
+                'recognized': False,
+                'message': 'Camera not available',
+                'confidence': 0.0,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        frame = face_server.capture_frame()
+        if frame is None:
+            return jsonify({
+                'error': 'Failed to capture frame',
+                'image': '',
+                'recognized': False,
+                'message': 'Frame capture failed',
+                'confidence': 0.0,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        frame_base64 = face_server.frame_to_base64(frame)
+        if frame_base64 is None:
+            return jsonify({
+                'error': 'Failed to encode frame',
+                'image': '',
+                'recognized': False,
+                'message': 'Frame encoding failed',
+                'confidence': 0.0,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        recognition_result = face_server.recognize_face_realtime(frame)
+        
+        return jsonify({
+            'image': frame_base64,
+            'recognized': recognition_result.get('recognized', False),
+            'message': recognition_result.get('message', 'Processing...'),
+            'confidence': recognition_result.get('confidence', 0.0),
+            'quality_score': recognition_result.get('quality_score', 0.0),
+            'processing_time': recognition_result.get('processing_time', 0.0),
+            'name': recognition_result.get('name', None),
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logging.error(f"Frame endpoint error: {e}")
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': f'Frame capture error: {str(e)}',
+            'image': '',
+            'recognized': False,
+            'message': 'Server error',
+            'confidence': 0.0,
+            'timestamp': datetime.now().isoformat()
+        }), 500
+    
+def cleanup_camera():
+    """Cleanup camera resources"""
+    if hasattr(face_server, 'camera') and face_server.camera:
+        face_server.camera.release()
+        logging.info("Camera resources cleaned up")
+
+atexit.register(cleanup_camera)
 
 if __name__ == '__main__':
     print("="*60)

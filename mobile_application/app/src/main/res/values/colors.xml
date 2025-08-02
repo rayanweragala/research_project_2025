@@ -2,81 +2,21 @@
 <resources>
     <color name="accent_primary">#00E676</color>
     <color name="accent_secondary">#00BCD4</color>
-    <color name="accent_tertiary">#FF6B35</color>
-
     <!-- Background -->
     <color name="background_primary">#121212</color>
-    <color name="background_secondary">#1E1E1E</color>
-    <color name="background_tertiary">#2A2A2A</color>
-    <color name="background_card">#1A1A1A</color>
-
-    <!-- Surface -->
-    <color name="surface_primary">#1F1F1F</color>
-    <color name="surface_secondary">#2D2D2D</color>
-    <color name="surface_elevated">#373737</color>
 
     <!-- Text -->
     <color name="text_primary">#FFFFFF</color>
     <color name="text_secondary">#B3B3B3</color>
-    <color name="text_tertiary">#808080</color>
-    <color name="text_disabled">#4D4D4D</color>
 
     <!-- Action -->
     <color name="success">#4CAF50</color>
-    <color name="success_dark">#388E3C</color>
-    <color name="warning">#FF9800</color>
-    <color name="warning_dark">#F57C00</color>
     <color name="danger">#F44336</color>
-    <color name="danger_dark">#D32F2F</color>
-    <color name="info">#2196F3</color>
-    <color name="info_dark">#1976D2</color>
 
-    <!-- Feature -->
-    <color name="face_recognition">#00E676</color>
-    <color name="voice_command">#00BCD4</color>
-    <color name="navigation">#9C27B0</color>
-    <color name="settings">#FF9800</color>
-
-    <!-- Status -->
-    <color name="status_connected">#4CAF50</color>
-    <color name="status_disconnected">#757575</color>
-    <color name="status_listening">#FF6B35</color>
-    <color name="status_processing">#FFC107</color>
-
-    <!-- Progress -->
-    <color name="progress_active">#00E676</color>
-    <color name="progress_inactive">#424242</color>
-
-    <!-- Overlay -->
-    <color name="overlay_dark">#CC000000</color>
-    <color name="overlay_light">#66FFFFFF</color>
-    <color name="overlay_text">#FFFFFF</color>
-
-    <!-- Border -->
-    <color name="border_light">#404040</color>
-    <color name="border_medium">#606060</color>
-    <color name="border_accent">#00E676</color>
 
     <!-- Accessibility High Contrast -->
-    <color name="high_contrast_text">#FFFFFF</color>
     <color name="high_contrast_background">#000000</color>
     <color name="high_contrast_accent">#FFFF00</color>
-
-    <!-- Material Design -->
-    <color name="material_green_500">#4CAF50</color>
-    <color name="material_blue_500">#2196F3</color>
-    <color name="material_purple_500">#9C27B0</color>
-    <color name="material_orange_500">#FF9800</color>
-    <color name="material_red_500">#F44336</color>
-    <color name="material_cyan_500">#00BCD4</color>
-
-    <!-- Gradient -->
-    <color name="gradient_start">#00E676</color>
-    <color name="gradient_end">#00BCD4</color>
-
-    <!-- Shadow -->
-    <color name="shadow_dark">#40000000</color>
-    <color name="shadow_light">#20FFFFFF</color>
 
     <!-- Action button colors -->
     <color name="action_primary">#27AE60</color>
@@ -105,8 +45,6 @@
 
     <color name="accent_secondary_pressed">#E67E22</color>
     <color name="accent_secondary_focused">#F1C40F</color>
-
-    <color name="success_color">#28a745</color>
 
     <color name="background_color">#F5F5F5</color>
     <color name="header_background">#E3F2FD</color>
@@ -137,7 +75,6 @@
     <color name="button_text_neutral">#FFFFFF</color>
 
     <!-- Status Colors -->
-    <color name="status_success">#4CAF50</color>
     <color name="status_warning">#FF9800</color>
     <color name="status_error">#F44336</color>
     <color name="accent_text">#2196F3</color>
