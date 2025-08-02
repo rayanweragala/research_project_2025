@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              xmlns:tools="http://schemas.android.com/tools"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:background="@color/background_color"
+              android:padding="16dp"
+              tools:context=".MainActivity">
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@color/header_background"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp">
+
+        <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textColor="@color/primary_text"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"
+                android:contentDescription="@string/app_name_description"
+                android:fontFamily="sans-serif-medium" />
+
+        <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/control_hub_subtitle"
+                android:textSize="14sp"
+                android:textColor="@color/secondary_text"
+                android:layout_marginBottom="12dp" />
+
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/results_background"
+                android:padding="12dp">
+
+            <ImageView
+                    android:id="@+id/voiceStatusIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_mic"
+                    android:layout_marginEnd="8dp"
+                    android:contentDescription="@string/voice_status_indicator_desc"
+                    app:tint="@color/accent_text" />
+
+            <TextView
+                    android:id="@+id/statusText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/ready_status"
+                    android:textColor="@color/primary_text"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+            <View
+                    android:id="@+id/statusIndicator"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:background="@drawable/recording_dot"
+                    android:layout_marginStart="8dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                <Button
+                        android:id="@+id/btnPeopleRecognition"
+                        android:layout_width="match_parent"
+                        android:layout_height="80dp"
+                        android:text="@string/face_recognition_btn"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/button_primary"
+                        android:textColor="@color/button_text_primary"
+                        android:contentDescription="@string/people_recognition_desc"
+                        android:drawableStart="@drawable/ic_face_24dp"
+                        android:drawablePadding="12dp"
+                        android:gravity="center_vertical|start"
+                        android:paddingHorizontal="20dp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                <Button
+                        android:id="@+id/btnTextRecognition"
+                        android:layout_width="0dp"
+                        android:layout_height="70dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:text="@string/text_recognition_btn"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/button_accent"
+                        android:textColor="@color/button_text_accent"
+                        android:contentDescription="@string/text_recognition_desc"
+                        android:drawableTop="@drawable/ic_text_fields"
+                        android:drawablePadding="4dp"
+                        android:gravity="center" />
+
+                <Button
+                        android:id="@+id/btnFieldDescribe"
+                        android:layout_width="0dp"
+                        android:layout_height="70dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/field_describe_btn"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/button_accent"
+                        android:textColor="@color/button_text_accent"
+                        android:contentDescription="@string/field_description_desc"
+                        android:drawableTop="@drawable/ic_visibility"
+                        android:drawablePadding="4dp"
+                        android:gravity="center" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                <Button
+                        android:id="@+id/btnNavigation"
+                        android:layout_width="0dp"
+                        android:layout_height="70dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:text="@string/navigation_btn"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/button_secondary"
+                        android:textColor="@color/button_text_secondary"
+                        android:contentDescription="@string/navigation_desc"
+                        android:drawableTop="@drawable/ic_navigation_24dp"
+                        android:drawablePadding="4dp"
+                        android:gravity="center" />
+
+                <Button
+                        android:id="@+id/btnVoiceCommand"
+                        android:layout_width="0dp"
+                        android:layout_height="70dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/voice_assistant_btn"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/button_secondary"
+                        android:textColor="@color/button_text_secondary"
+                        android:contentDescription="@string/voice_assistant_desc"
+                        android:drawableTop="@drawable/ic_mic_24dp"
+                        android:drawablePadding="4dp"
+                        android:gravity="center" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="16dp">
+
+                <Button
+                        android:id="@+id/btnSettings"
+                        android:layout_width="0dp"
+                        android:layout_height="70dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:text="@string/settings_btn"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/button_secondary"
+                        android:textColor="@color/button_text_secondary"
+                        android:contentDescription="@string/settings_desc"
+                        android:drawableStart="@drawable/ic_settings_24dp"
+                        android:drawablePadding="4dp"
+                        android:gravity="center" />
+
+                <Button
+                        android:id="@+id/btnHelp"
+                        android:layout_width="0dp"
+                        android:layout_height="70dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/help_btn"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/button_secondary"
+                        android:textColor="@color/button_text_secondary"
+                        android:contentDescription="@string/help_tutorials_desc"
+                        android:drawableStart="@drawable/ic_help"
+                        android:drawablePadding="4dp"
+                        android:gravity="center" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@color/results_background"
+                    android:padding="16dp"
+                    android:layout_marginBottom="16dp">
+
+                <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/feature_status_title"
+                        android:textSize="12sp"
+                        android:textColor="@color/accent_text"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="8dp" />
+
+                <TextView
+                        android:id="@+id/featureStatusText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/feature_status_text"
+                        android:textSize="11sp"
+                        android:textColor="@color/performance_text"
+                        android:fontFamily="monospace" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </ScrollView>
+
+    <TextView
+            android:id="@+id/instructionsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/main_instructions"
+            android:textSize="14sp"
+            android:textColor="@color/instruction_text"
+            android:background="@color/instruction_background"
+            android:contentDescription="@string/main_instructions"
+            android:drawableStart="@drawable/ic_info"
+            android:drawablePadding="8dp"
+            android:gravity="center_vertical"
+            android:padding="12dp"
+            android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/voice_helper_background"
+            android:padding="8dp"
+            android:gravity="center_vertical">
+
+        <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginEnd="8dp"
+                android:src="@drawable/ic_mic"
+                android:contentDescription="@string/voice_commands_available_desc" />
+
+        <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/voice_commands_help"
+                android:textSize="10sp"
+                android:textColor="@color/voice_helper_text" />
+
+        <ImageView
+                android:id="@+id/voiceIndicator"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:src="@drawable/voice_listening_indicator"
+                android:contentDescription="@string/voice_listening_indicator_desc"
+                android:visibility="gone" />
+
+    </LinearLayout>
+
+</LinearLayout>

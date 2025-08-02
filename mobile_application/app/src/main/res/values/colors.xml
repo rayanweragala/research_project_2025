@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent_primary">#00E676</color>
+    <color name="accent_secondary">#00BCD4</color>
+    <!-- Background -->
+    <color name="background_primary">#121212</color>
+
+    <!-- Text -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B3B3B3</color>
+
+    <!-- Action -->
+    <color name="success">#4CAF50</color>
+    <color name="danger">#F44336</color>
+
+
+    <!-- Accessibility High Contrast -->
+    <color name="high_contrast_background">#000000</color>
+    <color name="high_contrast_accent">#FFFF00</color>
+
+    <!-- Action button colors -->
+    <color name="action_primary">#27AE60</color>
+    <color name="action_primary_pressed">#1E8449</color>
+    <color name="action_primary_focused">#2ECC71</color>
+
+    <color name="action_secondary">#3498DB</color>
+    <color name="action_secondary_pressed">#2E86AB</color>
+    <color name="action_secondary_focused">#5DADE2</color>
+
+    <color name="action_tertiary">#95A5A6</color>
+    <color name="action_tertiary_pressed">#7F8C8D</color>
+    <color name="action_tertiary_focused">#BDC3C7</color>
+
+    <!-- Success button colors -->
+    <color name="success_pressed">#1E8449</color>
+    <color name="success_focused">#2ECC71</color>
+
+    <!-- Danger button colors -->
+    <color name="danger_pressed">#C0392B</color>
+    <color name="danger_focused">#EC7063</color>
+
+    <!-- Primary button state colors -->
+    <color name="accent_primary_pressed">#1A5F7A</color>
+    <color name="accent_primary_focused">#2A6F8A</color>
+
+    <color name="accent_secondary_pressed">#E67E22</color>
+    <color name="accent_secondary_focused">#F1C40F</color>
+
+    <color name="background_color">#F5F5F5</color>
+    <color name="header_background">#E3F2FD</color>
+    <color name="camera_background">#000000</color>
+    <color name="results_background">#FFFFFF</color>
+    <color name="instruction_background">#FFF3E0</color>
+
+    <!-- Text Colors -->
+    <color name="primary_text">#212121</color>
+    <color name="secondary_text">#424242</color>
+    <color name="instruction_text">#BF360C</color>
+    <color name="performance_text">#666666</color>
+
+    <!-- Button Colors -->
+    <color name="button_primary">#4CAF50</color>
+    <color name="button_primary_pressed">#45A049</color>
+    <color name="button_secondary">#F44336</color>
+    <color name="button_secondary_pressed">#D32F2F</color>
+    <color name="button_accent">#2196F3</color>
+    <color name="button_accent_pressed">#1976D2</color>
+    <color name="button_neutral">#757575</color>
+    <color name="button_neutral_pressed">#616161</color>
+
+    <!-- Button Text Colors -->
+    <color name="button_text_primary">#FFFFFF</color>
+    <color name="button_text_secondary">#FFFFFF</color>
+    <color name="button_text_accent">#FFFFFF</color>
+    <color name="button_text_neutral">#FFFFFF</color>
+
+    <!-- Status Colors -->
+    <color name="status_warning">#FF9800</color>
+    <color name="status_error">#F44336</color>
+    <color name="accent_text">#2196F3</color>
+    <color name="divider_color">#E0E0E0</color>
+
+    <color name="voice_helper_background">#F5F5F5</color>
+    <color name="voice_helper_text">#666666</color>
+
+</resources>

@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Glasses Camera Simulation</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #f0f0f0; 
+        }
+        
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 20px; 
+            border-radius: 10px; 
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+            margin-top: 10px;
+        }
+        
+        .camera-section { 
+            display: flex; 
+            gap: 20px; 
+            margin-bottom: 20px; 
+        }
+        
+        .video-container { 
+            flex: 1; 
+        }
+        
+        .controls { 
+            flex: 1; 
+        }
+        
+        #cameraStream { 
+            width: 100%; 
+            max-width: 640px; 
+            border: 2px solid #ddd; 
+            border-radius: 10px; 
+            background: #333;
+        }
+        
+        .button { 
+            padding: 10px 20px; 
+            margin: 5px; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-size: 16px;
+            width: 100%;
+            display: block;
+        }
+        
+        .start { 
+            background: #4CAF50; 
+            color: white; 
+        }
+        
+        .stop { 
+            background: #f44336; 
+            color: white; 
+        }
+        
+        .register { 
+            background: #2196F3; 
+            color: white; 
+        }
+        
+        .warning {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .button:hover {
+            opacity: 0.9;
+        }
+        
+        .results { 
+            margin-top: 20px; 
+            padding: 15px; 
+            background: #f9f9f9; 
+            border-radius: 5px; 
+        }
+        
+        .recognition-result { 
+            margin: 10px 0; 
+            padding: 10px; 
+            border-radius: 5px; 
+        }
+        
+        .recognized { 
+            background: #d4edda; 
+            border: 1px solid #c3e6cb; 
+        }
+        
+        .unknown { 
+            background: #fff3cd; 
+            border: 1px solid #ffeaa7; 
+        }
+        
+        .error { 
+            background: #f8d7da; 
+            border: 1px solid #f5c6cb; 
+        }
+        
+        .stats { 
+            display: flex; 
+            gap: 20px; 
+            margin-top: 20px; 
+        }
+        
+        .stat-box { 
+            flex: 1; 
+            padding: 15px; 
+            background: #e9ecef; 
+            border-radius: 5px; 
+            text-align: center; 
+        }
+        
+        .stat-box h4 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        
+        input[type="text"] { 
+            width: 100%; 
+            padding: 8px; 
+            margin: 5px 0; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+        }
+        
+        .status { 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-radius: 5px; 
+        }
+        
+        .status.error { 
+            background: #f8d7da; 
+            color: #721c24; 
+        }
+        
+        .status.warning { 
+            background: #fff3cd; 
+            color: #856404; 
+        }
+        
+        .status.success { 
+            background: #d4edda; 
+            color: #155724; 
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+        
+        .camera-main {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .controls-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+        }
+        
+        .status-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-online { background-color: #4CAF50; }
+        .status-offline { background-color: #f44336; }
+        .status-warning { background-color: #ff9800; }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .info-item {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #dee2e6;
+        }
+        
+        .info-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            font-weight: bold;
+            font-size: 1.1em;
+            color: #333;
+        }
+        
+        .connection-info {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .connection-info h4 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        
+        .ip-address {
+            font-family: 'Courier New', monospace;
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 5px;
+            margin: 5px 0;
+            word-break: break-all;
+            border: 1px solid #dee2e6;
+        }
+        
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .camera-section {
+                flex-direction: column;
+            }
+            
+            .stats {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 Smart Glasses Camera Simulation</h1>
+            <div class="subtitle">Testing interface for face recognition system</div>
+        </div>
+        
+        <div class="grid">
+            <div class="camera-main">
+                <h3>Live Camera Feed</h3>
+                <img id="cameraStream" src="/api/camera/preview" alt="Camera Stream" 
+                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgdmlld0JveD0iMCAwIDY0MCA0ODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI2NDAiIGhlaWdodD0iNDgwIiBmaWxsPSIjMzMzIi8+Cjx0ZXh0IHg9IjMyMCIgeT0iMjQwIiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjQiPkNhbWVyYSBOb3QgQXZhaWxhYmxlPC90ZXh0Pgo8L3N2Zz4K'">
+                <div style="margin-top: 15px; color: #666;">
+                    Resolution: <span id="resolution">640x480</span> | 
+                    FPS: <span id="fps">15</span>
+                </div>
+            </div>
+            
+            <div class="controls-section">
+                <div class="status-card">
+                    <h4>Server Status</h4>
+                    <div id="serverStatus">
+                        <span class="status-indicator status-warning"></span>
+                        Checking...
+                    </div>
+                </div>
+                
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Connected Clients</div>
+                        <div class="info-value" id="clientCount">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Camera Status</div>
+                        <div class="info-value" id="cameraStatus">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Streaming</div>
+                        <div class="info-value" id="streamingStatus">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Server Health</div>
+                        <div class="info-value" id="healthStatus">-</div>
+                    </div>
+                </div>
+                
+                <button class="button start" onclick="refreshStatus()">
+                    🔄 Refresh Status
+                </button>
+                
+                <button class="button register" onclick="testConnection()">
+                    🔗 Test Connection
+                </button>
+                
+                <button class="button warning" onclick="restartStream()">
+                    📹 Restart Stream
+                </button>
+
+                <button class="button stop" onclick="stopCamera()">
+                    ⏹️ Stop Camera
+                </button>
+                
+                <div class="connection-info">
+                    <h4>📱 Android App Setup</h4>
+                    <div>Update  MockSmartGlassesConnector:</div>
+                    <div class="ip-address" id="serverUrl">Loading...</div>
+                    <div style="font-size: 0.9em; margin-top: 10px; color: #666;">
+                        Replace the CAMERA_SERVER_URL in Android code with the URL above.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <h4>Recognition Rate</h4>
+                <div class="stat-value" id="recognitionRate">0%</div>
+            </div>
+            <div class="stat-box">
+                <h4>Avg Processing Time</h4>
+                <div class="stat-value" id="avgTime">0ms</div>
+            </div>
+            <div class="stat-box">
+                <h4>Total Requests</h4>
+                <div class="stat-value" id="totalRequests">0</div>
+            </div>
+            <div class="stat-box">
+                <h4>Error Rate</h4>
+                <div class="stat-value" id="errorRate">0%</div>
+            </div>
+        </div>
+        
+        <div class="results">
+            <h3>System Log</h3>
+            <div id="results">Ready for camera operations...</div>
+        </div>
+    </div>
+
+    <script>
+        var serverUrl = window.location.origin;
+        var healthCheckInterval;
+        
+        function refreshStatus() {
+            console.log('Manual refresh requested...');
+            addLog('🔄 Refreshing system status...');
+            checkServerHealth();
+  
+            var img = document.getElementById('cameraStream');
+            if (img) {
+                var currentSrc = img.src;
+                img.src = '';
+                setTimeout(function() {
+                    img.src = currentSrc.split('?')[0] + '?t=' + Date.now();
+                }, 100);
+            }
+        }
+
+        function stopCamera() {
+            console.log('Stop camera requested...');
+            addLog('⏹️ Stopping camera stream...');
+            
+            fetch('/api/camera/stop', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(function(response) {
+                return response.json();
+            })
+            .then(function(data) {
+                console.log('Stop camera response:', data);
+                if (data.success) {
+                    var img = document.getElementById('cameraStream');
+                    if (img) {
+                        img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgdmlld0JveD0iMCAwIDY0MCA0ODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI2NDAiIGhlaWdodD0iNDgwIiBmaWxsPSIjMzMzIi8+Cjx0ZXh0IHg9IjMyMCIgeT0iMjQwIiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjQiPkNhbWVyYSBTdG9wcGVkPC90ZXh0Pgo8L3N2Zz4K';
+                    }
+                    
+                    var streamingStatus = document.getElementById('streamingStatus');
+                    if (streamingStatus) {
+                        streamingStatus.textContent = '⚪ Stopped';
+                    }
+                    
+                    addLog('📴 Camera streaming stopped successfully', 'success');
+                } else {
+                    addLog('❌ Failed to stop camera: ' + (data.message || 'Unknown error'), 'error');
+                }
+            })
+            .catch(function(error) {
+                console.error('Stop camera error:', error);
+                addLog('❌ Error stopping camera: ' + error.message, 'error');
+            });
+        }
+        
+        function testConnection() {
+            var testClientId = 'web_test_' + Date.now();
+            console.log('Testing connection with client ID:', testClientId);
+            addLog('🔗 Testing connection...');
+            
+            fetch('/api/camera/connect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    client_id: testClientId
+                })
+            })
+            .then(function(response) {
+                return response.json();
+            })
+            .then(function(data) {
+                console.log('Connect response:', data);
+                if (data.success) {
+                    addLog('✅ Connection test successful! ' + data.message, 'success');
+                    
+                    setTimeout(function() {
+                        fetch('/api/camera/disconnect', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                client_id: testClientId
+                            })
+                        });
+                    }, 1000);
+                } else {
+                    addLog('❌ Connection test failed! ' + (data.message || 'Unknown error'), 'error');
+                }
+            })
+            .catch(function(error) {
+                console.error('Connection test error:', error);
+                addLog('❌ Connection test error! ' + error.message, 'error');
+            });
+        }
+        
+        function restartStream() {
+            console.log('Stream restart requested...');
+            addLog('🔄 Restarting camera stream...');
+
+            fetch('/api/camera/stop', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(function() {
+                setTimeout(function() {
+                    refreshStatus();
+                    var img = document.getElementById('cameraStream');
+                    if (img) {
+                        img.src = '/api/camera/preview?t=' + Date.now();
+                    }
+                    addLog('🔄 Stream restarted. Check the camera feed.', 'success');
+                }, 1000);
+            })
+            .catch(function(error) {
+                console.error('Error during restart:', error);
+                addLog('❌ Restart failed: ' + error.message, 'error');
+                refreshStatus();
+            });
+        }
+        
+        function checkServerHealth() {
+            console.log('Making health check request...');
+            fetch('/api/camera/health')
+                .then(function(response) {
+                    console.log('Health check response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    console.log('Health check data received:', data);
+                    updateStatusUI(data);
+                })
+                .catch(function(error) {
+                    console.error('Health check failed:', error);
+                    updateStatusUI({
+                        status: 'error',
+                        camera_available: false,
+                        is_streaming: false,
+                        connected_clients: 0
+                    });
+                });
+        }
+        
+        function updateStatusUI(data) {
+            try {
+                console.log('Updating UI with health data:', data);
+                
+                var serverStatus = document.getElementById('serverStatus');
+                if (serverStatus) {
+                    if (data.status === 'healthy') {
+                        serverStatus.innerHTML = '<span class="status-indicator status-online"></span>Server Online';
+                    } else {
+                        serverStatus.innerHTML = '<span class="status-indicator status-offline"></span>Server Offline';
+                    }
+                }
+
+                var healthStatus = document.getElementById('healthStatus');
+                if (healthStatus) {
+                    healthStatus.textContent = data.status === 'healthy' ? '✅ Healthy' : '❌ Error';
+                }
+
+                var clientCount = document.getElementById('clientCount');
+                if (clientCount) {
+                    clientCount.textContent = (data.connected_clients !== undefined && data.connected_clients !== null) ? data.connected_clients : '0';
+                }
+                
+                var cameraStatus = document.getElementById('cameraStatus');
+                if (cameraStatus) {
+                    cameraStatus.textContent = data.camera_available ? '✅ Available' : '❌ No Camera';
+                }
+    
+                var streamingStatus = document.getElementById('streamingStatus');
+                if (streamingStatus) {
+                    streamingStatus.textContent = data.is_streaming ? '🔴 Live' : '⚪ Stopped';
+                }
+                
+                var resolution = document.getElementById('resolution');
+                if (resolution && data.resolution) {
+                    resolution.textContent = data.resolution;
+                }
+                
+                var fps = document.getElementById('fps');
+                if (fps && data.fps) {
+                    fps.textContent = data.fps;
+                }
+                
+                console.log('UI updated successfully');
+                
+            } catch (error) {
+                console.error('Error updating UI:', error);
+                var healthStatus = document.getElementById('healthStatus');
+                if (healthStatus) {
+                    healthStatus.textContent = '❌ Update Error';
+                }
+            }
+        }
+
+        function addLog(message, type = 'info') {
+            var resultsDiv = document.getElementById('results');
+            var timestamp = new Date().toLocaleTimeString();
+            var logClass = type === 'error' ? 'error' : (type === 'success' ? 'recognized' : 'unknown');
+            
+            var logHtml = `<div class="recognition-result ${logClass}">
+                <strong>${timestamp}</strong>: ${message}
+            </div>`;
+            
+            resultsDiv.innerHTML = logHtml + resultsDiv.innerHTML;
+            
+            var logs = resultsDiv.children;
+            while (logs.length > 10) {
+                resultsDiv.removeChild(logs[logs.length - 1]);
+            }
+        }
+
+        function initializePage() {
+            try {
+                console.log('Initializing page...');
+                
+                var serverUrlElement = document.getElementById('serverUrl');
+                if (serverUrlElement) {
+                    serverUrlElement.textContent = serverUrl;
+                }
+
+                addLog('🚀 Smart Glasses interface initialized');
+                checkServerHealth();
+                healthCheckInterval = setInterval(checkServerHealth, 5000);
+                
+                var cameraStream = document.getElementById('cameraStream');
+                if (cameraStream) {
+                    cameraStream.onerror = function() {
+                        console.log('Camera stream error - camera may not be available');
+                        this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgdmlld0JveD0iMCAwIDY0MCA0ODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI2NDAiIGhlaWdodD0iNDgwIiBmaWxsPSIjMzMzIi8+Cjx0ZXh0IHg9IjMyMCIgeT0iMjQwIiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjQiPkNhbWVyYSBOb3QgQXZhaWxhYmxlPC90ZXh0Pgo8L3N2Zz4K';
+                        addLog('⚠️ Camera stream not available', 'error');
+                    };
+                }
+                
+                console.log('Page initialization complete');
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                addLog('❌ Initialization error: ' + error.message, 'error');
+            }
+        }
+
+        setInterval(() => {
+            fetch('/api/camera/health')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.recognition_stats) {
+                        let stats = data.recognition_stats;
+                        let rate = stats.total_requests > 0 ? 
+                            (stats.successful_recognitions / stats.total_requests * 100).toFixed(1) : 0;
+                        let errorRate = stats.total_requests > 0 ?
+                            (stats.errors / stats.total_requests * 100).toFixed(1) : 0;
+                        
+                        document.getElementById('recognitionRate').textContent = rate + '%';
+                        document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
+                        document.getElementById('totalRequests').textContent = stats.total_requests;
+                        document.getElementById('errorRate').textContent = errorRate + '%';
+                    }
+                })
+                .catch(err => console.error('Stats update error:', err));
+        }, 3000);
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializePage);
+        } else {
+            initializePage();
+        }
+        
+        window.addEventListener('beforeunload', function() {
+            if (healthCheckInterval) {
+                clearInterval(healthCheckInterval);
+            }
+        });
+    </script>
+</body>
+</html>
