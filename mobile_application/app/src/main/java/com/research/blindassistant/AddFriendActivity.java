@@ -13,10 +13,7 @@ import android.speech.tts.TextToSpeech;
 import android.util.Base64;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
-import android.widget.ImageView;
-import android.widget.ProgressBar;
-import android.widget.TextView;
+import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.ByteArrayOutputStream;
@@ -53,6 +50,9 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     private static final int TONE_QUALITY_GOOD = ToneGenerator.TONE_DTMF_1;
     private static final int TONE_COMPLETE = ToneGenerator.TONE_CDMA_CONFIRM;
     private static final int TONE_ERROR = ToneGenerator.TONE_CDMA_ABBR_ALERT;
+
+    private long lastPreviewUpdate = 0;
+    private static final long PREVIEW_UPDATE_INTERVAL = 100;
 
     private StatusManager statusManager;
 
@@ -561,22 +561,58 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
 
     @Override
     public void onConnectionStatusChanged(boolean connected, String message) {
-        if (connected) {
-            speak("Smart glasses connected successfully!");
-            startIntelligentCapture();
-        } else {
-            playTone(TONE_ERROR);
-            speak("Connection failed: " + message);
-            updateUIForState(CaptureState.ERROR);
-            instructionsText.setText("Smart glasses connection failed. Please check the connection and try again.");
-        }
+        runOnUiThread(()->{
+            LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+            TextView noPreviewText = (TextView) noPreviewMessage.getChildAt(0);
+            if (connected) {
+                noPreviewText.setText("Connected - Waiting for video feed...");
+            } else {
+                noPreviewText.setText("Smart glasses not connected");
+            }
+
+        });
+            if (connected) {
+                speak("Smart glasses connected successfully!");
+                startIntelligentCapture();
+            } else {
+                playTone(TONE_ERROR);
+                speak("Connection failed: " + message);
+                updateUIForState(CaptureState.ERROR);
+                instructionsText.setText("Smart glasses connection failed. Please check the connection and try again.");
+            }
+
     }
 
     @Override
     public void onFrameReceived(Bitmap frame, long timestamp, double confidence) {
         Log.d(TAG, "Frame received in AddFriendActivity: " + frame.getWidth() + "x" + frame.getHeight());
 
-        if (captureManager != null && captureManager.isCapturing()) {
+        if(System.currentTimeMillis() - lastPreviewUpdate > PREVIEW_UPDATE_INTERVAL) {
+            runOnUiThread(() -> {
+                ImageView liveFeedPreview = findViewById(R.id.liveFeedPreview);
+                LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+
+                if (noPreviewMessage.getVisibility() == View.VISIBLE) {
+                    noPreviewMessage.setVisibility(View.GONE);
+                }
+
+                if(liveFeedPreview.getWidth() > 0 && liveFeedPreview.getHeight() > 0){
+                    Bitmap scaledFrame = Bitmap.createScaledBitmap(frame,
+                            liveFeedPreview.getWidth(), liveFeedPreview.getHeight(), false);
+
+                    liveFeedPreview.setImageBitmap(scaledFrame);
+
+                    if(scaledFrame != frame){
+                        //since original frame might still need don't recycle here
+                    }
+                } else {
+                    liveFeedPreview.setImageBitmap(frame);
+                }
+            });
+            lastPreviewUpdate = System.currentTimeMillis();
+        }
+
+        if(captureManager !=null && captureManager.isCapturing()){
             Log.d(TAG, "Forwarding frame to capture manager - currently captured: " + captureManager.getCaptureCount());
             captureManager.processCandidateFrame(frame);
         }
@@ -585,6 +621,18 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     @Override
     public void onFeedStopped() {
         Log.d(TAG, "Smart glasses feed stopped");
+        runOnUiThread(()->{
+            ImageView liveFeedPreview = findViewById(R.id.liveFeedPreview);
+            LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+
+            liveFeedPreview.setImageResource(R.drawable.ic_camera_preview);
+            noPreviewMessage.setVisibility(View.VISIBLE);
+
+            TextView noPreviewTextView = (TextView) noPreviewMessage.getChildAt(1);
+            if (noPreviewTextView != null) {
+                ((TextView) noPreviewTextView).setText("Smart glasses disconnected");
+            }
+        });
     }
 
     @Override

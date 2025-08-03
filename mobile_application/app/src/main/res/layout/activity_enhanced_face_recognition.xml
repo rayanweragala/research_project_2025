@@ -227,14 +227,12 @@
                     android:layout_height="56dp"
                     android:layout_weight="1"
                     android:layout_marginEnd="4dp"
-                    android:text="@string/start_glasses_btn"
+                    android:text="Start"
                     android:textSize="14sp"
                     android:textStyle="bold"
                     android:background="@drawable/button_primary"
                     android:textColor="@color/button_text_primary"
-                    android:contentDescription="@string/start_smart_glasses_recognition_desc"
-                    android:drawableTop="@drawable/ic_smart_glasses"
-                    android:drawablePadding="4dp" />
+                    android:contentDescription="@string/start_smart_glasses_recognition_desc" />
 
             <Button
                     android:id="@+id/btnStopRecognition"

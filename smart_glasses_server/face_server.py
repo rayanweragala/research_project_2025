@@ -33,7 +33,7 @@ class EnhancedFaceRecognitionServer:
         self.db_path = "face_database.db"
         self.face_encodings = {}
 
-        self.recognition_threshold = 0.60
+        self.recognition_threshold = 0.40
         self.quality_threshold = 0.35
         self.min_face_size = 50
         self.max_embeddings_per_person = 12
@@ -326,7 +326,27 @@ class EnhancedFaceRecognitionServer:
             
             encoding, quality, face_info = self.extract_face_encoding(image)
             
-            if encoding is None:
+            cosine_similarity = None
+            if self.model_loaded:
+                try:
+                    from sklearn.metrics.pairwise import cosine_similarity
+                except ImportError:
+                    logging.warning("sklearn not available, using basic similarity")
+                    cosine_similarity = None
+                    
+            if encoding is not None:
+                logging.info(f"Encoding extracted successfully, shape: {encoding.shape}")
+                logging.info(f"Quality score: {quality}")
+                logging.info(f"Available people in database: {list(self.face_encodings.keys())}")
+        
+                for name, stored_encodings in self.face_encodings.items():
+                    for i, stored_encoding in enumerate(stored_encodings):
+                        if self.model_loaded:
+                            cosine_sim = cosine_similarity([encoding], [stored_encoding])[0][0]
+                            euclidean_dist = np.linalg.norm(encoding - stored_encoding)
+                            logging.info(f"Person {name}[{i}]: cosine={cosine_sim:.3f}, euclidean_dist={euclidean_dist:.3f}")
+                
+            else:
                 result = {
                     'recognized': False,
                     'name': None,
