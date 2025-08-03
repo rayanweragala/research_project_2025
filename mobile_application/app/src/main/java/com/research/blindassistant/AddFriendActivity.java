@@ -1,5 +1,6 @@
 package com.research.blindassistant;
 
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.media.AudioManager;
@@ -156,6 +157,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         }
     }
 
+    @SuppressLint("SetTextI18n")
     private void updateUIForState(CaptureState newState) {
         currentState = newState;
 
