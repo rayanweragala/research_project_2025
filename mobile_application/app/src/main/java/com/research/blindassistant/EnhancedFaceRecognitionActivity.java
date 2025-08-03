@@ -33,6 +33,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -371,10 +373,14 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         try {
             byte[] imageBytes = Base64.decode(imageBase64, Base64.DEFAULT);
             Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-
+            File f = new File(getExternalFilesDir(null), "last_frame.jpg");
+            try (FileOutputStream fos = new FileOutputStream(f)) {
+                fos.write(Base64.decode(imageBase64, Base64.DEFAULT));
+            }
             if (bitmap != null) {
                 mainHandler.post(() -> {
                     cameraFeedView.setImageBitmap(bitmap);
+                    findViewById(R.id.noFeedMessage).setVisibility(View.GONE);
                 });
             }
         } catch (Exception e) {

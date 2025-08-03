@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, render_template_string
+import statistics
+from flask import Flask, request, jsonify, send_from_directory
 import cv2
 import numpy as np
 import base64
@@ -14,6 +15,8 @@ from PIL import Image
 import traceback
 import atexit
 import threading
+import socket
+from collections import defaultdict, deque
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -29,7 +32,12 @@ class EnhancedFaceRecognitionServer:
         self.model_loaded = False
         self.db_path = "face_database.db"
         self.face_encodings = {}
-        self.recognition_threshold = 0.6
+
+        self.recognition_threshold = 0.60
+        self.quality_threshold = 0.35
+        self.min_face_size = 50
+        self.max_embeddings_per_person = 12
+
         self.recognition_cache = {}
         self.cache_duration = 3.0 
 
@@ -40,6 +48,10 @@ class EnhancedFaceRecognitionServer:
         self.frame_capture_thread = None
         self.stop_capture = False
 
+        self.temporal_window = 5
+        self.temporal_results = deque(maxlen=self.temporal_window)
+        self.confidence_boost_threshold = 0.55
+
         self.camera_error = None
         
         self.recognition_stats = {
@@ -47,9 +59,31 @@ class EnhancedFaceRecognitionServer:
             'successful_recognitions': 0,
             'cache_hits': 0,
             'avg_processing_time': 0.0,
-            'errors': 0
+            'errors': 0,
+            'high_confidence_recognitions': 0,
+            'low_quality_rejections': 0,
+            'temporal_smoothing_applied': 0 
         }
         
+        self.recognition_history = defaultdict(list)
+        self.history_window = 10
+        self.temporal_threshold = 0.6
+
+        self.confidence_levels = {
+            'high': 0.80,
+            'medium': 0.65,
+            'low': 0.50
+        }
+
+        self.camera_settings = {
+            'width': 640,
+            'height': 480,
+            'fps': 20,
+            'brightness': 50,
+            'contrast': 50,
+            'saturation': 50
+        }
+
         self.init_database()
         self.init_face_model()
         self.load_face_database()
@@ -69,9 +103,10 @@ class EnhancedFaceRecognitionServer:
             
             try:
                 self.model = insightface.app.FaceAnalysis(
-                    providers=['CPUExecutionProvider'] 
+                    providers=['CPUExecutionProvider'],
+                    allowed_modules=['detection','recognition']
                 )
-                self.model.prepare(ctx_id=0, det_size=(640, 640))
+                self.model.prepare(ctx_id=0, det_size=(320, 320))
                 self.model_loaded = True
                 logging.info("InsightFace model loaded successfully")
                 return True
@@ -171,7 +206,12 @@ class EnhancedFaceRecognitionServer:
             face_area = (face.bbox[2] - face.bbox[0]) * (face.bbox[3] - face.bbox[1])
             image_area = image.shape[0] * image.shape[1]
             size_ratio = face_area / image_area
-            quality_score = min(1.0, size_ratio * 10)
+
+            blur_score = self._calculate_blur_score(image,face.bbox)
+            lightning_score = self._calculate_lightning_score(image, face.bbox)
+            angle_score = self._calculate_face_angle_score(face)
+
+            quality_score = min(1.0, (size_ratio * 8 + blur_score + lightning_score + angle_score))
             
             face_info = {
                 'bbox': face.bbox.tolist(),
@@ -185,6 +225,47 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Error extracting face encoding: {e}")
             logging.error(f"Traceback: {traceback.format_exc()}")
             return None, 0.0, None
+
+    def _calculate_blur_score(self,image,bbox):
+        """Calculate blur score for face region"""
+        try:
+            x1, y1, x2, y2 = map(int,bbox)
+            face_roi = image[y1:y2, x1:x2]
+            gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+            laplacian_var = cv2.Laplacian(gray_face, cv2.CV_64F).var()
+            return min(1.0, laplacian_var / 500.0)
+        except:
+            return 0.5
+        
+    def _calculate_lightning_score(self, image, bbox):
+        """Calculate lighting quality score"""
+        try:
+            x1, y1, x2, y2 = map(int, bbox)
+            face_roi = image[y1:y2, x1:x2]
+            gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+            mean_brightness = np.mean(gray_face)
+            if 80 <= mean_brightness <= 180:
+                return 1.0
+            else:
+                return max(0.3,0.1 - abs(mean_brightness - 130) / 130)
+        
+        except:
+            return 0.5
+        
+    def _calculate_face_angle_score(self, face):
+        """Calculate face angle qality score using landmarks"""
+        try:
+            if hasattr(face,'kps') and face.kps is not None:
+                landmarks = face.kps
+                left_eye = landmarks[0]
+                right_eye = landmarks[1]
+                eye_angle = abs(np.arctan2(right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]))
+                angle_score = max(0.3, 1.0 - (eye_angle /0.5))
+                return min(1.0, angle_score)
+            return 0.7
+        except:
+            return 0.7
+
 
     def fallback_face_detection(self, image):
         """Fallback face detection using OpenCV when InsightFace fails"""
@@ -280,12 +361,20 @@ class EnhancedFaceRecognitionServer:
                     from sklearn.metrics.pairwise import cosine_similarity
                     
                     for name, stored_encodings in self.face_encodings.items():
+                        confidences = []
                         for stored_encoding in stored_encodings:
-                            similarity = cosine_similarity([encoding], [stored_encoding])[0][0]
+                            cosine_sim  = cosine_similarity([encoding], [stored_encoding])[0][0]
                             
-                            if similarity > best_similarity:
-                                best_similarity = similarity
-                                best_match = name
+                            euclidean_dist = np.linalg.norm(encoding - stored_encoding)
+                            euclidean_sim = 1.0 / (1.0 + euclidean_dist)
+
+                            combined_similarity = (cosine_sim * 0.7) + (euclidean_sim * 0.3)
+                            confidences.append(combined_similarity)
+
+                        max_confidence = max(confidences) if confidences else 0.0
+                        if max_confidence > best_similarity:
+                            best_similarity = max_confidence
+                            best_match = name
                                 
                 except ImportError:
                     logging.warning("sklearn not available, using basic similarity")
@@ -293,6 +382,21 @@ class EnhancedFaceRecognitionServer:
             else:
                 best_similarity = 0.0
             
+            if best_similarity > 0.4:
+                self.temporal_results.append({
+                    'name':best_match,
+                    'confidence': best_similarity,
+                    'timestamp': time.time()
+                })
+
+                if len(self.temporal_results) >= 3:
+                    recent_results = [r for r in self.temporal_results if r['name'] == best_match]
+                    if len(recent_results) >= 2:
+                        avg_confidence = statistics.mean([r['confidence'] for r in recent_results])
+                        if avg_confidence > self.confidence_boost_threshold:
+                            best_similarity = min(0.95,avg_confidence * 1.1)
+                            self.recognition_stats['temporal_smoothing_applied'] +=1
+
             processing_time = time.time() - start_time
             
             if best_similarity > self.recognition_threshold:
@@ -390,55 +494,68 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Error logging recognition: {e}")
 
     def start_camera(self):
-        """Initialize and start camera"""
+        """Enhanced camera initialization with multiple backends"""
         try:
             with self.camera_lock:
                 if self.camera_active:
-                    logging.info("camera already active")
+                    logging.info("Camera already active")
                     return True
+            
+                backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_V4L2, cv2.CAP_ANY]
+            
+                for camera_id in [0, 1, 2]:
+                    logging.info(f"Trying camera {camera_id}...")
                 
-                for camera_id in [0,1,2]:
-                    try:
-                        logging.info(f"Trying camera {camera_id}...")
-                        test_camera = cv2.VideoCapture(camera_id)
+                    for backend in backends_to_try:
+                        try:
+                            test_camera = cv2.VideoCapture(camera_id, backend)
                         
-                        if test_camera.isOpened():
-                            ret, frame = test_camera.read()
-                            if ret and frame is not None:
-                                logging.info(f"Camera {camera_id} works, frame shape: {frame.shape}")
+                            if test_camera.isOpened():
+                                test_camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                                test_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                                test_camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                                test_camera.set(cv2.CAP_PROP_FPS, 30)
+                            
+                                valid_frames = 0
+                                for test_attempt in range(5):
+                                    ret, frame = test_camera.read()
+                                    if ret and frame is not None and frame.size > 0:
+                                        if np.mean(frame) > 10:
+                                            valid_frames += 1
+                                    time.sleep(0.1)
+
                                 test_camera.release()
+                            
+                                if valid_frames >= 2:
+                                    self.camera = cv2.VideoCapture(camera_id, backend)
+                                    if self.configure_camera():  
+                                        if self._validate_camera():
+                                            self.camera_active = True
+                                            self.stop_capture = False
+                                            self.camera_error = None
 
-                                self.camera = cv2.VideoCapture(camera_id)
-                                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT,480)
-                                self.camera.set(cv2.CAP_PROP_FPS,15)
-
-                                ret, frame = self.camera.read()
-                                if ret and frame is not None:
-                                    self.camera_active = True
-                                    self.stop_capture = False
-                                    self.camera_error = None
-
-                                self.frame_capture_thread = threading.Thread(
-                                    target=self._continuous_capture, 
-                                    daemon=True
-                                )
-                                self.frame_capture_thread.start()
-                                logging.info(f"Camera {camera_id} initialized successfully")
-                                return True
+                                            self.frame_capture_thread = threading.Thread(
+                                                target=self._continuous_capture,
+                                                daemon=True
+                                            )
+                                            self.frame_capture_thread.start()
+                                            time.sleep(0.5)
+                                    
+                                            logging.info(f"Camera {camera_id} initialized successfully with backend {backend}")
+                                            return True
+                                        else:
+                                            self.camera.release()
+                                            self.camera = None
+                                    else:
+                                        self.camera.release()
+                                        self.camera = None
                             else:
-                                self.camera.release()
-                                self.camera = None
-                        else:
-                            test_camera.release()
-
-                    except Exception as e:
-                        logging.error(f"Error initializing camera {camera_id}: {e}")
-                        if hasattr(self, 'camera') and self.camera:
-                            self.camera.release()
-                            self.camera = None
-                        continue
-
+                                test_camera.release()
+                            
+                        except Exception as e:
+                            logging.debug(f"Backend {backend} failed for camera {camera_id}: {e}")
+                            continue
+            
                 self.camera_error = "No working cameras found"
                 logging.error(self.camera_error)
                 return False
@@ -448,6 +565,90 @@ class EnhancedFaceRecognitionServer:
             self.camera_error = f"Camera initialization failed: {str(e)}"
             return False
         
+    def configure_camera(self):
+        """Configure camera with validation"""
+        try:
+            if not self.camera or not self.camera.isOpened():
+                return False  
+          
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  
+            self.camera.set(cv2.CAP_PROP_FPS, 30)
+
+            optional_settings = [
+                (cv2.CAP_PROP_BRIGHTNESS, 0.5),
+                (cv2.CAP_PROP_CONTRAST, 0.5),
+                (cv2.CAP_PROP_SATURATION, 0.5),
+                (cv2.CAP_PROP_AUTO_EXPOSURE, 0.25), 
+                (cv2.CAP_PROP_EXPOSURE, -6),
+            ]
+        
+            for prop, value in optional_settings:
+                try:
+                    self.camera.set(prop,value)
+                except:
+                    pass
+            
+            logging.info("camera configured successfull")
+            return True
+        
+        except Exception as e:
+            logging.error(f"Error configuring camera: {e}")
+            return False
+
+    def _validate_camera(self):
+        """Validate camera produces good frames"""
+        try:
+            if not self.camera or not self.camera.isOpened():
+                return False
+            
+            valid_frames = 0
+            for i in range(10):
+                ret,frame = self.camera.read()
+
+                if ret and frame is not None and frame.size > 0:
+                    mean_intensity = np.mean(frame)
+                    if mean_intensity > 15 and mean_intensity < 240:
+                        valid_frames += 1
+                        logging.debug(f"Frame {i+1}: valid (mean intensity: {mean_intensity:1f})")
+
+                    else:
+                        logging.warning(f"Frame {i+1}: Invalid intensity {mean_intensity:.1f}")
+                else:
+                    logging.warning(f"Frame {i+1}: Failed to capture")
+                
+                time.sleep(0.05)
+
+            success_rate = valid_frames /10
+            logging.info(f"Camera validation: {valid_frames}/10 valid frames ({success_rate*100:.1f}%)")
+        
+            return success_rate >= 0.6
+        
+        except Exception as e:
+            logging.error(f"camera validation error: {e}")
+            return False
+
+    def _safe_camera_config(self):
+        """Safely configure camera settings"""
+        try:
+            if self.camera and self.camera.isOpened():
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_settings['width'])
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_settings['height'])
+                self.camera.set(cv2.CAP_PROP_FPS, self.camera_settings['fps'])
+                self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                
+                # Optional settings that might not be supported
+                try:
+                    self.camera.set(cv2.CAP_PROP_BRIGHTNESS, self.camera_settings['brightness'])
+                    self.camera.set(cv2.CAP_PROP_CONTRAST, self.camera_settings['contrast'])
+                    self.camera.set(cv2.CAP_PROP_SATURATION, self.camera_settings['saturation'])
+                except Exception as e:
+                    logging.debug(f"Some camera settings not supported: {e}")
+                    
+                logging.info("Camera configured successfully")
+        except Exception as e:
+            logging.warning(f"Error configuring camera: {e}")
     
     def _continuous_capture(self):
         """Continuosly capture frames in background thread"""
@@ -455,27 +656,51 @@ class EnhancedFaceRecognitionServer:
         frame_count = 0
         error_count = 0
         max_errors = 10
+        last_good_frame_time = time.time()
+
+        logging.info("Starting continuous capture thread")
 
         while not self.stop_capture and error_count < max_errors:
             try:
                 if self.camera and self.camera.isOpened():
                     ret, frame = self.camera.read()
-                    if ret and frame is not None:
-                        with self.camera_lock:
-                            self.last_frame = frame.copy()
-                        frame_count += 1
-                        error_count = 0
+                    if ret and frame is not None and frame.size > 0:
+                        mean_intensity = np.mean(frame)
 
-                        if(frame_count % 100 == 0):
-                            logging.info(f"Captured {frame_count} frames")
+                        if mean_intensity > 15 and mean_intensity <240:
+
+                            with self.camera_lock:
+                                self.last_frame = frame.copy()
+                            frame_count += 1
+                            error_count = 0
+                            last_good_frame_time = time.time()
+
+
+                            if(frame_count % 100 == 0):
+                                logging.info(f"Captured {frame_count} frames")
+                        else:
+                            error_count += 1
+                            logging.warning("Failed to read frame from camera")
+                            time.sleep(0.1)
                     else:
                         error_count += 1
-                        logging.warning("Failed to read frame from camera")
+                        logging.warning("Camera not opened or already released")
+                    
+                    if time.time() - last_good_frame_time > 5.0:
+                        logging.error("No good frames for 5 seconds, attempting camera restart")
+                        self._restart_camera_internal()
+                        last_good_frame_time = time.time()
+
+                    if error_count > 5:
                         time.sleep(0.1)
+                    else:
+                        time.sleep(0.033)
+                
                 else:
                     error_count += 1
-                    logging.warning("Camera not opened or already released")
+                    logging.warning(f"Camera not available (attempt {error_count}/{max_errors})")
                     time.sleep(0.5)
+                
             except Exception as e:
                 error_count += 1
                 logging.error(f"Error capturing frame: {e}")
@@ -486,6 +711,51 @@ class EnhancedFaceRecognitionServer:
             self.camera_error = "Camera capture failed"
             self.camera_active = False
 
+    def _release_camera_safely(self):
+        """Safely release camera resources"""
+        try:
+            if self.camera:
+                self.camera.release()
+                self.camera = None
+            time.sleep(0.5)
+            cv2.destroyAllWindows()
+        except Exception as e:
+            logging.debug(f"Camera release error: {e}")
+
+    def _restart_camera_internal(self):
+        """Internal camera restart without external locking"""
+        try:
+        
+            if self.camera:
+                self.camera.release()
+                time.sleep(0.5)
+
+            self._release_camera_safely()
+            backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_V4L2, cv2.CAP_ANY]
+
+            for camera_id in [0, 1, 2]:
+                for backend in backends_to_try:
+                    try:
+                        test_camera = cv2.VideoCapture(camera_id, backend)
+                        if test_camera.isOpened():
+                            ret, frame = test_camera.read()
+                            test_camera.release()
+                        
+                            if ret and frame is not None and np.mean(frame) > 15:
+                                self.camera = cv2.VideoCapture(camera_id, backend)
+                                self._configure_camera()
+                                logging.info("Camera restarted successfully")
+                                return True
+                    except:
+                        continue
+        
+            logging.error("Failed to restart camera")
+            return False
+        
+        except Exception as e:
+            logging.error(f"Camera restart error: {e}")
+            return False
+    
     def stop_camera(self):
         """Stop camera and cleanup"""
         try:
@@ -643,293 +913,11 @@ class EnhancedFaceRecognitionServer:
 
 face_server = EnhancedFaceRecognitionServer()
 
-WEB_INTERFACE = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Smart Glasses Face Recognition</title>
-    <style>
-        body { font-family: Arial; margin: 20px; background: #f0f0f0; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
-        .camera-section { display: flex; gap: 20px; margin-bottom: 20px; }
-        .video-container { flex: 1; }
-        .controls { flex: 1; }
-        video { width: 100%; max-width: 640px; border: 2px solid #ddd; border-radius: 10px; }
-        canvas { display: none; }
-        .button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-        .start { background: #4CAF50; color: white; }
-        .stop { background: #f44336; color: white; }
-        .register { background: #2196F3; color: white; }
-        .results { margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px; }
-        .recognition-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
-        .recognized { background: #d4edda; border: 1px solid #c3e6cb; }
-        .unknown { background: #fff3cd; border: 1px solid #ffeaa7; }
-        .error { background: #f8d7da; border: 1px solid #f5c6cb; }
-        .stats { display: flex; gap: 20px; margin-top: 20px; }
-        .stat-box { flex: 1; padding: 15px; background: #e9ecef; border-radius: 5px; text-align: center; }
-        input[type="text"] { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
-        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
-        .status.error { background: #f8d7da; color: #721c24; }
-        .status.warning { background: #fff3cd; color: #856404; }
-        .status.success { background: #d4edda; color: #155724; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🤓 Smart Glasses Face Recognition</h1>
-        <p>Using laptop camera to simulate smart glasses feed</p>
-        
-        <div class="camera-section">
-            <div class="video-container">
-                <video id="video" autoplay muted></video>
-                <canvas id="canvas"></canvas>
-            </div>
-            
-            <div class="controls">
-                <h3>Controls</h3>
-                <button class="button start" onclick="startRecognition()">Start Recognition</button>
-                <button class="button stop" onclick="stopRecognition()">Stop Recognition</button>
-                
-                <h3>Register New Person</h3>
-                <input type="text" id="personName" placeholder="Enter person's name">
-                <button class="button register" onclick="registerPerson()">Register Current Face</button>
-                
-                <h3>System Status</h3>
-                <div id="status" class="status">Ready</div>
-            </div>
-        </div>
-        
-        <div class="stats">
-            <div class="stat-box">
-                <h4>Recognition Rate</h4>
-                <div id="recognitionRate">0%</div>
-            </div>
-            <div class="stat-box">
-                <h4>Avg Processing Time</h4>
-                <div id="avgTime">0ms</div>
-            </div>
-            <div class="stat-box">
-                <h4>Total Requests</h4>
-                <div id="totalRequests">0</div>
-            </div>
-            <div class="stat-box">
-                <h4>Error Rate</h4>
-                <div id="errorRate">0%</div>
-            </div>
-        </div>
-        
-        <div class="results">
-            <h3>Recognition Results</h3>
-            <div id="results"></div>
-        </div>
-    </div>
-
-    <script>
-        let video = document.getElementById('video');
-        let canvas = document.getElementById('canvas');
-        let ctx = canvas.getContext('2d');
-        let recognitionActive = false;
-        let recognitionInterval;
-
-        async function initCamera() {
-            try {
-                if (navigator.mediaDevices === undefined) {
-                    navigator.mediaDevices = {};
-                }
-
-                if (navigator.mediaDevices.getUserMedia === undefined) {
-                    navigator.mediaDevices.getUserMedia = function(constraints) {
-                        const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-                        if (!getUserMedia) {
-                            throw new Error('getUserMedia not supported');
-                        }
-                        return new Promise((resolve, reject) => {
-                            getUserMedia.call(navigator, constraints, resolve, reject);
-                        });
-                    }
-                }
-
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                };
-            } catch (err) {
-                console.error('Camera error:', err);
-                document.getElementById('status').innerHTML = 
-                    '❌ Camera error: ' + err.message + 
-                    '<br>Try accessing via HTTPS://localhost:5000';
-                document.getElementById('status').className = 'status error';
-            }
-        }
-
-        initCamera();
-        
-        function startRecognition() {
-            if (!recognitionActive) {
-                recognitionActive = true;
-                document.getElementById('status').innerHTML = '🔍 Recognition Active';
-                document.getElementById('status').className = 'status success';
-                recognitionInterval = setInterval(performRecognition, 2000); 
-            }
-        }
-
-        function stopRecognition() {
-            recognitionActive = false;
-            document.getElementById('status').innerHTML = '⏸️ Recognition Stopped';
-            document.getElementById('status').className = 'status warning';
-            if (recognitionInterval) {
-                clearInterval(recognitionInterval);
-            }
-        }
-
-        function performRecognition() {
-            if (!recognitionActive) return;
-            
-            ctx.drawImage(video, 0, 0);
-            canvas.toBlob(blob => {
-                let reader = new FileReader();
-                reader.onload = () => {
-                    let base64 = reader.result.split(',')[1];
-                    
-                    fetch('/api/recognize_realtime', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ image: base64 })
-                    })
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                        }
-                        return response.json();
-                    })
-                    .then(data => displayResult(data))
-                    .catch(err => {
-                        console.error('Recognition error:', err);
-                        displayResult({
-                            recognized: false,
-                            name: null,
-                            confidence: 0,
-                            message: `Error: ${err.message}`,
-                            quality_score: 0,
-                            processing_time: 0,
-                            error: true
-                        });
-                    });
-                };
-                reader.readAsDataURL(blob);
-            }, 'image/jpeg', 0.8);
-        }
-
-        function registerPerson() {
-            let name = document.getElementById('personName').value.trim();
-            if (!name) {
-                alert('Please enter a name');
-                return;
-            }
-            
-            ctx.drawImage(video, 0, 0);
-            canvas.toBlob(blob => {
-                let reader = new FileReader();
-                reader.onload = () => {
-                    let base64 = reader.result.split(',')[1];
-                    
-                    fetch('/api/register', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            name: name, 
-                            images: [base64] 
-                        })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(`Successfully registered ${name}!`);
-                            document.getElementById('personName').value = '';
-                        } else {
-                            alert(`Registration failed: ${data.message}`);
-                        }
-                    })
-                    .catch(err => {
-                        console.error('Registration error:', err);
-                        alert(`Registration error: ${err.message}`);
-                    });
-                };
-                reader.readAsDataURL(blob);
-            }, 'image/jpeg', 0.8);
-        }
-
-        function displayResult(data) {
-            let resultsDiv = document.getElementById('results');
-            let resultClass = data.error ? 'error' : (data.recognized ? 'recognized' : 'unknown');
-            
-            let confidence = data.confidence || 0;
-            let quality = data.quality_score || 0;
-            let processingTime = data.processing_time || 0;
-            
-            let message = data.error ? 
-                `❌ ${data.message}` :
-                (data.recognized ? 
-                    `✅ ${data.name} (${(confidence * 100).toFixed(1)}% confidence)` :
-                    `❓ ${data.message} (${(confidence * 100).toFixed(1)}% similarity)`);
-            
-            let modelStatus = data.model_loaded ? '🟢' : '🔴';
-            
-            let resultHtml = `
-                <div class="recognition-result ${resultClass}">
-                    <strong>${new Date().toLocaleTimeString()}</strong>: ${message}
-                    <br><small>Quality: ${(quality * 100).toFixed(1)}%, 
-                    Processing: ${(processingTime * 1000).toFixed(0)}ms, 
-                    Model: ${modelStatus}</small>
-                </div>
-            `;
-            
-            resultsDiv.innerHTML = resultHtml + resultsDiv.innerHTML;
-          
-            let results = resultsDiv.children;
-            while (results.length > 10) {
-                resultsDiv.removeChild(results[results.length - 1]);
-            }
-        }
-
-        setInterval(() => {
-            fetch('/api/health')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.recognition_stats) {
-                        let stats = data.recognition_stats;
-                        let rate = stats.total_requests > 0 ? 
-                            (stats.successful_recognitions / stats.total_requests * 100).toFixed(1) : 0;
-                        let errorRate = stats.total_requests > 0 ?
-                            (stats.errors / stats.total_requests * 100).toFixed(1) : 0;
-                        
-                        document.getElementById('recognitionRate').textContent = rate + '%';
-                        document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
-                        document.getElementById('totalRequests').textContent = stats.total_requests;
-                        document.getElementById('errorRate').textContent = errorRate + '%';
-                        
-                        if (!recognitionActive) {
-                            let statusEl = document.getElementById('status');
-                            if (!data.model_loaded) {
-                                statusEl.innerHTML = '⚠️ Model not loaded - basic detection only';
-                                statusEl.className = 'status warning';
-                            }
-                        }
-                    }
-                })
-                .catch(err => console.error('Stats error:', err));
-        }, 3000);
-    </script>
-</body>
-</html>
-'''
 
 @app.route('/')
 def web_interface():
     """Web interface for testing"""
-    return render_template_string(WEB_INTERFACE)
+    return send_from_directory('.', 'face_server_index.html')
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -1318,6 +1306,17 @@ def get_camera_frame():
             'timestamp': datetime.now().isoformat()
         }), 500
     
+def get_local_ip():
+    """Get local IP address"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except:
+        return "127.0.0.1"
+
 def cleanup_camera():
     """Cleanup camera resources"""
     if hasattr(face_server, 'camera') and face_server.camera:
@@ -1329,22 +1328,40 @@ atexit.register(cleanup_camera)
 if __name__ == '__main__':
     print("="*60)
 
-    print()
-    print("🔗 API Endpoints:")
-    print("  GET  /                       - Web interface")
-    print("  GET  /api/test               - Test server status")
-    print("  POST /api/recognize_realtime - For continuous recognition")
-    print("  POST /api/recognize          - Original recognition")
-    print("  POST /api/register           - Register new person")
-    print("  GET  /api/health             - Server health + stats")
-    print("  GET  /api/analytics          - Recognition analytics")
-    print("  GET  /api/people             - List registered people")
-    print("  DELETE /api/delete_person    - Delete person")
-    print()
-    print("🌐 Open http://localhost:5000 in your browser to test")
-    print()
+    camera_available = False
+    for i in range(3):
+        test_cam = cv2.VideoCapture(i)
+        if test_cam.isOpened():
+            camera_available = True
+            test_cam.release()
+            time.sleep(0.1)
+            break
     
-    print("📦 Checking dependencies...")
+    print(f"Camera Status: {'✅ Available' if camera_available else '❌ Not Available'}")
+    
+    local_ip = get_local_ip()
+    port = 5000
+    
+    print(f"\n📱 Android App Configuration:")
+    print(f"   Server IP: {local_ip}")
+    print(f"   Server Port: {port}")
+    print(f"   Full URL: http://{local_ip}:{port}")
+    
+    print(f"\n🔗 API Endpoints:")
+    print(f"   Web Interface: GET /")
+    print(f"   Test Server: GET /api/test")
+    print(f"   Real-time Recognition: POST /api/recognize_realtime")
+    print(f"   File Recognition: POST /api/recognize")
+    print(f"   Register Person: POST /api/register")
+    print(f"   Server Health: GET /api/health")
+    print(f"   Analytics: GET /api/analytics")
+    print(f"   List People: GET /api/people")
+    print(f"   Delete Person: DELETE /api/delete_person")
+    print(f"   Camera Start: POST /api/camera/start")
+    print(f"   Camera Stop: POST /api/camera/stop")
+    print(f"   Camera Frame: GET /api/camera/frame")
+    
+    print(f"\n📦 Checking dependencies...")
     try:
         import insightface
         print("  ✅ InsightFace available")
@@ -1363,14 +1380,23 @@ if __name__ == '__main__':
     except ImportError:
         print("  ❌ OpenCV not installed - pip install opencv-python")
         
-    print()
-    print("💡 If InsightFace fails to load, the server will use OpenCV fallback")
-    print("   (Face detection only - no recognition without InsightFace)")
+    
+    print("\n" + "="*60)
+    print("Server starting... Press Ctrl+C to stop")
     print("="*60)
     
-    app.run(
-        host='0.0.0.0',
-        port=5000,
-        debug=False,
-        threaded=True
-    )
+    if not os.path.exists('face_server_index.html'):
+        print("⚠️  WARNING: face_server_index.html not found in current directory!")
+        print("   Web interface may not be available")
+    
+    try:
+        app.run(
+            host='0.0.0.0',
+            port=port,
+            debug=False,
+            threaded=True
+        )
+    except KeyboardInterrupt:
+        print("\n\nShutting down face recognition server...")
+        cleanup_camera()
+        print("Face recognition server stopped and resources released.")

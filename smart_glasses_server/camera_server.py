@@ -234,7 +234,7 @@ camera_server = SmartGlassesCameraServer()
 @app.route('/')
 def index():
     """Serve the main control panel interface"""
-    return send_from_directory('.', 'index.html')
+    return send_from_directory('.', 'camera_server_index.html')
 
 @app.route('/api/camera/health', methods=['GET'])
 def camera_health():
@@ -462,9 +462,6 @@ atexit.register(camera_server.cleanup)
 
 if __name__ == '__main__':
     print("="*60)
-    print("🎥 Smart Glasses Camera Simulation Server")
-    print("="*60)
-    
     camera_available = False
     for i in range(3):
         test_cam = cv2.VideoCapture(i)
@@ -484,31 +481,25 @@ if __name__ == '__main__':
     print(f"   Server Port: {port}")
     print(f"   Full URL: http://{local_ip}:{port}")
     
-    print(f"\n🌐 Web Preview:")
-    print(f"   Control Panel: http://{local_ip}:{port}")
-    print(f"   Camera Preview: http://{local_ip}:{port}/api/camera/preview")
-    print(f"   Health Check: http://{local_ip}:{port}/api/camera/health")
-    
     print(f"\n⚙️  API Endpoints:")
-    print(f"   Connect: POST /api/camera/connect")
+    print(f"   Web Interface: GET /")
+    print(f"   Health Check: GET /api/camera/health")
+    print(f"   Connect Client: POST /api/camera/connect")
     print(f"   Get Frame: GET /api/camera/frame")
-    print(f"   Disconnect: POST /api/camera/disconnect")
+    print(f"   Preview Stream: GET /api/camera/preview")
+    print(f"   Disconnect Client: POST /api/camera/disconnect")
     print(f"   Stop Camera: POST /api/camera/stop")
     print(f"   Restart Camera: POST /api/camera/restart")
+    print(f"   Camera Settings: GET/POST /api/camera/settings")
     
-    print("\n💡 Key Changes:")
-    print("   - Camera is only opened when streaming starts")
-    print("   - Stop camera completely releases camera resources")
-    print("   - Camera can be used by other applications after stopping")
-    print("   - Added restart endpoint for easy recovery")
     
     print("\n" + "="*60)
     print("Server starting... Press Ctrl+C to stop")
     print("="*60)
     
-    if not os.path.exists('index.html'):
-        print("⚠️  WARNING: index.html not found in current directory!")
-        print("   Please save the HTML content to 'index.html' file")
+    if not os.path.exists('camera_server_index.html'):
+        print("⚠️  WARNING: camera_server_index.html not found in current directory!")
+        print("   Web interface may not be available")
     
     try:
         app.run(
