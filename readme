@@ -1,0 +1,10 @@
+pip install flask
+pip install opencv-python
+pip install flask-cors
+pip install Pillow
+pip install onnxruntime
+pip install insightface
+
+***********************
+
+pip install -r requirements.txt
