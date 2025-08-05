@@ -1,5 +1,6 @@
 # === PYTHON & SERVER ===
 smart_glasses_server/face_recognition_env/
+smart_glasses_server/venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -39,3 +40,4 @@ Thumbs.db
 *.tar.gz
 *.rar
 *.kotlin_module
+
