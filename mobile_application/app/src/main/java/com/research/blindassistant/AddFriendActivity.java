@@ -471,6 +471,11 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     }
 
     @Override
+    public void onTechnicalFeedback(String technicalFeedback, FaceQualityAnalyzer.QualityMetrics metrics) {
+
+    }
+
+    @Override
     public void onSuccessfulCapture(int captureNumber, String message) {
         Log.d(TAG, "Successful capture #" + captureNumber + ": " + message);
         playTone(TONE_CAPTURE_SUCCESS);
