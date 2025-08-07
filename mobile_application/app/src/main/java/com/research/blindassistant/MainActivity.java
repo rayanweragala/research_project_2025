@@ -20,6 +20,8 @@ import androidx.core.content.ContextCompat;
 import java.util.ArrayList;
 import java.util.Locale;
 
+import static com.research.blindassistant.StringResources.Main;
+
 public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener,RecognitionListener {
 
     private Button btnPeopleRecognition,btnVoiceCommand,btnNavigation,btnSettings;
@@ -41,7 +43,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         setupButtons();
         addHapticFeedback();
 
-        speak("Assistant ready. Say commands like face, voice, navigation, or settings. Or tap any button.");
+        speak(StringResources.getString(Main.ASSISTANT_READY));
     }
 
     private void initializeComponents() {
@@ -70,7 +72,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
     private void setupButtons() {
         btnPeopleRecognition.setOnClickListener(v -> {
-            speak("Starting face recognition");
+            speak(StringResources.getString(Main.FACE_RECOGNITION_STARTING));
             updateStatus("Opening face recognition...");
             startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
         });
@@ -80,13 +82,13 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         });
 
         btnNavigation.setOnClickListener(v -> {
-            speak("Navigation assistance starting");
+            speak(StringResources.getString(Main.NAVIGATION_STARTING));
             updateStatus("Loading navigation...");
 
         });
 
         btnSettings.setOnClickListener(v -> {
-            speak("Opening settings");
+            speak(StringResources.getString(Main.SETTINGS_OPENING));
             updateStatus("Loading settings...");
         });
 
@@ -98,7 +100,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             button.setOnLongClickListener(v->{
                 v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                 String buttonText = ((Button) v).getText().toString();
-                speak("Button: " + buttonText + ". Tap to activate");
+                speak(String.format(StringResources.getString(Main.BUTTON_TAP_ACTIVATE), buttonText));
                 return true;
             });
         }
@@ -116,7 +118,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if(!isListening){
             isListening = true;
             updateStatus("Listening for commands...");
-            speak("Voice command activated. Im listening....");
+            speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED));
             speechRecognizer.startListening(speechRecognizerIntent);
             btnVoiceCommand.setText("Stop listening");
             btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
@@ -138,17 +140,17 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         if(lowerCommand.equals("face") || lowerCommand.contains("people") ||
         lowerCommand.contains("recognition") || lowerCommand.contains("recognize")){
-            speak("Opening face recognition");
+            speak(StringResources.getString(Main.OPENING_FACE_RECOGNITION));
             startActivity(new Intent(this,EnhancedFaceRecognitionActivity.class));
         } else if(lowerCommand.contains("navigation") || lowerCommand.contains("navigate")){
-            speak("opening navigation assistance");
+            speak(StringResources.getString(Main.OPENING_NAVIGATION));
         } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting")){
-            speak("Opening settings");
+            speak(StringResources.getString(Main.SETTINGS_OPENING));
         } else if(lowerCommand.contains("stop") || lowerCommand.contains("exit")){
-            speak("Stopping voice commands");
+            speak(StringResources.getString(Main.STOPPING_VOICE_COMMANDS));
             stopListening();
         } else {
-            speak("Command not recognized,try saying face,navigation,settings or stop");
+            speak(StringResources.getString(Main.COMMAND_NOT_RECOGNIZED));
         }
     }
 
@@ -157,9 +159,25 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         statusText.setContentDescription(message);
     }
 
+    /**
+     * Speak the given text using the text-to-speech engine
+     * @param text The text to speak
+     */
     private void speak(String text) {
+        speak(text, null);
+    }
+    
+    /**
+     * Speak the given text using the text-to-speech engine with a specific locale
+     * @param text The text to speak
+     * @param locale The locale to use (null for current locale)
+     */
+    private void speak(String text, Locale locale) {
         if(ttsEngine != null){
-            ttsEngine.speak(text,TextToSpeech.QUEUE_FLUSH,null,"BLIND_ASSISTANT_UTTERANCE");
+            if (locale != null && locale != ttsEngine.getLanguage()) {
+                ttsEngine.setLanguage(locale);
+            }
+            ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "BLIND_ASSISTANT_UTTERANCE");
         }
     }
 
@@ -188,34 +206,37 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     @Override
     public void onError(int error) {
-        String errorMessage = "Speech recognition error";
+        String errorMessage;
         switch (error) {
             case SpeechRecognizer.ERROR_AUDIO:
-                errorMessage = "Audio recording error";
+                errorMessage = StringResources.getString(Main.ERROR_AUDIO);
                 break;
             case SpeechRecognizer.ERROR_CLIENT:
-                errorMessage = "Client side error";
+                errorMessage = StringResources.getString(Main.ERROR_CLIENT);
                 break;
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
-                errorMessage = "Insufficient permissions";
+                errorMessage = StringResources.getString(Main.ERROR_INSUFFICIENT_PERMISSIONS);
                 break;
             case SpeechRecognizer.ERROR_NETWORK:
-                errorMessage = "Network error";
+                errorMessage = StringResources.getString(Main.ERROR_NETWORK);
                 break;
             case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
-                errorMessage = "Network timeout";
+                errorMessage = StringResources.getString(Main.ERROR_NETWORK_TIMEOUT);
                 break;
             case SpeechRecognizer.ERROR_NO_MATCH:
-                errorMessage = "No speech match found. Try again.";
+                errorMessage = StringResources.getString(Main.ERROR_NO_MATCH);
                 break;
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                errorMessage = "Speech recognizer busy";
+                errorMessage = StringResources.getString(Main.ERROR_RECOGNIZER_BUSY);
                 break;
             case SpeechRecognizer.ERROR_SERVER:
-                errorMessage = "Server error";
+                errorMessage = StringResources.getString(Main.ERROR_SERVER);
                 break;
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
-                errorMessage = "Speech timeout";
+                errorMessage = StringResources.getString(Main.ERROR_SPEECH_TIMEOUT);
+                break;
+            default:
+                errorMessage = "Speech recognition error";
                 break;
         }
 
@@ -277,7 +298,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 setupVoiceRecognition();
             } else {
-                speak("Microphone permission required for voice commands");
+                speak(StringResources.getString(Main.MIC_PERMISSION_REQUIRED));
             }
         }
     }

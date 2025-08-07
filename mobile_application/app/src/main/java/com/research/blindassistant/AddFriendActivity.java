@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import static com.research.blindassistant.StringResources.AddFriend;
+
 public class AddFriendActivity extends AppCompatActivity implements TextToSpeech.OnInitListener, RecognitionListener,IntelligentCaptureManager.CaptureProgressCallback,SmartGlassesConnector.SmartGlassesCallback,FaceRecognitionService.FaceRecognitionCallback {
 
     private static final String TAG = "AddFriendActivity";
@@ -260,14 +262,33 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         }
     }
 
+    /**
+     * Speak the given text using the text-to-speech engine
+     * @param text The text to speak
+     */
     private void speak(String text) {
+        speak(text, null);
+    }
+    
+    /**
+     * Speak the given text using the text-to-speech engine with a specific locale
+     * @param text The text to speak
+     * @param locale The locale to use (null for current locale)
+     */
+    private void speak(String text, Locale locale) {
         if (ttsEngine != null && isTtsReady) {
+            if (locale != null && locale != ttsEngine.getLanguage()) {
+                ttsEngine.setLanguage(locale);
+            }
             ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_id");
             Log.d(TAG, "TTS: " + text);
         } else {
             Log.w(TAG, "TTS not ready, queuing message: " + text);
             mainHandler.postDelayed(() -> {
                 if (ttsEngine != null && isTtsReady) {
+                    if (locale != null && locale != ttsEngine.getLanguage()) {
+                        ttsEngine.setLanguage(locale);
+                    }
                     ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_id");
                 }
             }, 500);
@@ -316,7 +337,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
             isTtsReady = true;
             Log.d(TAG, "TTS initialized successfully");
 
-            speak("Face registration ready. First, tell me the person's name.");
+            speak(StringResources.getString(AddFriend.FACE_REGISTRATION_READY));
 
             mainHandler.postDelayed(this::startVoiceListening, 2000);
         } else {
@@ -353,10 +374,10 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                     nameDisplayText.setText("Name: " + friendName);
                     nameDisplayText.setVisibility(View.VISIBLE);
 
-                    speak("Got it! Name is " + friendName + ". Now checking face recognition server.");
+                    speak(String.format(StringResources.getString(AddFriend.NAME_CONFIRMATION), friendName));
                     checkFaceRecognitionServer();
                 } else {
-                    speak("Canceling registration");
+                    speak(StringResources.getString(AddFriend.CANCELING_REGISTRATION));
                     finishActivity();
                 }
                 break;
@@ -366,7 +387,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                 String lowerText = spokenText.toLowerCase();
                 if (lowerText.contains("stop") || lowerText.contains("cancel")) {
                     captureManager.stopCapture();
-                    speak("Stopping capture");
+                    speak(StringResources.getString(AddFriend.STOPPING_CAPTURE));
                 } else if (lowerText.contains("start over")) {
                     resetToInitialState();
                 } else {

@@ -40,6 +40,8 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static com.research.blindassistant.StringResources.FaceRecognition;
+
 public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         implements TextToSpeech.OnInitListener, RecognitionListener {
 
@@ -95,7 +97,7 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
 
         testServerConnection();
 
-        speak("Smart glasses interface ready. Connecting to camera server.");
+        speak(StringResources.getString(FaceRecognition.SMART_GLASSES_READY));
     }
     private void initializeComponents() {
         statusText = findViewById(R.id.statusText);
@@ -137,11 +139,11 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         btnStartRecognition.setOnClickListener(v -> startRecognition());
         btnStopRecognition.setOnClickListener(v -> stopRecognition());
         btnBack.setOnClickListener(v -> {
-            speak("Going back to main menu");
+            speak(StringResources.getString(FaceRecognition.BACK_TO_MAIN));
             finish();
         });
         btnAddFriend.setOnClickListener(v -> {
-            speak("Opening face registration");
+            speak(StringResources.getString(FaceRecognition.OPENING_REGISTRATION));
             startActivity(new Intent(this, AddFriendActivity.class));
         });
     }
@@ -152,7 +154,7 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
             button.setOnLongClickListener(v -> {
                 v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                 String buttonText = ((Button) v).getText().toString();
-                speak("Button: " + buttonText);
+                speak(String.format(StringResources.getString(FaceRecognition.BUTTON_PREFIX), buttonText));
                 return true;
             });
         }
@@ -174,14 +176,14 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                             if (cameraActive) {
                                 serverCameraActive = true;
                                 statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,"Smart Glasses Connected",String.format("Camera active • %d people registered", peopleCount));
-                                speak(String.format("Smart glasses connected. Camera active. %d people registered.", peopleCount));
+                                speak(String.format(StringResources.getString(FaceRecognition.SMART_GLASSES_CONNECTED), peopleCount));
                                 updateInstructions("Smart glasses ready! Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
                             } else {
                                 statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTING,
                                         "Server Connected",
                                         String.format("Starting camera • %d people registered", peopleCount));
 
-                                speak(String.format("Server connected with %d people registered. Starting camera...", peopleCount));
+                                speak(String.format(StringResources.getString(FaceRecognition.SERVER_CONNECTED), peopleCount));
                                 startServerCamera();
                             }
                         }
@@ -211,7 +213,7 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                             statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
                                     "Smart Glasses Ready", "Camera active • Ready for recognition");
 
-                            speak("Smart glasses camera activated");
+                            speak(StringResources.getString(FaceRecognition.CAMERA_ACTIVATED));
                             updateInstructions("Smart glasses ready! Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
                         } else {
                             handleServerError("Failed to start smart glasses camera");
@@ -648,8 +650,24 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         instructionsText.setContentDescription("Instructions: " + instructions);
     }
 
+    /**
+     * Speak the given text using the text-to-speech engine
+     * @param text The text to speak
+     */
     private void speak(String text) {
+        speak(text, null);
+    }
+    
+    /**
+     * Speak the given text using the text-to-speech engine with a specific locale
+     * @param text The text to speak
+     * @param locale The locale to use (null for current locale)
+     */
+    private void speak(String text, Locale locale) {
         if (ttsEngine != null) {
+            if (locale != null && locale != ttsEngine.getLanguage()) {
+                ttsEngine.setLanguage(locale);
+            }
             ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "SMART_GLASSES_UTTERANCE");
         }
     }
