@@ -57,36 +57,37 @@ public class FaceQualityAnalyzer {
             return;
         }
         executorService.submit(() -> {
-            FaceQualityResult result = performAnalysis(frame);
-            mainHandler.post(() -> callback.onAnalysisComplete(result));
+            performAnalysis(frame, callback);
         });
     }
 
-    private FaceQualityResult performAnalysis(Bitmap frame) {
+    private void performAnalysis(Bitmap frame,QualityAnalysisCallback callback) {
         try {
+            InputImage image = InputImage.fromBitmap(frame, 0);
 
-           InputImage image = InputImage.fromBitmap(frame, 0);
-           return faceDetector.process(image)
-                   .continueWith(task -> {
-                       if(task.isSuccessful() && task.getResult() != null){
-                           List<Face> faces = task.getResult();
-                           if(faces.isEmpty()){
-                               return createNoFaceResult();
-                           }
-                           Face bestFace = findBestFace(faces,frame.getWidth(),frame.getHeight());
-                               return analyzeFaceQuality(frame,bestFace);
-
-                       } else {
-                           return createErrorResult("Face detection failed");
-                       }
-                   }).getResult();
+            faceDetector.process(image)
+                    .addOnSuccessListener(faces -> {
+                        FaceQualityResult result;
+                        if (faces.isEmpty()) {
+                            result = createNoFaceResult();
+                        } else {
+                            Face bestFace = findBestFace(faces, frame.getWidth(), frame.getHeight());
+                            result = analyzeFaceQuality(frame, bestFace);
+                        }
+                        mainHandler.post(() -> callback.onAnalysisComplete(result));
+                    })
+                    .addOnFailureListener(e -> {
+                        Log.e(TAG, "Face detection failed", e);
+                        FaceQualityResult errorResult = createErrorResult("Face detection failed: " + e.getMessage());
+                        mainHandler.post(() -> callback.onAnalysisComplete(errorResult));
+                    });
 
         } catch (Exception e) {
             Log.e(TAG, "Error in quality analysis", e);
-            return createErrorResult("Analysis error: " + e.getMessage());
+            FaceQualityResult errorResult = createErrorResult("Analysis error: " + e.getMessage());
+            mainHandler.post(() -> callback.onAnalysisComplete(errorResult));
         }
     }
-
  private Face findBestFace(List<Face> faces,int imageWidth,int imageHeight){
         Face bestFace = null;
         float bestScore = 0f;

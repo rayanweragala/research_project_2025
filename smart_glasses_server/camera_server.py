@@ -471,17 +471,17 @@ if __name__ == '__main__':
             time.sleep(0.1)
             break
     
-    print(f"Camera Status: {'✅ Available' if camera_available else '❌ Not Available'}")
+    print(f"Camera Status: {'Available' if camera_available else 'Not Available'}")
     
     local_ip = get_local_ip()
     port = 5001
     
-    print(f"\n📱 Android App Configuration:")
+    print(f"\n App Configuration:")
     print(f"   Server IP: {local_ip}")
     print(f"   Server Port: {port}")
     print(f"   Full URL: http://{local_ip}:{port}")
     
-    print(f"\n⚙️  API Endpoints:")
+    print(f"\n API Endpoints:")
     print(f"   Web Interface: GET /")
     print(f"   Health Check: GET /api/camera/health")
     print(f"   Connect Client: POST /api/camera/connect")
@@ -492,14 +492,20 @@ if __name__ == '__main__':
     print(f"   Restart Camera: POST /api/camera/restart")
     print(f"   Camera Settings: GET/POST /api/camera/settings")
     
+    print(f"\n Checking dependencies...")
+    
+    try:
+        import cv2
+        print("OpenCV available")
+    except ImportError:
+        print("OpenCV not installed - pip install opencv-python")
     
     print("\n" + "="*60)
     print("Server starting... Press Ctrl+C to stop")
     print("="*60)
     
     if not os.path.exists('camera_server_index.html'):
-        print("⚠️  WARNING: camera_server_index.html not found in current directory!")
-        print("   Web interface may not be available")
+        print("camera_server_index.html not found!")
     
     try:
         app.run(
@@ -512,4 +518,3 @@ if __name__ == '__main__':
         print("\n\nShutting down camera server...")
         camera_server.cleanup()
         print("Camera server stopped and resources released.")
-        print("Camera should now be available for other applications.")

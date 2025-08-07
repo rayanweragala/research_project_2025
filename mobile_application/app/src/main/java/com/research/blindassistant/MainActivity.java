@@ -43,7 +43,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         setupButtons();
         addHapticFeedback();
 
-        speak(StringResources.getString(Main.ASSISTANT_READY));
+        speak(StringResources.getString(Main.ASSISTANT_READY), StringResources.getCurrentLocale());
     }
     private void initializeComponents() {
         btnPeopleRecognition = findViewById(R.id.btnPeopleRecognition);
@@ -66,12 +66,20 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+
+        Locale currentLocale = StringResources.getCurrentLocale();
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLocale.toString());
+
+        if (currentLocale.equals(StringResources.LOCALE_SINHALA)) {
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK");
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "si-LK");
+        }
+
         speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
     }
     private void setupButtons() {
         btnPeopleRecognition.setOnClickListener(v -> {
-            speak(StringResources.getString(Main.FACE_RECOGNITION_STARTING));
+            speak(StringResources.getString(Main.FACE_RECOGNITION_STARTING), StringResources.getCurrentLocale());
             updateStatus("Opening face recognition...");
             startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
         });
@@ -81,14 +89,15 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         });
 
         btnNavigation.setOnClickListener(v -> {
-            speak(StringResources.getString(Main.NAVIGATION_STARTING));
+            speak(StringResources.getString(Main.NAVIGATION_STARTING), StringResources.getCurrentLocale());
             updateStatus("Loading navigation...");
 
         });
 
         btnSettings.setOnClickListener(v -> {
-            speak(StringResources.getString(Main.SETTINGS_OPENING));
+            speak(StringResources.getString(Main.SETTINGS_OPENING), StringResources.getCurrentLocale());
             updateStatus("Loading settings...");
+            startActivity(new Intent(this, SettingsActivity.class));
         });
 
     }
@@ -99,7 +108,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             button.setOnLongClickListener(v->{
                 v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                 String buttonText = ((Button) v).getText().toString();
-                speak(String.format(StringResources.getString(Main.BUTTON_TAP_ACTIVATE), buttonText));
+                speak(String.format(StringResources.getString(Main.BUTTON_TAP_ACTIVATE), buttonText), StringResources.LOCALE_SINHALA);
                 return true;
             });
         }
@@ -117,7 +126,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if(!isListening){
             isListening = true;
             updateStatus("Listening for commands...");
-            speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED));
+            speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
             speechRecognizer.startListening(speechRecognizerIntent);
             btnVoiceCommand.setText("Stop listening");
             btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
@@ -139,17 +148,17 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         if(lowerCommand.equals("face") || lowerCommand.contains("people") ||
         lowerCommand.contains("recognition") || lowerCommand.contains("recognize")){
-            speak(StringResources.getString(Main.OPENING_FACE_RECOGNITION));
+            speak(StringResources.getString(Main.OPENING_FACE_RECOGNITION), StringResources.LOCALE_SINHALA);
             startActivity(new Intent(this,EnhancedFaceRecognitionActivity.class));
         } else if(lowerCommand.contains("navigation") || lowerCommand.contains("navigate")){
-            speak(StringResources.getString(Main.OPENING_NAVIGATION));
+            speak(StringResources.getString(Main.OPENING_NAVIGATION), StringResources.LOCALE_SINHALA);
         } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting")){
-            speak(StringResources.getString(Main.SETTINGS_OPENING));
+            speak(StringResources.getString(Main.SETTINGS_OPENING), StringResources.LOCALE_SINHALA);
         } else if(lowerCommand.contains("stop") || lowerCommand.contains("exit")){
-            speak(StringResources.getString(Main.STOPPING_VOICE_COMMANDS));
+            speak(StringResources.getString(Main.STOPPING_VOICE_COMMANDS), StringResources.LOCALE_SINHALA);
             stopListening();
         } else {
-            speak(StringResources.getString(Main.COMMAND_NOT_RECOGNIZED));
+            speak(StringResources.getString(Main.COMMAND_NOT_RECOGNIZED), StringResources.LOCALE_SINHALA);
         }
     }
 
@@ -158,19 +167,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         statusText.setContentDescription(message);
     }
 
-    /**
-     * Speak the given text using the text-to-speech engine
-     * @param text The text to speak
-     */
     private void speak(String text) {
         speak(text, null);
     }
-    
-    /**
-     * Speak the given text using the text-to-speech engine with a specific locale
-     * @param text The text to speak
-     * @param locale The locale to use (null for current locale)
-     */
+
     private void speak(String text, Locale locale) {
         if(ttsEngine != null){
             if (locale != null && locale != ttsEngine.getLanguage()) {
@@ -279,9 +279,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     @Override
     public void onInit(int status) {
         if (status == TextToSpeech.SUCCESS) {
-            int result = ttsEngine.setLanguage(Locale.US);
+            Locale currentLocale = StringResources.getCurrentLocale();
+            int result = ttsEngine.setLanguage(currentLocale);
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 updateStatus("TTS Language not supported");
+
+                ttsEngine.setLanguage(Locale.US);
             } else {
                 new android.os.Handler().postDelayed(() -> {
                     startListening();
@@ -297,7 +300,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 setupVoiceRecognition();
             } else {
-                speak(StringResources.getString(Main.MIC_PERMISSION_REQUIRED));
+                speak(StringResources.getString(Main.MIC_PERMISSION_REQUIRED), StringResources.LOCALE_SINHALA);
             }
         }
     }

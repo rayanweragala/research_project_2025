@@ -1,78 +1,528 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Smart Glasses Face Recognition</title>
+    <title>Enhanced Smart Glasses Face Recognition</title>
     <style>
-        body { font-family: Arial; margin: 20px; background: #f0f0f0; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
-        .camera-section { display: flex; gap: 20px; margin-bottom: 20px; }
-        .video-container { flex: 1; }
-        .controls { flex: 1; }
-        #cameraFeed { width: 100%; max-width: 640px; border: 2px solid #ddd; border-radius: 10px; }
-        .button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-        .start { background: #4CAF50; color: white; }
-        .stop { background: #f44336; color: white; }
-        .results { margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px; }
-        .recognition-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
-        .recognized { background: #d4edda; border: 1px solid #c3e6cb; }
-        .unknown { background: #fff3cd; border: 1px solid #ffeaa7; }
-        .error { background: #f8d7da; border: 1px solid #f5c6cb; }
-        .stats { display: flex; gap: 20px; margin-top: 20px; }
-        .stat-box { flex: 1; padding: 15px; background: #e9ecef; border-radius: 5px; text-align: center; }
-        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
-        .status.error { background: #f8d7da; color: #721c24; }
-        .status.warning { background: #fff3cd; color: #856404; }
-        .status.success { background: #d4edda; color: #155724; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 0; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container { 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            background: rgba(255,255,255,0.95); 
+            padding: 20px; 
+            border-radius: 15px; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-top: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            border-radius: 10px;
+            color: white;
+        }
+        
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { font-size: 1.2em; opacity: 0.9; }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .camera-section {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .controls-section {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        #cameraFeed { 
+            width: 100%; 
+            max-width: 640px; 
+            border: 3px solid #ddd; 
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .button { 
+            padding: 12px 24px; 
+            margin: 8px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        .start { 
+            background: linear-gradient(135deg, #4CAF50, #45a049); 
+            color: white; 
+        }
+        .start:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3); }
+        
+        .stop { 
+            background: linear-gradient(135deg, #f44336, #da190b); 
+            color: white; 
+        }
+        .stop:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(244, 67, 54, 0.3); }
+        
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover { transform: translateY(-5px); }
+        
+        .stat-card h4 { 
+            margin-bottom: 10px; 
+            color: #666; 
+            font-size: 0.9em; 
+            text-transform: uppercase; 
+            letter-spacing: 1px;
+        }
+        
+        .stat-card .stat-value { 
+            font-size: 2.5em; 
+            font-weight: bold; 
+            margin-bottom: 5px;
+        }
+        
+        .stat-card .stat-label { 
+            color: #999; 
+            font-size: 0.85em;
+        }
+        
+        .recognition-card { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
+        .performance-card { background: linear-gradient(135deg, #f093fb, #f5576c); color: white; }
+        .quality-card { background: linear-gradient(135deg, #4facfe, #00f2fe); color: white; }
+        .method-card { background: linear-gradient(135deg, #43e97b, #38f9d7); color: white; }
+        
+        .status { 
+            padding: 15px; 
+            margin: 15px 0; 
+            border-radius: 10px; 
+            font-weight: bold;
+            border-left: 5px solid;
+        }
+        .status.error { 
+            background: #ffebee; 
+            color: #c62828; 
+            border-color: #f44336; 
+        }
+        .status.warning { 
+            background: #fff3e0; 
+            color: #ef6c00; 
+            border-color: #ff9800; 
+        }
+        .status.success { 
+            background: #e8f5e8; 
+            color: #2e7d32; 
+            border-color: #4caf50; 
+        }
+        
+        .results-section {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-top: 20px;
+        }
+        
+        .recognition-result { 
+            margin: 15px 0; 
+            padding: 15px; 
+            border-radius: 10px;
+            border-left: 5px solid;
+            transition: all 0.3s ease;
+        }
+        
+        .recognition-result:hover { transform: translateX(5px); }
+        
+        .recognized { 
+            background: #e8f5e8; 
+            border-color: #4caf50;
+            color: #2e7d32;
+        }
+        .unknown { 
+            background: #fff3e0; 
+            border-color: #ff9800;
+            color: #ef6c00;
+        }
+        .error { 
+            background: #ffebee; 
+            border-color: #f44336;
+            color: #c62828;
+        }
+        
+        .result-header {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 8px;
+        }
+        
+        .result-details {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        
+        .confidence-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            margin: 8px 0;
+            overflow: hidden;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4caf50, #8bc34a);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            background: #f5f5f5;
+            border-radius: 10px;
+            padding: 5px;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 15px 20px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 8px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .tab.active {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin: 20px 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .people-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .person-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .person-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+        
+        .person-name {
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .person-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .method-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin: 2px;
+        }
+        
+        .method-standard { background: #e3f2fd; color: #1565c0; }
+        .method-weighted { background: #f3e5f5; color: #7b1fa2; }
+        .method-temporal { background: #e8f5e8; color: #388e3c; }
+        .method-enhanced { background: #fff3e0; color: #f57c00; }
+        
+        .confidence-level {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .conf-very-high { background: #4caf50; color: white; }
+        .conf-high { background: #8bc34a; color: white; }
+        .conf-medium { background: #ffc107; color: #333; }
+        .conf-low { background: #ff9800; color: white; }
+        .conf-very-low { background: #f44336; color: white; }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ddd;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .report-section {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            margin: 20px 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .date-picker {
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        
+        .insights-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .insights-list li {
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 1.1em;
+        }
+        
+        .insights-list li:last-child {
+            border-bottom: none;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .analytics-grid {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            }
+            
+            .container {
+                margin: 10px;
+                padding: 15px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🤓 Smart Glasses Face Recognition</h1>
-        <p>Using laptop camera to simulate smart glasses feed</p>
+        <div class="header">
+            <h1>Face Recognition</h1>
+            <p>Testing interface for face server</p>
+        </div>
         
-        <div class="camera-section">
-            <div class="video-container">
-                <img id="cameraFeed" alt="Camera feed will appear here" />
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('live')">Live Recognition</div>
+            <div class="tab" onclick="switchTab('analytics')">Analytics</div>
+            <div class="tab" onclick="switchTab('reports')">Reports</div>
+            <div class="tab" onclick="switchTab('people')">People</div>
+        </div>
+        
+        <div id="live-tab" class="tab-content active">
+            <div class="dashboard-grid">
+                <div class="camera-section">
+                    <h3>Camera Feed</h3>
+                    <img id="cameraFeed" alt="Camera feed will appear here" />
+                </div>
+                
+                <div class="controls-section">
+                    <h3>Controls</h3>
+                    <button class="button start" onclick="startRecognition()">🎥 Start Recognition</button>
+                    <button class="button stop" onclick="stopRecognition()">⏹️ Stop Recognition</button>
+                    
+                    <h3>System Status</h3>
+                    <div id="status" class="status">Ready to start</div>
+                    
+                    <h3>Current Recognition</h3>
+                    <div id="currentResult"></div>
+                </div>
             </div>
             
-            <div class="controls">
-                <h3>Controls</h3>
-                <button class="button start" onclick="startRecognition()">Start Recognition</button>
-                <button class="button stop" onclick="stopRecognition()">Stop Recognition</button>
+            <div class="results-section">
+                <h3>Recent Recognition Results</h3>
+                <div id="results"></div>
+            </div>
+        </div>
+        
+        <div id="analytics-tab" class="tab-content">
+            <div class="analytics-grid">
+                <div class="stat-card recognition-card">
+                    <h4>Recognition Rate</h4>
+                    <div class="stat-value" id="recognitionRate">0%</div>
+                    <div class="stat-label">Success Rate</div>
+                </div>
+                <div class="stat-card performance-card">
+                    <h4>Avg Processing Time</h4>
+                    <div class="stat-value" id="avgTime">0ms</div>
+                    <div class="stat-label">Response Time</div>
+                </div>
+                <div class="stat-card quality-card">
+                    <h4>Total Requests</h4>
+                    <div class="stat-value" id="totalRequests">0</div>
+                    <div class="stat-label">API Calls</div>
+                </div>
+                <div class="stat-card method-card">
+                    <h4>Enhanced Methods</h4>
+                    <div class="stat-value" id="enhancedMethods">0</div>
+                    <div class="stat-label">Advanced Recognition</div>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h3>Method Usage Distribution</h3>
+                <div id="methodChart"></div>
+            </div>
+            
+            <div class="chart-container">
+                <h3>Confidence Level Distribution</h3>
+                <div id="confidenceChart"></div>
+            </div>
+            
+            <div class="chart-container">
+                <h3>24-Hour Activity</h3>
+                <div id="hourlyChart"></div>
+            </div>
+        </div>
+        
+        <div id="reports-tab" class="tab-content">
+            <div class="report-section">
+                <div class="report-header">
+                    <h2>📋 Daily Analysis Report</h2>
+                    <input type="date" id="reportDate" class="date-picker" onchange="loadDailyReport()" />
+                </div>
                 
-                <h3>System Status</h3>
-                <div id="status" class="status">Ready</div>
+                <div id="reportContent" class="loading">Loading report...</div>
             </div>
         </div>
         
-        <div class="stats">
-            <div class="stat-box">
-                <h4>Recognition Rate</h4>
-                <div id="recognitionRate">0%</div>
+        <div id="people-tab" class="tab-content">
+            <div class="report-section">
+                <h2>Registered People</h2>
+                <div id="peopleList" class="loading">Loading people...</div>
             </div>
-            <div class="stat-box">
-                <h4>Avg Processing Time</h4>
-                <div id="avgTime">0ms</div>
-            </div>
-            <div class="stat-box">
-                <h4>Total Requests</h4>
-                <div id="totalRequests">0</div>
-            </div>
-            <div class="stat-box">
-                <h4>Error Rate</h4>
-                <div id="errorRate">0%</div>
-            </div>
-        </div>
-        
-        <div class="results">
-            <h3>Recognition Results</h3>
-            <div id="results"></div>
         </div>
     </div>
 
     <script>
         let recognitionActive = false;
         let recognitionInterval;
+        let currentStats = {};
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.getElementById(tabName + '-tab').classList.add('active');
+            
+            event.target.classList.add('active');
+            
+            if (tabName === 'analytics') {
+                loadAnalytics();
+            } else if (tabName === 'reports') {
+                setDefaultReportDate();
+                loadDailyReport();
+            } else if (tabName === 'people') {
+                loadPeopleList();
+            }
+        }
 
         function startRecognition() {
             if (!recognitionActive) {
@@ -129,6 +579,7 @@
                     if (data.image) {
                         document.getElementById('cameraFeed').src = 'data:image/jpeg;base64,' + data.image;
                         displayResult(data);
+                        updateCurrentResult(data);
                     } else if (data.error) {
                         displayResult({
                             recognized: false,
@@ -155,6 +606,47 @@
                 });
         }
 
+        function updateCurrentResult(data) {
+            const currentResult = document.getElementById('currentResult');
+            if (!data.recognized && !data.error) {
+                currentResult.innerHTML = `
+                    <div style="padding: 15px; background: #f5f5f5; border-radius: 10px; margin-top: 15px;">
+                        <div style="font-weight: bold; color: #666;">👤 Unknown Person</div>
+                        <div style="font-size: 0.9em; margin-top: 5px;">
+                            Quality: ${(data.quality_score * 100).toFixed(1)}%
+                            ${data.method_used ? `• Method: ${formatMethod(data.method_used)}` : ''}
+                        </div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${(data.confidence * 100)}%; background: #ff9800;"></div>
+                        </div>
+                    </div>
+                `;
+            } else if (data.recognized) {
+                currentResult.innerHTML = `
+                    <div style="padding: 15px; background: #e8f5e8; border-radius: 10px; margin-top: 15px; border-left: 4px solid #4caf50;">
+                        <div style="font-weight: bold; color: #2e7d32; font-size: 1.1em;">
+                            ✅ ${data.name}
+                            <span class="confidence-level conf-${data.confidence_level}">${formatConfidenceLevel(data.confidence_level)}</span>
+                        </div>
+                        <div style="font-size: 0.9em; margin-top: 8px; color: #4caf50;">
+                            Confidence: ${(data.confidence * 100).toFixed(1)}% • 
+                            Quality: ${(data.quality_score * 100).toFixed(1)}%
+                            ${data.method_used ? ` • ${formatMethod(data.method_used)}` : ''}
+                        </div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${(data.confidence * 100)}%;"></div>
+                        </div>
+                    </div>
+                `;
+            } else if (data.error) {
+                currentResult.innerHTML = `
+                    <div style="padding: 15px; background: #ffebee; border-radius: 10px; margin-top: 15px; border-left: 4px solid #f44336;">
+                        <div style="font-weight: bold; color: #c62828;">❌ ${data.message}</div>
+                    </div>
+                `;
+            }
+        }
+
         function displayResult(data) {
             let resultsDiv = document.getElementById('results');
             let resultClass = data.error ? 'error' : (data.recognized ? 'recognized' : 'unknown');
@@ -164,19 +656,31 @@
             let processingTime = data.processing_time || 0;
             
             let message = data.error ? 
-                `❌ ${data.message}` :
+                `${data.message}` :
                 (data.recognized ? 
-                    `✅ ${data.name} (${(confidence * 100).toFixed(1)}% confidence)` :
-                    `❓ ${data.message} (${(confidence * 100).toFixed(1)}% similarity)`);
+                    `✅ ${data.name}` :
+                    `❓ Unknown person`);
             
-            let modelStatus = data.model_loaded ? '🟢' : '🔴';
+            let modelStatus = data.model_loaded ? '' : '';
+            let confidenceLevel = data.confidence_level || 'unknown';
+            let methodUsed = data.method_used || 'standard';
             
             let resultHtml = `
                 <div class="recognition-result ${resultClass}">
-                    <strong>${new Date().toLocaleTimeString()}</strong>: ${message}
-                    <br><small>Quality: ${(quality * 100).toFixed(1)}%, 
-                    Processing: ${(processingTime * 1000).toFixed(0)}ms, 
-                    Model: ${modelStatus}</small>
+                    <div class="result-header">
+                        ${new Date().toLocaleTimeString()} - ${message}
+                        ${data.recognized ? `<span class="confidence-level conf-${confidenceLevel}">${formatConfidenceLevel(confidenceLevel)}</span>` : ''}
+                    </div>
+                    <div class="result-details">
+                        Confidence: ${(confidence * 100).toFixed(1)}% • 
+                        Quality: ${(quality * 100).toFixed(1)}% • 
+                        Processing: ${(processingTime * 1000).toFixed(0)}ms • 
+                        Model: ${modelStatus} • 
+                        Method: ${formatMethod(methodUsed)}
+                    </div>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: ${(confidence * 100)}%; ${!data.recognized ? 'background: #ff9800;' : ''}"></div>
+                    </div>
                 </div>
             `;
             
@@ -185,6 +689,413 @@
             let results = resultsDiv.children;
             while (results.length > 10) {
                 resultsDiv.removeChild(results[results.length - 1]);
+            }
+        }
+
+        function formatMethod(method) {
+            const methodMap = {
+                'standard': 'Standard',
+                'weighted': 'Weighted Avg',
+                'temporal': 'Temporal',
+                'enhanced': 'Enhanced',
+                'outlier_removed': 'Outlier Filtered',
+                'weighted_average': 'Weighted Average',
+                'adaptive': 'Adaptive'
+            };
+            
+            if (method.includes('_')) {
+                const parts = method.split('_');
+                return parts.map(part => methodMap[part] || part).join(' + ');
+            }
+            
+            return methodMap[method] || method;
+        }
+
+        function formatConfidenceLevel(level) {
+            const levelMap = {
+                'very_high': 'Very High',
+                'high': 'High',
+                'medium': 'Medium',
+                'low': 'Low',
+                'very_low': 'Very Low'
+            };
+            return levelMap[level] || level;
+        }
+
+        function loadAnalytics() {
+            fetch('/api/analytics_enhanced')
+                .then(response => response.json())
+                .then(data => {
+                    currentStats = data;
+                    updateAnalyticsDisplay(data);
+                })
+                .catch(err => console.error('Analytics error:', err));
+        }
+
+        function updateAnalyticsDisplay(data) {
+            if (data.recognition_stats) {
+                let stats = data.recognition_stats;
+                let rate = stats.total_requests > 0 ? 
+                    (stats.successful_recognitions / stats.total_requests * 100).toFixed(1) : 0;
+                
+                document.getElementById('recognitionRate').textContent = rate + '%';
+                document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
+                document.getElementById('totalRequests').textContent = stats.total_requests;
+                
+                let enhancedCount = (stats.weighted_average_applied || 0) + 
+                                  (stats.temporal_smoothing_applied || 0) + 
+                                  (stats.outliers_removed || 0);
+                document.getElementById('enhancedMethods').textContent = enhancedCount;
+            }
+            
+            if (data.method_usage) {
+                updateMethodChart(data.method_usage);
+            }
+            
+            if (data.recent_recognitions) {
+                updateConfidenceChart(data.recent_recognitions);
+            }
+
+            if (data.hourly_distribution) {
+                updateHourlyChart(data.hourly_distribution);
+            }
+        }
+
+        function updateMethodChart(methodData) {
+            const chartDiv = document.getElementById('methodChart');
+            const total = Object.values(methodData).reduce((a, b) => a + b, 0);
+            
+            if (total === 0) {
+                chartDiv.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No method data available</div>';
+                return;
+            }
+            
+            let html = '<div style="display: flex; flex-wrap: wrap; gap: 10px;">';
+            
+            Object.entries(methodData).forEach(([method, count]) => {
+                const percentage = ((count / total) * 100).toFixed(1);
+                html += `
+                    <div class="method-badge method-${method.split('_')[0]}" style="flex: 1; min-width: 120px; text-align: center;">
+                        ${formatMethod(method)}<br>
+                        <strong>${count} (${percentage}%)</strong>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            chartDiv.innerHTML = html;
+        }
+
+        function updateConfidenceChart(recognitions) {
+            const chartDiv = document.getElementById('confidenceChart');
+            
+            if (!recognitions || recognitions.length === 0) {
+                chartDiv.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No confidence data available</div>';
+                return;
+            }
+            
+            const levels = { very_high: 0, high: 0, medium: 0, low: 0, very_low: 0 };
+            
+            recognitions.forEach(rec => {
+                if (rec.confidence_level) {
+                    levels[rec.confidence_level]++;
+                }
+            });
+            
+            const total = Object.values(levels).reduce((a, b) => a + b, 0);
+            
+            let html = '<div style="display: flex; flex-wrap: wrap; gap: 10px;">';
+            
+            Object.entries(levels).forEach(([level, count]) => {
+                const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                html += `
+                    <div class="confidence-level conf-${level}" style="flex: 1; min-width: 100px; text-align: center; padding: 10px;">
+                        ${formatConfidenceLevel(level)}<br>
+                        <strong>${count} (${percentage}%)</strong>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            chartDiv.innerHTML = html;
+        }
+
+        function updateHourlyChart(hourlyData) {
+            const chartDiv = document.getElementById('hourlyChart');
+            
+            if (!hourlyData || Object.keys(hourlyData).length === 0) {
+                chartDiv.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No hourly data available</div>';
+                return;
+            }
+            
+            const maxValue = Math.max(...Object.values(hourlyData));
+            
+            let html = '<div style="display: flex; align-items: end; gap: 4px; height: 150px; padding: 20px 0;">';
+            
+            for (let hour = 0; hour < 24; hour++) {
+                const count = hourlyData[hour] || 0;
+                const height = maxValue > 0 ? (count / maxValue) * 120 : 0;
+                
+                html += `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                        <div style="background: linear-gradient(135deg, #4facfe, #00f2fe); 
+                                    width: 100%; height: ${height}px; border-radius: 2px; 
+                                    margin-bottom: 5px; min-height: 2px;
+                                    ${count > 0 ? `title='${count} recognitions at ${hour}:00'` : ''}"></div>
+                        <div style="font-size: 0.7em; color: #666;">${hour}</div>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
+            chartDiv.innerHTML = html;
+        }
+
+        function setDefaultReportDate() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('reportDate').value = today;
+        }
+
+        function loadDailyReport() {
+            const date = document.getElementById('reportDate').value;
+            const reportContent = document.getElementById('reportContent');
+            
+            reportContent.innerHTML = '<div class="loading">Loading report...</div>';
+            
+            fetch(`/api/daily_report?date=${date}`)
+                .then(response => response.json())
+                .then(data => {
+                    displayDailyReport(data);
+                })
+                .catch(err => {
+                    reportContent.innerHTML = `<div class="status error">Error loading report: ${err.message}</div>`;
+                });
+        }
+
+        function displayDailyReport(report) {
+            const reportContent = document.getElementById('reportContent');
+            
+            if (report.error) {
+                reportContent.innerHTML = `<div class="status error">Report Error: ${report.error}</div>`;
+                return;
+            }
+            
+            if (report.total_recognitions === 0) {
+                reportContent.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #666;">
+                        <h3>No activity recorded for ${report.date}</h3>
+                        <p>No face recognitions were performed on this date.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = `
+                <div class="analytics-grid">
+                    <div class="stat-card recognition-card">
+                        <h4>Total Recognitions</h4>
+                        <div class="stat-value">${report.summary.total_recognitions}</div>
+                        <div class="stat-label">Face detections</div>
+                    </div>
+                    <div class="stat-card performance-card">
+                        <h4>Unique People</h4>
+                        <div class="stat-value">${report.summary.unique_people}</div>
+                        <div class="stat-label">Different faces</div>
+                    </div>
+                    <div class="stat-card quality-card">
+                        <h4>Avg Confidence</h4>
+                        <div class="stat-value">${(report.summary.avg_confidence * 100).toFixed(1)}%</div>
+                        <div class="stat-label">Recognition accuracy</div>
+                    </div>
+                    <div class="stat-card method-card">
+                        <h4>Avg Quality</h4>
+                        <div class="stat-value">${(report.summary.avg_quality * 100).toFixed(1)}%</div>
+                        <div class="stat-label">Image quality</div>
+                    </div>
+                </div>
+            `;
+            
+            if (report.performance_insights && report.performance_insights.length > 0) {
+                html += `
+                    <div class="report-section">
+                        <h3>🔍 Performance Insights</h3>
+                        <ul class="insights-list">
+                            ${report.performance_insights.map(insight => `<li>${insight}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            if (report.people_analysis && report.people_analysis.length > 0) {
+                html += `
+                    <div class="report-section">
+                        <h3>👥 Most Active People</h3>
+                        <div class="people-list">
+                `;
+                
+                report.people_analysis.slice(0, 6).forEach(person => {
+                    html += `
+                        <div class="person-card">
+                            <div class="person-name">${person.name}</div>
+                            <div class="person-stats">
+                                <div><strong>Recognitions:</strong> ${person.recognition_count}</div>
+                                <div><strong>Avg Confidence:</strong> ${(person.avg_confidence * 100).toFixed(1)}%</div>
+                                <div><strong>Avg Quality:</strong> ${(person.avg_quality * 100).toFixed(1)}%</div>
+                                <div><strong>Method:</strong> ${formatMethod(person.most_used_method)}</div>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <span class="confidence-level conf-${person.confidence_level}">
+                                    ${formatConfidenceLevel(person.confidence_level)}
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+            }
+            
+            if (report.confidence_distribution) {
+                html += `
+                    <div class="chart-container">
+                        <h3>📊 Confidence Distribution</h3>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                `;
+                
+                Object.entries(report.confidence_distribution).forEach(([level, count]) => {
+                    const total = Object.values(report.confidence_distribution).reduce((a, b) => a + b, 0);
+                    const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                    
+                    html += `
+                        <div class="confidence-level conf-${level}" style="flex: 1; min-width: 100px; text-align: center; padding: 15px;">
+                            <strong>${count}</strong><br>
+                            ${formatConfidenceLevel(level)}<br>
+                            <small>(${percentage}%)</small>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+            }
+            
+            reportContent.innerHTML = html;
+        }
+
+        function loadPeopleList() {
+            const peopleList = document.getElementById('peopleList');
+            peopleList.innerHTML = '<div class="loading">Loading people...</div>';
+            
+            fetch('/api/people')
+                .then(response => response.json())
+                .then(data => {
+                    displayPeopleList(data.people);
+                })
+                .catch(err => {
+                    peopleList.innerHTML = `<div class="status error">Error loading people: ${err.message}</div>`;
+                });
+        }
+
+        function displayPeopleList(people) {
+            const peopleList = document.getElementById('peopleList');
+            
+            if (!people || people.length === 0) {
+                peopleList.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #666;">
+                        <h3>No registered people</h3>
+                        <p>Use the mobile app to register people with multiple high-quality images.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '<div class="people-list">';
+            
+            people.forEach(person => {
+                const registrationDate = new Date(person.created_at).toLocaleDateString();
+                const qualityColor = person.avg_quality > 0.7 ? '#4caf50' : 
+                                   person.avg_quality > 0.5 ? '#ff9800' : '#f44336';
+                
+                html += `
+                    <div class="person-card">
+                        <div class="person-name">👤 ${person.name}</div>
+                        <div class="person-stats">
+                            <div><strong>Photos:</strong> ${person.photo_count}</div>
+                            <div><strong>Registered:</strong> ${registrationDate}</div>
+                            <div><strong>Avg Quality:</strong> 
+                                <span style="color: ${qualityColor}; font-weight: bold;">
+                                    ${(person.avg_quality * 100).toFixed(1)}%
+                                </span>
+                            </div>
+                            <div><strong>Best Quality:</strong> ${(person.best_quality * 100).toFixed(1)}%</div>
+                        </div>
+                        <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                            <span class="method-badge method-${person.registration_method}">
+                                ${person.registration_method === 'enhanced' ? 'Enhanced Registration' : 'Standard Registration'}
+                            </span>
+                            <button class="button stop" style="padding: 8px 15px; font-size: 0.8em;" 
+                                    onclick="deletePerson('${person.name}')">
+                                🗑️ Delete
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            
+            const totalPhotos = people.reduce((sum, p) => sum + p.photo_count, 0);
+            const avgQuality = people.reduce((sum, p) => sum + p.avg_quality, 0) / people.length;
+            const enhancedRegistrations = people.filter(p => p.registration_method === 'enhanced').length;
+            
+            html = `
+                <div class="analytics-grid" style="margin-bottom: 30px;">
+                    <div class="stat-card recognition-card">
+                        <h4>Total People</h4>
+                        <div class="stat-value">${people.length}</div>
+                        <div class="stat-label">Registered</div>
+                    </div>
+                    <div class="stat-card performance-card">
+                        <h4>Total Photos</h4>
+                        <div class="stat-value">${totalPhotos}</div>
+                        <div class="stat-label">Training Images</div>
+                    </div>
+                    <div class="stat-card quality-card">
+                        <h4>Avg Quality</h4>
+                        <div class="stat-value">${(avgQuality * 100).toFixed(1)}%</div>
+                        <div class="stat-label">Overall Quality</div>
+                    </div>
+                    <div class="stat-card method-card">
+                        <h4>Enhanced</h4>
+                        <div class="stat-value">${enhancedRegistrations}</div>
+                        <div class="stat-label">Multi-image Registration</div>
+                    </div>
+                </div>
+            ` + html;
+            
+            peopleList.innerHTML = html;
+        }
+
+        function deletePerson(name) {
+            if (confirm(`Are you sure you want to delete ${name} and all their face data?`)) {
+                fetch('/api/delete_person', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name: name })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(`${name} has been successfully deleted.`);
+                        loadPeopleList();
+                    } else {
+                        alert(`Error deleting ${name}: ${data.error}`);
+                    }
+                })
+                .catch(err => {
+                    alert(`Error deleting ${name}: ${err.message}`);
+                });
             }
         }
 
@@ -199,22 +1110,59 @@
                         let errorRate = stats.total_requests > 0 ?
                             (stats.errors / stats.total_requests * 100).toFixed(1) : 0;
                         
-                        document.getElementById('recognitionRate').textContent = rate + '%';
-                        document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
-                        document.getElementById('totalRequests').textContent = stats.total_requests;
-                        document.getElementById('errorRate').textContent = errorRate + '%';
-                        
-                        if (!recognitionActive) {
-                            let statusEl = document.getElementById('status');
-                            if (!data.model_loaded) {
-                                statusEl.innerHTML = '⚠️ Model not loaded - basic detection only';
-                                statusEl.className = 'status warning';
+                        const liveTab = document.getElementById('live-tab');
+                        if (liveTab.classList.contains('active')) {
+                            if (!recognitionActive) {
+                                const statusEl = document.getElementById('status');
+                                if (!data.model_loaded) {
+                                    statusEl.innerHTML = '⚠️ Model not loaded - basic detection only';
+                                    statusEl.className = 'status warning';
+                                } else {
+                                    statusEl.innerHTML = '✅ System ready - model loaded';
+                                    statusEl.className = 'status success';
+                                }
                             }
+                        }
+                        
+                        const analyticsTab = document.getElementById('analytics-tab');
+                        if (analyticsTab.classList.contains('active')) {
+                            document.getElementById('recognitionRate').textContent = rate + '%';
+                            document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
+                            document.getElementById('totalRequests').textContent = stats.total_requests;
+                            
+                            let enhancedCount = (stats.weighted_average_applied || 0) + 
+                                              (stats.temporal_smoothing_applied || 0) + 
+                                              (stats.outliers_removed || 0);
+                            document.getElementById('enhancedMethods').textContent = enhancedCount;
                         }
                     }
                 })
-                .catch(err => console.error('Stats error:', err));
-        }, 3000);
+                .catch(err => console.error('Health check error:', err));
+        }, 5000);
+
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('/api/health')
+                .then(response => response.json())
+                .then(data => {
+                    const statusEl = document.getElementById('status');
+                    if (data.model_loaded) {
+                        statusEl.innerHTML = '✅ System ready - enhanced model loaded';
+                        statusEl.className = 'status success';
+                    } else {
+                        statusEl.innerHTML = '⚠️ Model not loaded - check server logs';
+                        statusEl.className = 'status warning';
+                    }
+                    
+                    console.log('Server features:', data.features || {});
+                    console.log('Enhanced methods:', data.averaging_methods || {});
+                })
+                .catch(err => {
+                    console.error('Initial health check failed:', err);
+                    const statusEl = document.getElementById('status');
+                    statusEl.innerHTML = '❌ Cannot connect to server';
+                    statusEl.className = 'status error';
+                });
+        });
     </script>
 </body>
 </html>

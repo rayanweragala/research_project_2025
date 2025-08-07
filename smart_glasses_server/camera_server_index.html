@@ -279,8 +279,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎥 Smart Glasses Camera Simulation</h1>
-            <div class="subtitle">Testing interface for face recognition system</div>
+            <h1>Camera Simulation</h1>
+            <div class="subtitle">Testing interface for camera server</div>
         </div>
         
         <div class="grid">
@@ -323,41 +323,28 @@
                 </div>
                 
                 <button class="button start" onclick="refreshStatus()">
-                    🔄 Refresh Status
+                    Refresh Status
                 </button>
-                
                 <button class="button register" onclick="testConnection()">
-                    🔗 Test Connection
+                    Test Connection
                 </button>
-                
                 <button class="button warning" onclick="restartStream()">
-                    📹 Restart Stream
+                    Restart Stream
                 </button>
-
                 <button class="button stop" onclick="stopCamera()">
-                    ⏹️ Stop Camera
+                    Stop Camera
                 </button>
                 
                 <div class="connection-info">
-                    <h4>📱 Android App Setup</h4>
-                    <div>Update  MockSmartGlassesConnector:</div>
+                    <h4>App Setup</h4>
+                    <div>MockSmartGlassesConnector:</div>
                     <div class="ip-address" id="serverUrl">Loading...</div>
-                    <div style="font-size: 0.9em; margin-top: 10px; color: #666;">
-                        Replace the CAMERA_SERVER_URL in Android code with the URL above.
-                    </div>
+                    
                 </div>
             </div>
         </div>
 
         <div class="stats">
-            <div class="stat-box">
-                <h4>Recognition Rate</h4>
-                <div class="stat-value" id="recognitionRate">0%</div>
-            </div>
-            <div class="stat-box">
-                <h4>Avg Processing Time</h4>
-                <div class="stat-value" id="avgTime">0ms</div>
-            </div>
             <div class="stat-box">
                 <h4>Total Requests</h4>
                 <div class="stat-value" id="totalRequests">0</div>
@@ -380,7 +367,7 @@
         
         function refreshStatus() {
             console.log('Manual refresh requested...');
-            addLog('🔄 Refreshing system status...');
+            addLog('Refreshing system status...');
             checkServerHealth();
   
             var img = document.getElementById('cameraStream');
@@ -395,7 +382,7 @@
 
         function stopCamera() {
             console.log('Stop camera requested...');
-            addLog('⏹️ Stopping camera stream...');
+            addLog('Stopping camera stream...');
             
             fetch('/api/camera/stop', {
                 method: 'POST',
@@ -416,24 +403,24 @@
                     
                     var streamingStatus = document.getElementById('streamingStatus');
                     if (streamingStatus) {
-                        streamingStatus.textContent = '⚪ Stopped';
+                        streamingStatus.textContent = 'Stopped';
                     }
                     
-                    addLog('📴 Camera streaming stopped successfully', 'success');
+                    addLog('Camera streaming stopped successfully', 'success');
                 } else {
-                    addLog('❌ Failed to stop camera: ' + (data.message || 'Unknown error'), 'error');
+                    addLog('Failed to stop camera: ' + (data.message || 'Unknown error'), 'error');
                 }
             })
             .catch(function(error) {
                 console.error('Stop camera error:', error);
-                addLog('❌ Error stopping camera: ' + error.message, 'error');
+                addLog('Error stopping camera: ' + error.message, 'error');
             });
         }
         
         function testConnection() {
             var testClientId = 'web_test_' + Date.now();
             console.log('Testing connection with client ID:', testClientId);
-            addLog('🔗 Testing connection...');
+            addLog('Testing connection...');
             
             fetch('/api/camera/connect', {
                 method: 'POST',
@@ -450,7 +437,7 @@
             .then(function(data) {
                 console.log('Connect response:', data);
                 if (data.success) {
-                    addLog('✅ Connection test successful! ' + data.message, 'success');
+                    addLog('Connection test successful! ' + data.message, 'success');
                     
                     setTimeout(function() {
                         fetch('/api/camera/disconnect', {
@@ -464,18 +451,18 @@
                         });
                     }, 1000);
                 } else {
-                    addLog('❌ Connection test failed! ' + (data.message || 'Unknown error'), 'error');
+                    addLog('Connection test failed! ' + (data.message || 'Unknown error'), 'error');
                 }
             })
             .catch(function(error) {
                 console.error('Connection test error:', error);
-                addLog('❌ Connection test error! ' + error.message, 'error');
+                addLog('Connection test error! ' + error.message, 'error');
             });
         }
         
         function restartStream() {
             console.log('Stream restart requested...');
-            addLog('🔄 Restarting camera stream...');
+            addLog('Restarting camera stream...');
 
             fetch('/api/camera/stop', {
                 method: 'POST',
@@ -490,12 +477,12 @@
                     if (img) {
                         img.src = '/api/camera/preview?t=' + Date.now();
                     }
-                    addLog('🔄 Stream restarted. Check the camera feed.', 'success');
+                    addLog('Stream restarted. Check the camera feed.', 'success');
                 }, 1000);
             })
             .catch(function(error) {
                 console.error('Error during restart:', error);
-                addLog('❌ Restart failed: ' + error.message, 'error');
+                addLog('Restart failed: ' + error.message, 'error');
                 refreshStatus();
             });
         }
@@ -540,7 +527,7 @@
 
                 var healthStatus = document.getElementById('healthStatus');
                 if (healthStatus) {
-                    healthStatus.textContent = data.status === 'healthy' ? '✅ Healthy' : '❌ Error';
+                    healthStatus.textContent = data.status === 'healthy' ? 'Healthy' : 'Error';
                 }
 
                 var clientCount = document.getElementById('clientCount');
@@ -550,12 +537,12 @@
                 
                 var cameraStatus = document.getElementById('cameraStatus');
                 if (cameraStatus) {
-                    cameraStatus.textContent = data.camera_available ? '✅ Available' : '❌ No Camera';
+                    cameraStatus.textContent = data.camera_available ? 'Available' : 'No Camera';
                 }
     
                 var streamingStatus = document.getElementById('streamingStatus');
                 if (streamingStatus) {
-                    streamingStatus.textContent = data.is_streaming ? '🔴 Live' : '⚪ Stopped';
+                    streamingStatus.textContent = data.is_streaming ? 'Live' : 'Stopped';
                 }
                 
                 var resolution = document.getElementById('resolution');
@@ -574,7 +561,7 @@
                 console.error('Error updating UI:', error);
                 var healthStatus = document.getElementById('healthStatus');
                 if (healthStatus) {
-                    healthStatus.textContent = '❌ Update Error';
+                    healthStatus.textContent = 'Update Error';
                 }
             }
         }
@@ -585,7 +572,7 @@
             var logClass = type === 'error' ? 'error' : (type === 'success' ? 'recognized' : 'unknown');
             
             var logHtml = `<div class="recognition-result ${logClass}">
-                <strong>${timestamp}</strong>: ${message}
+                <strong>${timestamp}</strong>: ${message.replace(/[\u{1F300}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F680}-\u{1F6FF}\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u{1F201}-\u{1F251}\u{1F004}-\u{1F0CF}\u{1F170}-\u{1F171}\u{1F17E}-\u{1F17F}\u{1F18E}\u{3030}\u{2B50}\u{2B06}\u{2194}-\u{21AA}\u{2B05}-\u{2B07}\u{2934}-\u{2935}\u{25AA}-\u{25AB}\u{25FE}-\u{25FF}\u{25B6}\u{25C0}\u{25FB}-\u{25FC}\u{25FD}-\u{25FE}\u{25A0}-\u{25A1}\u{25B2}-\u{25B3}\u{25B4}-\u{25B5}\u{25B6}-\u{25B7}\u{25B8}-\u{25B9}\u{25BA}-\u{25BB}\u{25BC}-\u{25BD}\u{25BE}-\u{25BF}\u{25C0}-\u{25C1}\u{25C2}-\u{25C3}\u{25C4}-\u{25C5}\u{25C6}-\u{25C7}\u{25C8}-\u{25C9}\u{25CA}-\u{25CB}\u{25CC}-\u{25CD}\u{25CE}-\u{25CF}\u{25D0}-\u{25D1}\u{25D2}-\u{25D3}\u{25D4}-\u{25D5}\u{25D6}-\u{25D7}\u{25D8}-\u{25D9}\u{25DA}-\u{25DB}\u{25DC}-\u{25DD}\u{25DE}-\u{25DF}\u{25E0}-\u{25E1}\u{25E2}-\u{25E3}\u{25E4}-\u{25E5}\u{25E6}-\u{25E7}\u{25E8}-\u{25E9}\u{25EA}-\u{25EB}\u{25EC}-\u{25ED}\u{25EE}-\u{25EF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')}
             </div>`;
             
             resultsDiv.innerHTML = logHtml + resultsDiv.innerHTML;
@@ -605,7 +592,7 @@
                     serverUrlElement.textContent = serverUrl;
                 }
 
-                addLog('🚀 Smart Glasses interface initialized');
+                addLog('Smart Glasses interface initialized');
                 checkServerHealth();
                 healthCheckInterval = setInterval(checkServerHealth, 5000);
                 
@@ -614,7 +601,7 @@
                     cameraStream.onerror = function() {
                         console.log('Camera stream error - camera may not be available');
                         this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgdmlld0JveD0iMCAwIDY0MCA0ODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI2NDAiIGhlaWdodD0iNDgwIiBmaWxsPSIjMzMzIi8+Cjx0ZXh0IHg9IjMyMCIgeT0iMjQwIiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjQiPkNhbWVyYSBOb3QgQXZhaWxhYmxlPC90ZXh0Pgo8L3N2Zz4K';
-                        addLog('⚠️ Camera stream not available', 'error');
+                        addLog('Camera stream not available', 'error');
                     };
                 }
                 
@@ -622,7 +609,7 @@
                 
             } catch (error) {
                 console.error('Initialization error:', error);
-                addLog('❌ Initialization error: ' + error.message, 'error');
+                addLog('Initialization error: ' + error.message, 'error');
             }
         }
 

@@ -49,6 +49,9 @@
         <activity android:name=".AddFriendActivity"
                   android:windowSoftInputMode="adjustResize"
                   android:exported="false" />
+                  
+        <activity android:name=".SettingsActivity"
+                  android:exported="false" />
         <meta-data
                 android:name="com.google.mlkit.vision.DEPENDENCIES"
                 android:value="face" />

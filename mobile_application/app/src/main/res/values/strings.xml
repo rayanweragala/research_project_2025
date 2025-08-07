@@ -116,4 +116,15 @@
 
     <string name="system_active">System active</string>
     <string name="ready_for_operation">Ready for operation</string>
+    
+    <!-- Settings Activity Strings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">Application Preferences</string>
+    <string name="language_selection_title">Language Selection</string>
+    <string name="language_english">English</string>
+    <string name="language_sinhala">සිංහල (Sinhala)</string>
+    <string name="back_button">BACK</string>
+    <string name="back_button_desc">Return to main menu</string>
+    <string name="settings_screen_open">Settings screen opened. Select your preferred language.</string>
+    <string name="settings_back_to_main">Going back to main menu</string>
 </resources>
