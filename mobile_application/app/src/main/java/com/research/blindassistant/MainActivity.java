@@ -45,7 +45,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         speak(StringResources.getString(Main.ASSISTANT_READY));
     }
-
     private void initializeComponents() {
         btnPeopleRecognition = findViewById(R.id.btnPeopleRecognition);
         btnVoiceCommand = findViewById(R.id.btnVoiceCommand);
