@@ -1790,11 +1790,191 @@ def get_daily_report():
         logging.error(f"Daily report error: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/recognition_logs', methods=['GET'])
+def get_recognition_logs():
+    """Get recognition logs for a specific date"""
+    try:
+        date_str = request.args.get('date')
+        if date_str:
+            try:
+                report_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        else:
+            report_date = datetime.now().date()
+        
+        conn = sqlite3.connect(face_server.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT person_name, confidence, quality_score, processing_time, method_used, timestamp
+            FROM recognition_logs 
+            WHERE DATE(timestamp) = ?
+            ORDER BY timestamp DESC
+        ''', (report_date,))
+        
+        logs = []
+        total_confidence = 0
+        total_quality = 0
+        
+        for row in cursor.fetchall():
+            person_name, confidence, quality, proc_time, method, timestamp = row
+            logs.append({
+                'person_name': person_name,
+                'confidence': confidence,
+                'quality_score': quality,
+                'processing_time': proc_time,
+                'method_used': method,
+                'timestamp': timestamp
+            })
+            total_confidence += confidence
+            total_quality += quality
+        
+        conn.close()
+        
+        avg_confidence = total_confidence / len(logs) if logs else 0
+        avg_quality = total_quality / len(logs) if logs else 0
+        
+        return jsonify({
+            'logs': logs,
+            'total_logs': len(logs),
+            'avg_confidence': avg_confidence,
+            'avg_quality': avg_quality
+        })
+        
+    except Exception as e:
+        logging.error(f"Recognition logs error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/historical_data', methods=['GET'])
+def get_historical_data():
+    """Get historical performance data for the last 7 days"""
+    try:
+        date_str = request.args.get('date')
+        if date_str:
+            try:
+                base_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        else:
+            base_date = datetime.now().date()
+        
+        conn = sqlite3.connect(face_server.db_path)
+        cursor = conn.cursor()
+        
+        # Get data for the last 7 days
+        days = []
+        total_recognitions = 0
+        best_day = 0
+        best_day_date = None
+        
+        for i in range(7):
+            check_date = base_date - timedelta(days=i)
+            
+            cursor.execute('''
+                SELECT COUNT(*) as recognition_count
+                FROM recognition_logs 
+                WHERE DATE(timestamp) = ?
+            ''', (check_date,))
+            
+            count = cursor.fetchone()[0]
+            days.append({
+                'date': str(check_date),
+                'recognitions': count
+            })
+            
+            total_recognitions += count
+            if count > best_day:
+                best_day = count
+                best_day_date = check_date
+        
+        conn.close()
+        
+        avg_daily = total_recognitions / 7
+        trend = "Stable"
+        if len(days) >= 2:
+            recent_avg = sum(d['recognitions'] for d in days[:3]) / 3
+            older_avg = sum(d['recognitions'] for d in days[3:]) / 4 if len(days) > 3 else 0
+            if recent_avg > older_avg * 1.2:
+                trend = "Increasing"
+            elif recent_avg < older_avg * 0.8:
+                trend = "Decreasing"
+        
+        return jsonify({
+            'days': days,
+            'total_recognitions': total_recognitions,
+            'avg_daily': round(avg_daily, 1),
+            'best_day': best_day_date.strftime('%b %d') if best_day_date else "None",
+            'trend': trend,
+            'total_days': len([d for d in days if d['recognitions'] > 0])
+        })
+        
+    except Exception as e:
+        logging.error(f"Historical data error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/generate_test_data', methods=['POST'])
+def generate_test_data():
+    """Generate test recognition data for today"""
+    try:
+        conn = sqlite3.connect(face_server.db_path)
+        cursor = conn.cursor()
+        
+        # Get registered people
+        cursor.execute("SELECT name FROM people")
+        people = [row[0] for row in cursor.fetchall()]
+        
+        if not people:
+            return jsonify({
+                'success': False,
+                'error': 'No registered people found. Please register at least one person first.'
+            }), 400
+        
+        # Generate test data for today
+        today = datetime.now().date()
+        test_data_count = 0
+        
+        # Generate 10-20 test recognitions
+        import random
+        for i in range(random.randint(10, 20)):
+            person = random.choice(people)
+            confidence = random.uniform(0.6, 0.95)
+            quality = random.uniform(0.4, 0.8)
+            processing_time = random.uniform(0.1, 0.5)
+            method = random.choice(['standard', 'weighted_average', 'temporal', 'enhanced'])
+            
+            # Random time during the day
+            hour = random.randint(8, 20)
+            minute = random.randint(0, 59)
+            second = random.randint(0, 59)
+            timestamp = datetime.combine(today, datetime.min.time().replace(hour=hour, minute=minute, second=second))
+            
+            cursor.execute('''
+                INSERT INTO recognition_logs 
+                (person_name, confidence, quality_score, processing_time, method_used, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (person, confidence, quality, processing_time, method, timestamp))
+            
+            test_data_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Generated {test_data_count} test recognition records for today',
+            'records_created': test_data_count
+        })
+        
+    except Exception as e:
+        logging.error(f"Test data generation error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/test', methods=['GET'])
 def test_endpoint():
     """Test endpoint to check if server is working"""
     return jsonify({
-        'status': 'Enhanced Server is working',
+        'status': ' Server is working',
         'model_loaded': face_server.model_loaded,
         'features': {
             'enhanced_registration': True,

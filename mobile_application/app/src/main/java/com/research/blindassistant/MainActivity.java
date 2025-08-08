@@ -85,15 +85,28 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                     new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSION_REQUEST_RECORD_AUDIO);
         }
 
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        speechRecognizer.setRecognitionListener((RecognitionListener) this);
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Log.e("MainActivity", "Speech recognition is not available on this device");
+            updateStatus("Speech recognition not available on this device");
+            speak("Speech recognition is not available on this device", StringResources.getCurrentLocale());
+            return;
+        }
 
-        speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        try {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            speechRecognizer.setRecognitionListener(this);
 
-        updateSpeechRecognitionLanguage();
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+            speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+
+            updateSpeechRecognitionLanguage();
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        } catch (Exception e) {
+            Log.e("MainActivity", "Error initializing speech recognizer: " + e.getMessage());
+            updateStatus("Error initializing speech recognition");
+            speak("Error initializing speech recognition", StringResources.getCurrentLocale());
+        }
     }
     private void setupButtons() {
         btnPeopleRecognition.setOnClickListener(v -> {
@@ -148,23 +161,47 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void startListening(){
         if(!isListening){
-            isListening = true;
-            updateStatus("Listening for commands...");
-            speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
-            updateSpeechRecognitionLanguage();
-            speechRecognizer.startListening(speechRecognizerIntent);
-            btnVoiceCommand.setText("Stop listening");
-            btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
+            if (speechRecognizer == null) {
+                Log.e("MainActivity", "Speech recognizer is null, reinitializing...");
+                setupVoiceRecognition();
+                if (speechRecognizer == null) {
+                    updateStatus("Speech recognition not available");
+                    speak("Speech recognition is not available", StringResources.getCurrentLocale());
+                    return;
+                }
+            }
+            
+            try {
+                isListening = true;
+                updateStatus("Listening for commands...");
+                speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
+                updateSpeechRecognitionLanguage();
+                speechRecognizer.startListening(speechRecognizerIntent);
+                btnVoiceCommand.setText("Stop listening");
+                btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
+            } catch (Exception e) {
+                Log.e("MainActivity", "Error starting speech recognition: " + e.getMessage());
+                isListening = false;
+                updateStatus("Error starting speech recognition");
+                speak("Error starting speech recognition", StringResources.getCurrentLocale());
+            }
         }
     }
 
     private void stopListening() {
         if (isListening) {
             isListening = false;
-            speechRecognizer.stopListening();
-            updateStatus("Voice recognition stopped");
-            btnVoiceCommand.setText("Voice Assistant");
-            btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
+            try {
+                if (speechRecognizer != null) {
+                    speechRecognizer.stopListening();
+                }
+                updateStatus("Voice recognition stopped");
+                btnVoiceCommand.setText("Voice Assistant");
+                btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
+            } catch (Exception e) {
+                Log.e("MainActivity", "Error stopping speech recognition: " + e.getMessage());
+                updateStatus("Error stopping speech recognition");
+            }
         }
     }
 
@@ -297,36 +334,48 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     @Override
     public void onError(int error) {
         String errorMessage;
+        Log.e("MainActivity", "Speech recognition error: " + error);
+        
         switch (error) {
             case SpeechRecognizer.ERROR_AUDIO:
                 errorMessage = StringResources.getString(Main.ERROR_AUDIO);
+                Log.e("MainActivity", "Audio recording error");
                 break;
-//            case SpeechRecognizer.ERROR_CLIENT:
-//                errorMessage = StringResources.getString(Main.ERROR_CLIENT);
-//                break;
+            case SpeechRecognizer.ERROR_CLIENT:
+                errorMessage = StringResources.getString(Main.ERROR_CLIENT);
+                Log.e("MainActivity", "Client side error");
+                break;
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
                 errorMessage = StringResources.getString(Main.ERROR_INSUFFICIENT_PERMISSIONS);
+                Log.e("MainActivity", "Insufficient permissions");
                 break;
             case SpeechRecognizer.ERROR_NETWORK:
                 errorMessage = StringResources.getString(Main.ERROR_NETWORK);
+                Log.e("MainActivity", "Network error");
                 break;
             case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
                 errorMessage = StringResources.getString(Main.ERROR_NETWORK_TIMEOUT);
+                Log.e("MainActivity", "Network timeout");
                 break;
             case SpeechRecognizer.ERROR_NO_MATCH:
                 errorMessage = StringResources.getString(Main.ERROR_NO_MATCH);
+                Log.d("MainActivity", "No speech match found");
                 break;
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
                 errorMessage = StringResources.getString(Main.ERROR_RECOGNIZER_BUSY);
+                Log.e("MainActivity", "Speech recognizer busy");
                 break;
             case SpeechRecognizer.ERROR_SERVER:
                 errorMessage = StringResources.getString(Main.ERROR_SERVER);
+                Log.e("MainActivity", "Server error");
                 break;
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
                 errorMessage = StringResources.getString(Main.ERROR_SPEECH_TIMEOUT);
+                Log.d("MainActivity", "Speech timeout");
                 break;
             default:
-                errorMessage = "Speech recognition error";
+                errorMessage = "Speech recognition error: " + error;
+                Log.e("MainActivity", "Unknown speech recognition error: " + error);
                 break;
         }
 
@@ -416,7 +465,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             ttsEngine.shutdown();
         }
         if(speechRecognizer != null){
-            speechRecognizer.destroy();
+            try {
+                speechRecognizer.stopListening();
+                speechRecognizer.destroy();
+            } catch (Exception e) {
+                Log.e("MainActivity", "Error destroying speech recognizer: " + e.getMessage());
+            }
         }
     }
 
