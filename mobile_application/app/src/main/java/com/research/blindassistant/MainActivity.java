@@ -10,6 +10,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -17,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Locale;
 
@@ -68,11 +70,13 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
 
         Locale currentLocale = StringResources.getCurrentLocale();
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLocale.toString());
 
         if (currentLocale.equals(StringResources.LOCALE_SINHALA)) {
             speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK");
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_CONFIDENCE_SCORES, true);
             speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "si-LK");
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
         }
 
         speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
@@ -81,7 +85,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         btnPeopleRecognition.setOnClickListener(v -> {
             speak(StringResources.getString(Main.FACE_RECOGNITION_STARTING), StringResources.getCurrentLocale());
             updateStatus("Opening face recognition...");
-            startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
+            new android.os.Handler().postDelayed(() -> {
+                startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
+            },1500);
         });
 
         btnVoiceCommand.setOnClickListener(v -> {
@@ -89,15 +95,19 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         });
 
         btnNavigation.setOnClickListener(v -> {
+            stopListening();
             speak(StringResources.getString(Main.NAVIGATION_STARTING), StringResources.getCurrentLocale());
             updateStatus("Loading navigation...");
 
         });
 
         btnSettings.setOnClickListener(v -> {
+            stopListening();
             speak(StringResources.getString(Main.SETTINGS_OPENING), StringResources.getCurrentLocale());
             updateStatus("Loading settings...");
-            startActivity(new Intent(this, SettingsActivity.class));
+            new android.os.Handler().postDelayed(() -> {
+                startActivity(new Intent(this, SettingsActivity.class));
+            }, 1500);
         });
 
     }
@@ -145,23 +155,89 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void processVoiceCommand(String command){
         String lowerCommand = command.toLowerCase().trim();
+        Log.d("VoiceCommand", "Received command: " + command);
+
+        double faceMatchScore = calculateSimilarity(lowerCommand, "muhuna");
+        double navMatchScore = calculateSimilarity(lowerCommand, "sanchalanaya");
+        double settingsMatchScore = calculateSimilarity(lowerCommand, "sakesum");
+
+        Log.d("VoiceCommand", "Face match score: " + faceMatchScore);
+        Log.d("VoiceCommand", "Navigation match score: " + navMatchScore);
+        Log.d("VoiceCommand", "Settings match score: " + settingsMatchScore);
+
 
         if(lowerCommand.equals("face") || lowerCommand.contains("people") ||
-        lowerCommand.contains("recognition") || lowerCommand.contains("recognize")){
-            speak(StringResources.getString(Main.OPENING_FACE_RECOGNITION), StringResources.LOCALE_SINHALA);
-            startActivity(new Intent(this,EnhancedFaceRecognitionActivity.class));
-        } else if(lowerCommand.contains("navigation") || lowerCommand.contains("navigate")){
-            speak(StringResources.getString(Main.OPENING_NAVIGATION), StringResources.LOCALE_SINHALA);
-        } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting")){
-            speak(StringResources.getString(Main.SETTINGS_OPENING), StringResources.LOCALE_SINHALA);
-        } else if(lowerCommand.contains("stop") || lowerCommand.contains("exit")){
-            speak(StringResources.getString(Main.STOPPING_VOICE_COMMANDS), StringResources.LOCALE_SINHALA);
+                lowerCommand.contains("recognition") || lowerCommand.contains("recognize") ||
+                lowerCommand.contains("muhuna") || lowerCommand.contains("muhuṇa") ||
+                lowerCommand.contains("mohana") || lowerCommand.contains("mohuna") ||
+                lowerCommand.contains("මුහුණ") || lowerCommand.contains("හඳුනාගැනීම") ||
+                lowerCommand.contains("handunaganeema") || lowerCommand.contains("handuna") ||
+                lowerCommand.startsWith("muh") || lowerCommand.startsWith("moh")) {
             stopListening();
+            speak(StringResources.getString(Main.OPENING_FACE_RECOGNITION), StringResources.getCurrentLocale());
+            startActivity(new Intent(this,EnhancedFaceRecognitionActivity.class));
+
+        } else if(lowerCommand.contains("navigation") || lowerCommand.contains("navigate") ||
+                lowerCommand.contains("sanchalanaya") || lowerCommand.contains("සංචාලනය") ||
+                lowerCommand.contains("sanchalan") || lowerCommand.contains("direction")) {
+            stopListening();
+            speak(StringResources.getString(Main.OPENING_NAVIGATION), StringResources.getCurrentLocale());
+
+        } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting") ||
+                lowerCommand.contains("sakesum") || lowerCommand.contains("සැකසුම්") ||
+                lowerCommand.contains("sakasuma") || lowerCommand.contains("config")) {
+            stopListening();
+            speak(StringResources.getString(Main.SETTINGS_OPENING), StringResources.getCurrentLocale());
+            startActivity(new Intent(this, SettingsActivity.class));
+
+        } else if(lowerCommand.contains("stop") || lowerCommand.contains("exit") ||
+                lowerCommand.contains("navattanna") || lowerCommand.contains("නවත්වන්න") ||
+                lowerCommand.contains("navatta") || lowerCommand.contains("thamba")) {
+
+            speak(StringResources.getString(Main.STOPPING_VOICE_COMMANDS), StringResources.getCurrentLocale());
+            stopListening();
+
         } else {
-            speak(StringResources.getString(Main.COMMAND_NOT_RECOGNIZED), StringResources.LOCALE_SINHALA);
+            Log.d("VoiceCommand", "Command not recognized: " + command);
+            speak("Command not recognized. You said: " + command, StringResources.getCurrentLocale());
+
+            speak("Try saying: face, navigation, settings, or stop", StringResources.getCurrentLocale());
         }
     }
 
+    private double calculateSimilarity(String s1, String s2) {
+        if (s1 == null || s2 == null) return 0.0;
+
+        int maxLength = Math.max(s1.length(), s2.length());
+        if (maxLength == 0) return 1.0;
+
+        int editDistance = levenshteinDistance(s1, s2);
+        return 1.0 - ((double) editDistance / maxLength);
+    }
+
+    private int levenshteinDistance(String s1, String s2) {
+        int[][] dp = new int[s1.length() + 1][s2.length() + 1];
+
+        for (int i = 0; i <= s1.length(); i++) {
+            dp[i][0] = i;
+        }
+        for (int j = 0; j <= s2.length(); j++) {
+            dp[0][j] = j;
+        }
+
+        for (int i = 1; i <= s1.length(); i++) {
+            for (int j = 1; j <= s2.length(); j++) {
+                int cost = (s1.charAt(i-1) == s2.charAt(j-1)) ? 0 : 1;
+                dp[i][j] = Math.min(Math.min(
+                                dp[i-1][j] + 1,
+                                dp[i][j-1] + 1),
+                        dp[i-1][j-1] + cost
+                );
+            }
+        }
+
+        return dp[s1.length()][s2.length()];
+    }
     private void updateStatus(String message) {
         statusText.setText(message);
         statusText.setContentDescription(message);
@@ -210,9 +286,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             case SpeechRecognizer.ERROR_AUDIO:
                 errorMessage = StringResources.getString(Main.ERROR_AUDIO);
                 break;
-            case SpeechRecognizer.ERROR_CLIENT:
-                errorMessage = StringResources.getString(Main.ERROR_CLIENT);
-                break;
+//            case SpeechRecognizer.ERROR_CLIENT:
+//                errorMessage = StringResources.getString(Main.ERROR_CLIENT);
+//                break;
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
                 errorMessage = StringResources.getString(Main.ERROR_INSUFFICIENT_PERMISSIONS);
                 break;
@@ -250,9 +326,21 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     public void onResults(Bundle results){
         ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+        float[] confidenceScores = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
+
         if(matches != null && !matches.isEmpty()){
+
             String recognizedText = matches.get(0);
-            updateStatus("Recognized: " + recognizedText);
+            Log.d("VoiceCommand", "Raw matches: " + matches.toString());
+
+            try {
+                String logMessage = new String(recognizedText.getBytes("UTF-8"), "UTF-8");
+                Log.d("VoiceCommand", "Recognized Sinhala: " + logMessage);
+            } catch (UnsupportedEncodingException e) {
+                Log.e("VoiceCommand", "Encoding error: " + e.getMessage());
+            }
+
+            updateStatus("හඳුනාගත් විධානය: " + recognizedText);
             processVoiceCommand(recognizedText);
         }
 
@@ -261,7 +349,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 if(isListening){
                     speechRecognizer.startListening(speechRecognizerIntent);
                 }
-            },1000);
+            },2000);
         }
     }
 
@@ -321,7 +409,17 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     protected void onPause() {
         super.onPause();
         if(isListening){
-            speechRecognizer.stopListening();
+            stopListening();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (ttsEngine != null && !isListening) {
+            new android.os.Handler().postDelayed(() -> {
+                startListening();
+            }, 1000);
         }
     }
 }
