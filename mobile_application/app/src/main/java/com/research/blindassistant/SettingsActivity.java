@@ -25,6 +25,7 @@ public class SettingsActivity extends AppCompatActivity implements TextToSpeech.
 
     private TextView titleText;
     private TextView languageSelectionText;
+    private TextView statusText;
     private RadioGroup languageRadioGroup;
     private RadioButton englishRadioButton;
     private RadioButton sinhalaRadioButton;
@@ -54,7 +55,8 @@ public class SettingsActivity extends AppCompatActivity implements TextToSpeech.
         languageRadioGroup = findViewById(R.id.languageRadioGroup);
         englishRadioButton = findViewById(R.id.englishRadioButton);
         sinhalaRadioButton = findViewById(R.id.sinhalaRadioButton);
-        backButton = findViewById(R.id.backButton);
+        backButton = findViewById(R.id.btnBack);
+        statusText = findViewById(R.id.statusText);
     }
 
     private void setupVoiceRecognition() {
@@ -65,15 +67,26 @@ public class SettingsActivity extends AppCompatActivity implements TextToSpeech.
                 public void onResults(Bundle results) {
                     ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                     if (matches != null && !matches.isEmpty()) {
-                        processVoiceCommand(matches.get(0));
+                        String recognizedText = matches.get(0);
+                        updateStatus("recognized text: " + recognizedText);
+                        processVoiceCommand(recognizedText);
                     }
                 }
 
-                @Override public void onReadyForSpeech(Bundle params) {}
-                @Override public void onBeginningOfSpeech() {}
+                @Override public void onReadyForSpeech(Bundle params) {
+                    updateStatus("Voice recognition stopped");
+
+                }
+                @Override public void onBeginningOfSpeech() {
+                    updateStatus("Listening...");
+
+                }
                 @Override public void onRmsChanged(float rmsdB) {}
                 @Override public void onBufferReceived(byte[] buffer) {}
-                @Override public void onEndOfSpeech() {}
+                @Override public void onEndOfSpeech() {
+                    updateStatus("Processing speech...");
+
+                }
                 @Override
                 public void onError(int error) {
                     isListening = false;
@@ -83,7 +96,12 @@ public class SettingsActivity extends AppCompatActivity implements TextToSpeech.
                         new Handler().postDelayed(() -> startListening(), 1000);
                     }
                 }
-                @Override public void onPartialResults(Bundle partialResults) {}
+                @Override public void onPartialResults(Bundle partialResults) {
+                    ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if(matches !=null && !matches.isEmpty()){
+                        updateStatus("Hearing: " + matches.get(0));
+                    }
+                }
                 @Override public void onEvent(int eventType, Bundle params) {}
             });
 
@@ -97,6 +115,7 @@ public class SettingsActivity extends AppCompatActivity implements TextToSpeech.
     private void startListening() {
         if (speechRecognizer != null && !isListening) {
             isListening = true;
+            updateStatus("Listening for commands...");
             Locale currentLocale = StringResources.getCurrentLocale();
             speechRecognizerIntent.removeExtra(RecognizerIntent.EXTRA_LANGUAGE);
             if (currentLocale.equals(StringResources.LOCALE_SINHALA)) {
@@ -169,6 +188,7 @@ public class SettingsActivity extends AppCompatActivity implements TextToSpeech.
     private void setupBackButton() {
         backButton.setOnClickListener(v -> {
             speak(StringResources.getString("settings_back_to_main"), StringResources.getCurrentLocale());
+            updateStatus("Opening main menu....");
             finish();
         });
     }
@@ -203,6 +223,10 @@ public class SettingsActivity extends AppCompatActivity implements TextToSpeech.
         return langCode.equals("si") ? StringResources.LOCALE_SINHALA : StringResources.LOCALE_ENGLISH;
     }
 
+    private void updateStatus(String message){
+        statusText.setText(message);
+        statusText.setContentDescription(message);
+    }
     private void speak(String text) {
         speak(text, null);
     }

@@ -34,10 +34,32 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private boolean isListening = false;
     private static final int PERMISSION_REQUEST_RECORD_AUDIO = 1;
 
+    private void loadSavedLanguagePreference() {
+        String langCode = getSharedPreferences("blind_assistant_prefs",MODE_PRIVATE)
+                .getString("selected_language", "en");
+        Locale savedLocale = langCode.equals("si") ? StringResources.LOCALE_SINHALA : StringResources.LOCALE_ENGLISH;
+        StringResources.setLocale(savedLocale);
+    }
+
+    private void updateSpeechRecognitionLanguage() {
+        Locale currentLocale = StringResources.getCurrentLocale();
+        speechRecognizerIntent.removeExtra(RecognizerIntent.EXTRA_LANGUAGE);
+        if (currentLocale.equals(StringResources.LOCALE_SINHALA)) {
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK");
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_CONFIDENCE_SCORES, true);
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "si-LK");
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
+        } else {
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US");
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        loadSavedLanguagePreference();
 
         ttsEngine = new TextToSpeech(this, this);
         initializeComponents();
@@ -56,6 +78,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void setupVoiceRecognition() {
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
@@ -69,16 +92,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
 
-        Locale currentLocale = StringResources.getCurrentLocale();
-
-        if (currentLocale.equals(StringResources.LOCALE_SINHALA)) {
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK");
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_CONFIDENCE_SCORES, true);
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "si-LK");
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
-        }
-
+        updateSpeechRecognitionLanguage();
         speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
     }
     private void setupButtons() {
@@ -137,6 +151,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             isListening = true;
             updateStatus("Listening for commands...");
             speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
+            updateSpeechRecognitionLanguage();
             speechRecognizer.startListening(speechRecognizerIntent);
             btnVoiceCommand.setText("Stop listening");
             btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
@@ -340,7 +355,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 Log.e("VoiceCommand", "Encoding error: " + e.getMessage());
             }
 
-            updateStatus("හඳුනාගත් විධානය: " + recognizedText);
+            updateStatus("recognized text: " + recognizedText);
             processVoiceCommand(recognizedText);
         }
 
@@ -416,6 +431,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     @Override
     protected void onResume() {
         super.onResume();
+        loadSavedLanguagePreference();
+        if(speechRecognizer != null){
+            updateSpeechRecognitionLanguage();
+        }
         if (ttsEngine != null && !isListening) {
             new android.os.Handler().postDelayed(() -> {
                 startListening();

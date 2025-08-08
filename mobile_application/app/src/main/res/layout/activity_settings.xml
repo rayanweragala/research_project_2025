@@ -38,6 +38,41 @@
             android:textColor="@color/secondary_text"
             android:layout_marginBottom="12dp" />
 
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/results_background"
+                android:padding="12dp">
+
+            <ImageView
+                    android:id="@+id/voiceStatusIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_mic"
+                    android:layout_marginEnd="8dp"
+                    android:contentDescription="@string/voice_status_indicator_desc"
+                    app:tint="@color/accent_text" />
+
+            <TextView
+                    android:id="@+id/statusText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/ready_status"
+                    android:textColor="@color/primary_text"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+            <View
+                    android:id="@+id/statusIndicator"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:background="@drawable/recording_dot"
+                    android:layout_marginStart="8dp" />
+
+        </LinearLayout>
     </LinearLayout>
 
     <ScrollView
@@ -50,7 +85,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Language Selection Section -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -65,7 +99,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/language_selection_title"
                     android:textSize="18sp"
-                    android:textColor="@color/accent_text"
+                    android:textColor="@color/background_primary"
                     android:textStyle="bold"
                     android:layout_marginBottom="16dp" />
 
@@ -83,7 +117,8 @@
                         android:textSize="16sp"
                         android:padding="12dp"
                         android:layout_marginBottom="8dp"
-                        android:background="@drawable/button_secondary"
+                        android:background="@drawable/button_accent"
+                        android:textColor="@color/button_text_accent"
                         android:button="@null"
                         android:drawableEnd="?android:attr/listChoiceIndicatorSingle"
                         android:drawablePadding="8dp"
@@ -96,7 +131,8 @@
                         android:text="@string/language_sinhala"
                         android:textSize="16sp"
                         android:padding="12dp"
-                        android:background="@drawable/button_secondary"
+                        android:background="@drawable/button_accent"
+                        android:textColor="@color/button_text_accent"
                         android:button="@null"
                         android:drawableEnd="?android:attr/listChoiceIndicatorSingle"
                         android:drawablePadding="8dp"
@@ -109,20 +145,57 @@
         </LinearLayout>
 
     </ScrollView>
-
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
     <Button
-        android:id="@+id/backButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:id="@+id/btnBack"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:layout_weight="1"
+        android:layout_marginStart="4dp"
         android:text="@string/back_button"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:background="@drawable/button_primary"
-        android:textColor="@color/button_text_primary"
+        android:textSize="12sp"
+        android:background="@drawable/button_neutral"
+        android:textColor="@color/button_text_neutral"
         android:contentDescription="@string/back_button_desc"
         android:drawableStart="@drawable/ic_arrow_back"
-        android:drawablePadding="12dp"
-        android:gravity="center"
-        android:padding="12dp" />
+        android:drawablePadding="6dp"
+        android:gravity="center"/>
 
+    </LinearLayout>
+
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/voice_helper_background"
+            android:padding="8dp"
+            android:gravity="center_vertical">
+
+        <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginEnd="8dp"
+                android:src="@drawable/ic_mic"
+                android:contentDescription="@string/voice_commands_available_desc" />
+
+        <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/voice_commands_settings"
+                android:textSize="10sp"
+                android:textColor="@color/voice_helper_text" />
+
+        <ImageView
+                android:id="@+id/voiceIndicator"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:src="@drawable/voice_listening_indicator"
+                android:contentDescription="@string/voice_listening_indicator_desc"
+                android:visibility="gone" />
+
+    </LinearLayout>
 </LinearLayout>

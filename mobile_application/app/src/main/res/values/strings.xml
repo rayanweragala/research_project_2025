@@ -127,4 +127,6 @@
     <string name="back_button_desc">Return to main menu</string>
     <string name="settings_screen_open">Settings screen opened. Select your preferred language.</string>
     <string name="settings_back_to_main">Going back to main menu</string>
+    <string name="voice_commands_settings">Voice Commands: \'SINHALA\', \'ENGLISH\'</string>
+
 </resources>

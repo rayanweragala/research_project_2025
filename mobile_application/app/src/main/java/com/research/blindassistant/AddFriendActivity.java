@@ -262,19 +262,11 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         }
     }
 
-    /**
-     * Speak the given text using the text-to-speech engine
-     * @param text The text to speak
-     */
+
     private void speak(String text) {
         speak(text, null);
     }
-    
-    /**
-     * Speak the given text using the text-to-speech engine with a specific locale
-     * @param text The text to speak
-     * @param locale The locale to use (null for current locale)
-     */
+
     private void speak(String text, Locale locale) {
         if (ttsEngine != null && isTtsReady) {
             if (locale != null && locale != ttsEngine.getLanguage()) {
