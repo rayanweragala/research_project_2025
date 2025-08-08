@@ -592,6 +592,26 @@ class EnhancedFaceRecognitionServer:
                 'model_loaded': self.model_loaded,
                 'method_used': 'error'
             }
+        
+    def frame_to_base64_quality(self, frame, quality=85):
+        """Convert frame to base64 string with adjustable quality"""
+        try:
+            if frame is None:
+                return None
+        
+            quality = max(10, min(100, quality))
+        
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+            if not ret:
+                logging.error("Failed to encode frame to JPEG")
+                return None
+        
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            return jpg_as_text
+    
+        except Exception as e:
+            logging.error(f"Error converting frame to base64: {e}")
+            return None
 
     def _match_with_averaging(self, encoding, quality):
         """Enhanced matching with multiple averaging methods"""
@@ -1834,10 +1854,15 @@ def stop_camera():
             'timestamp': datetime.now().isoformat()
         })
     
+    
 @app.route('/api/camera/frame', methods=['GET'])
 def get_camera_frame():
     """Get current camera frame with enhanced face recognition"""
     try:
+        include_image = request.args.get('include_image', 'true').lower() == 'true'
+        image_quality = int(request.args.get('quality', '85'))
+        recognition_only = request.args.get('recognition_only', 'false').lower() == 'true'
+        
         if not face_server.camera_active:
             logging.warning("Camera not active")
             return jsonify({
@@ -1875,22 +1900,10 @@ def get_camera_frame():
                     'confidence': 0.0,
                     'timestamp': datetime.now().isoformat()
                 }), 500
-        
-        frame_base64 = face_server.frame_to_base64(frame)
-        if frame_base64 is None:
-            return jsonify({
-                'error': 'Failed to encode frame',
-                'image': '',
-                'recognized': False,
-                'message': 'Frame encoding failed',
-                'confidence': 0.0,
-                'timestamp': datetime.now().isoformat()
-            }), 500
-        
+
         recognition_result = face_server.recognize_face_with_averaging(frame)
         
-        return jsonify({
-            'image': frame_base64,
+        response_data = {
             'recognized': recognition_result.get('recognized', False),
             'message': recognition_result.get('message', 'Processing...'),
             'confidence': recognition_result.get('confidence', 0.0),
@@ -1900,7 +1913,22 @@ def get_camera_frame():
             'method_used': recognition_result.get('method_used', 'unknown'),
             'name': recognition_result.get('name', None),
             'timestamp': datetime.now().isoformat()
-        })
+        }
+
+        if include_image and not recognition_only:
+            frame_base64 = face_server.frame_to_base64_quality(frame, image_quality)
+            if frame_base64 is None:
+                return jsonify({
+                    'error': 'Failed to encode frame',
+                    **response_data
+                }), 500
+            response_data['image'] = frame_base64
+        elif include_image:
+            response_data['image'] = ''
+        else:
+            pass
+            
+        return jsonify(response_data)
         
     except Exception as e:
         logging.error(f"Frame endpoint error: {e}")
