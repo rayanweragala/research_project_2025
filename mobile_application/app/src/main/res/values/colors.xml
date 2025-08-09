@@ -1,22 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="accent_primary">#00E676</color>
-    <color name="accent_secondary">#00BCD4</color>
+    <color name="accent_primary">#667eea</color>
+    <color name="accent_secondary">#00cec9</color>
     <!-- Background -->
-    <color name="background_primary">#121212</color>
-    <color name="header_background_disconnected">#FFEBEE</color>
-    <color name="header_background_connecting">#FFF3E0</color>
-    <color name="header_background_connected">#E8F5E8</color>
-    <color name="header_background_error">#FFEBEE</color>
+    <color name="background_primary">#1a1a2e</color>
+    <color name="header_background_disconnected">#ff7675</color>
+    <color name="header_background_connecting">#fdcb6e</color>
+    <color name="header_background_connected">#55efc4</color>
+    <color name="header_background_error">#ff7675</color>
 
     <!-- Text -->
-    <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#B3B3B3</color>
+    <color name="text_primary">#2d3436</color>
+    <color name="text_secondary">#636e72</color>
 
     <!-- Action -->
-    <color name="success">#4CAF50</color>
-    <color name="danger">#F44336</color>
-
+    <color name="success">#55efc4</color>
+    <color name="danger">#ff7675</color>
 
     <!-- Accessibility High Contrast -->
     <color name="high_contrast_background">#000000</color>
@@ -50,15 +49,15 @@
     <color name="accent_secondary_pressed">#E67E22</color>
     <color name="accent_secondary_focused">#F1C40F</color>
 
-    <color name="background_color">#F5F5F5</color>
-    <color name="header_background">#E3F2FD</color>
+    <color name="background_color">#f8f9fa</color>
+    <color name="header_background">#4facfe</color>
     <color name="camera_background">#000000</color>
-    <color name="results_background">#FFFFFF</color>
+    <color name="results_background">#ffffff</color>
     <color name="instruction_background">#FFF3E0</color>
 
     <!-- Text Colors -->
-    <color name="primary_text">#212121</color>
-    <color name="secondary_text">#424242</color>
+    <color name="primary_text">#2d3436</color>
+    <color name="secondary_text">#636e72</color>
     <color name="instruction_text">#BF360C</color>
     <color name="performance_text">#666666</color>
     <color name="status_disconnected_text">#D32F2F</color>
@@ -85,7 +84,7 @@
     <!-- Status Colors -->
     <color name="status_warning">#FF9800</color>
     <color name="status_error">#F44336</color>
-    <color name="accent_text">#2196F3</color>
+    <color name="accent_text">#667eea</color>
     <color name="divider_color">#E0E0E0</color>
     <color name="status_disconnected">#F44336</color>
     <color name="status_connecting">#FF9800</color>
@@ -125,5 +124,81 @@
     <color name="status_active">#007BFF</color>
     <color name="status_active_text">#004085</color>
     <color name="header_background_active">#CCE5FF</color>
+
+    <color name="primary_gradient_start">#667eea</color>
+    <color name="primary_gradient_end">#764ba2</color>
+    <color name="secondary_gradient_start">#f093fb</color>
+    <color name="secondary_gradient_end">#f5576c</color>
+
+    <color name="background_primary_new">#1a1a2e</color>
+    <color name="background_secondary_new">#16213e</color>
+    <color name="background_tertiary_new">#0f3460</color>
+
+    <color name="header_gradient_start">#4facfe</color>
+    <color name="header_gradient_end">#00f2fe</color>
+    <color name="header_title_text">#ffffff</color>
+    <color name="header_subtitle_text">#e8f4fd</color>
+    <color name="header_icon_tint">#ffffff</color>
+
+    <color name="card_gradient_start">#ffffff</color>
+    <color name="card_gradient_end">#f8faff</color>
+    <color name="card_shadow">#1a000000</color>
+
+    <color name="status_active_gradient_start">#11998e</color>
+    <color name="status_active_gradient_end">#38ef7d</color>
+    <color name="status_warning_gradient_start">#ffeaa7</color>
+    <color name="status_warning_gradient_end">#fab1a0</color>
+    <color name="status_error_gradient_start">#ff7675</color>
+    <color name="status_error_gradient_end">#fd79a8</color>
+
+    <color name="radio_selected_gradient_start">#667eea</color>
+    <color name="radio_selected_gradient_end">#764ba2</color>
+    <color name="radio_unselected_gradient_start">#f8f9fa</color>
+    <color name="radio_unselected_gradient_end">#e9ecef</color>
+    <color name="radio_text_selected">#ffffff</color>
+    <color name="radio_text_unselected">#495057</color>
+
+    <color name="button_primary_gradient_start">#667eea</color>
+    <color name="button_primary_gradient_end">#764ba2</color>
+    <color name="button_secondary_gradient_start">#ffeaa7</color>
+    <color name="button_secondary_gradient_end">#fab1a0</color>
+    <color name="button_accent_gradient_start">#74b9ff</color>
+    <color name="button_accent_gradient_end">#0984e3</color>
+
+    <color name="text_primary_enhanced">#2d3436</color>
+    <color name="text_secondary_enhanced">#636e72</color>
+    <color name="text_accent_enhanced">#667eea</color>
+    <color name="text_on_primary">#ffffff</color>
+
+    <color name="settings_card_start">#ffffff</color>
+    <color name="settings_card_end">#f1f2f6</color>
+    <color name="section_title_text">#2d3436</color>
+    <color name="section_icon_tint">#667eea</color>
+    <color name="secondary_icon_tint">#a4b0be</color>
+    <color name="placeholder_text">#b2bec3</color>
+
+    <color name="status_icon_active">#00cec9</color>
+    <color name="status_text_primary">#2d3436</color>
+    <color name="pulse_color_start">#00cec9</color>
+    <color name="pulse_color_end">#55efc4</color>
+
+
+    <color name="voice_helper_gradient_start">#a29bfe</color>
+    <color name="voice_helper_gradient_end">#6c5ce7</color>
+    <color name="voice_helper_text_enhanced">#ffffff</color>
+    <color name="voice_helper_icon">#ffffff</color>
+
+    <color name="back_button_gradient_start">#636e72</color>
+    <color name="back_button_gradient_end">#74b9ff</color>
+    <color name="back_button_text">#ffffff</color>
+
+    <color name="glass_overlay">#33ffffff</color>
+    <color name="glass_border">#66ffffff</color>
+
+    <color name="shadow_light">#0d000000</color>
+    <color name="shadow_medium">#1a000000</color>
+    <color name="shadow_strong">#33000000</color>
+
+    <color name="radio_button_text_selector">@color/radio_text_selected</color>
 
 </resources>

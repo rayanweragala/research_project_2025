@@ -263,6 +263,10 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
          }
 
         isRecognizing = true;
+        try {
+            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("ui_recognition_active", true).apply();
+        } catch (Exception ignored) {}
         btnStartRecognition.setVisibility(View.GONE);
         btnStopRecognition.setVisibility(View.VISIBLE);
         statusIndicator.setImageResource(R.drawable.ic_visibility_on);
@@ -281,6 +285,10 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private void stopRecognition() {
         if (isRecognizing) {
             isRecognizing = false;
+            try {
+                getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                        .edit().putBoolean("ui_recognition_active", false).apply();
+            } catch (Exception ignored) {}
             btnStartRecognition.setVisibility(View.VISIBLE);
             btnStopRecognition.setVisibility(View.GONE);
             statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
@@ -621,6 +629,11 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
             stopRecognition();
         }
 
+        try {
+            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("ui_recognition_active", false).apply();
+        } catch (Exception ignored) {}
+
         if (ttsEngine != null) {
             ttsEngine.stop();
             ttsEngine.shutdown();
@@ -646,6 +659,10 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         if (isRecognizing) {
             stopRecognition();
         }
+        try {
+            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("ui_recognition_active", false).apply();
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -654,6 +671,16 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         if (serverConnected && !isRecognizing) {
             testServerConnection();
         }
+
+        try {
+            Intent svc = new Intent(this, SmartGlassesForegroundService.class)
+                    .setAction(SmartGlassesForegroundService.ACTION_START);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(svc);
+            } else {
+                startService(svc);
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override

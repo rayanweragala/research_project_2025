@@ -17,6 +17,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.app.NotificationManagerCompat;
 
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
@@ -33,6 +34,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private Intent speechRecognizerIntent;
     private boolean isListening = false;
     private static final int PERMISSION_REQUEST_RECORD_AUDIO = 1;
+    private static final int PERMISSION_REQUEST_NOTIFICATIONS = 2;
 
     private void loadSavedLanguagePreference() {
         String langCode = getSharedPreferences("blind_assistant_prefs",MODE_PRIVATE)
@@ -68,6 +70,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         addHapticFeedback();
 
         speak(StringResources.getString(Main.ASSISTANT_READY), StringResources.getCurrentLocale());
+
+        ensureForegroundMonitoring();
     }
     private void initializeComponents() {
         btnPeopleRecognition = findViewById(R.id.btnPeopleRecognition);
@@ -106,6 +110,32 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             Log.e("MainActivity", "Error initializing speech recognizer: " + e.getMessage());
             updateStatus("Error initializing speech recognition");
             speak("Error initializing speech recognition", StringResources.getCurrentLocale());
+        }
+    }
+
+    private void ensureForegroundMonitoring() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
+                        PERMISSION_REQUEST_NOTIFICATIONS);
+            }
+        }
+
+        try {
+            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("monitoring_enabled", true).apply();
+
+            Intent svc = new Intent(this, SmartGlassesForegroundService.class);
+            svc.setAction(SmartGlassesForegroundService.ACTION_START);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(svc);
+            } else {
+                startService(svc);
+            }
+        } catch (Exception e) {
+            Log.e("MainActivity", "Failed to start monitoring service", e);
         }
     }
     private void setupButtons() {
@@ -455,6 +485,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 speak(StringResources.getString(Main.MIC_PERMISSION_REQUIRED), StringResources.LOCALE_SINHALA);
             }
         }
+        if (requestCode == PERMISSION_REQUEST_NOTIFICATIONS) {
+            // No-op; foreground service still shows ongoing notification if denied
+        }
     }
 
     @Override
@@ -494,5 +527,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 startListening();
             }, 1000);
         }
+
+        try {
+            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("ui_recognition_active", false).apply();
+        } catch (Exception ignored) {}
     }
 }

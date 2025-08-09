@@ -13,6 +13,15 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
                      android:maxSdkVersion="32" />
 
+    <!-- Notifications for background monitoring (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Foreground service permissions (Android 14 foreground types) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Auto-start on boot if user enabled monitoring -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -52,6 +61,22 @@
                   
         <activity android:name=".SettingsActivity"
                   android:exported="false" />
+
+        <!-- Foreground monitoring service -->
+        <service
+                android:name=".SmartGlassesForegroundService"
+                android:exported="false"
+                android:foregroundServiceType="dataSync|microphone" />
+
+        <!-- Restart monitoring on device boot if previously enabled -->
+        <receiver
+                android:name=".BootReceiver"
+                android:enabled="true"
+                android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
         <meta-data
                 android:name="com.google.mlkit.vision.DEPENDENCIES"
                 android:value="face" />

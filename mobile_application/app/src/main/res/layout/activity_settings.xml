@@ -1,59 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/background_color"
-    android:padding="16dp"
-    tools:context=".SettingsActivity">
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              xmlns:tools="http://schemas.android.com/tools"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:background="@drawable/gradient_background_settings"
+              android:padding="16dp"
+              tools:context=".SettingsActivity">
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:background="@color/header_background"
-        android:padding="20dp"
-        android:layout_marginBottom="16dp">
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/header_card_gradient"
+            android:padding="24dp"
+            android:layout_marginBottom="20dp"
+            android:elevation="8dp">
+
+        <ImageView
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_settings_gear"
+                android:layout_marginBottom="8dp"
+                android:contentDescription="Settings Icon"
+                app:tint="@color/header_icon_tint" />
 
         <TextView
-            android:id="@+id/settingsTitleText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/settings_title"
-            android:textColor="@color/primary_text"
-            android:textSize="28sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp"
-            android:contentDescription="@string/settings_title"
-            android:fontFamily="sans-serif-medium" />
+                android:id="@+id/settingsTitleText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_title"
+                android:textColor="@color/header_title_text"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="6dp"
+                android:contentDescription="@string/settings_title"
+                android:fontFamily="sans-serif-light"
+                android:letterSpacing="0.05" />
 
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/settings_subtitle"
-            android:textSize="14sp"
-            android:textColor="@color/secondary_text"
-            android:layout_marginBottom="12dp" />
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_subtitle"
+                android:textSize="14sp"
+                android:textColor="@color/header_subtitle_text"
+                android:layout_marginBottom="12dp"
+                android:alpha="0.8" />
 
         <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:background="@color/results_background"
-                android:padding="12dp">
+                android:background="@drawable/status_card_background"
+                android:padding="12dp"
+                android:elevation="4dp">
 
             <ImageView
                     android:id="@+id/voiceStatusIcon"
                     android:layout_width="20dp"
                     android:layout_height="20dp"
-                    android:src="@drawable/ic_mic"
-                    android:layout_marginEnd="8dp"
+                    android:src="@drawable/ic_mic_premium"
+                    android:layout_marginEnd="10dp"
                     android:contentDescription="@string/voice_status_indicator_desc"
-                    app:tint="@color/accent_text" />
+                    app:tint="@color/status_icon_active" />
 
             <TextView
                     android:id="@+id/statusText"
@@ -61,108 +73,188 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/ready_status"
-                    android:textColor="@color/primary_text"
+                    android:textColor="@color/status_text_primary"
                     android:textSize="14sp"
-                    android:textStyle="bold" />
+                    android:textStyle="normal"
+                    android:fontFamily="sans-serif-medium" />
 
             <View
                     android:id="@+id/statusIndicator"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:background="@drawable/recording_dot"
-                    android:layout_marginStart="8dp" />
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:background="@drawable/pulse_indicator"
+                    android:layout_marginStart="10dp" />
 
         </LinearLayout>
     </LinearLayout>
 
     <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scrollbars="none">
 
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@color/results_background"
-                android:padding="16dp"
-                android:layout_marginBottom="16dp">
+                android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/languageSelectionText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/language_selection_title"
-                    android:textSize="18sp"
-                    android:textColor="@color/background_primary"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="16dp" />
-
-                <RadioGroup
-                    android:id="@+id/languageRadioGroup"
+            <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    android:orientation="vertical"
+                    android:background="@drawable/settings_card_gradient"
+                    android:padding="16dp"
+                    android:layout_marginBottom="16dp"
+                    android:elevation="6dp">
 
-                    <RadioButton
-                        android:id="@+id/englishRadioButton"
+                <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/language_english"
-                        android:textSize="16sp"
-                        android:padding="12dp"
-                        android:layout_marginBottom="8dp"
-                        android:background="@drawable/button_accent"
-                        android:textColor="@color/button_text_accent"
-                        android:button="@null"
-                        android:drawableEnd="?android:attr/listChoiceIndicatorSingle"
-                        android:drawablePadding="8dp"
-                        android:gravity="center_vertical" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="16dp">
 
-                    <RadioButton
-                        android:id="@+id/sinhalaRadioButton"
+                    <ImageView
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:src="@drawable/ic_language_globe"
+                            android:layout_marginEnd="10dp"
+                            android:contentDescription="Language Icon"
+                            app:tint="@color/section_icon_tint" />
+
+                    <TextView
+                            android:id="@+id/languageSelectionText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/language_selection_title"
+                            android:textSize="18sp"
+                            android:textColor="@color/section_title_text"
+                            android:textStyle="bold"
+                            android:fontFamily="sans-serif-medium" />
+
+                </LinearLayout>
+
+                <RadioGroup
+                        android:id="@+id/languageRadioGroup"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/language_sinhala"
-                        android:textSize="16sp"
-                        android:padding="12dp"
-                        android:background="@drawable/button_accent"
-                        android:textColor="@color/button_text_accent"
-                        android:button="@null"
-                        android:drawableEnd="?android:attr/listChoiceIndicatorSingle"
-                        android:drawablePadding="8dp"
-                        android:gravity="center_vertical" />
+                        android:orientation="vertical">
+
+                    <RadioButton
+                            android:id="@+id/englishRadioButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/language_english"
+                            android:textSize="16sp"
+                            android:padding="12dp"
+                            android:layout_marginBottom="8dp"
+                            android:background="@drawable/radio_button_gradient_selector"
+                            android:textColor="@color/radio_button_text_selector"
+                            android:button="@null"
+                            android:drawableEnd="@drawable/custom_radio_selector"
+                            android:drawablePadding="10dp"
+                            android:gravity="center_vertical"
+                            android:fontFamily="sans-serif"
+                            android:elevation="2dp"
+                            android:stateListAnimator="@animator/button_elevation" />
+
+                    <RadioButton
+                            android:id="@+id/sinhalaRadioButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/language_sinhala"
+                            android:textSize="16sp"
+                            android:padding="12dp"
+                            android:background="@drawable/radio_button_gradient_selector"
+                            android:textColor="@color/radio_button_text_selector"
+                            android:button="@null"
+                            android:drawableEnd="@drawable/custom_radio_selector"
+                            android:drawablePadding="10dp"
+                            android:gravity="center_vertical"
+                            android:fontFamily="sans-serif"
+                            android:elevation="2dp"
+                            android:stateListAnimator="@animator/button_elevation" />
 
                 </RadioGroup>
+
+            </LinearLayout>
+
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/settings_card_secondary"
+                    android:padding="16dp"
+                    android:layout_marginBottom="16dp"
+                    android:elevation="4dp"
+                    android:alpha="0.6">
+
+                <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="10dp">
+
+                    <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_features"
+                            android:layout_marginEnd="10dp"
+                            android:contentDescription="Features Icon"
+                            app:tint="@color/secondary_icon_tint" />
+
+                    <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Additional Features"
+                            android:textSize="16sp"
+                            android:textColor="@color/section_title_text"
+                            android:textStyle="bold"
+                            android:fontFamily="sans-serif-medium" />
+
+                </LinearLayout>
+
+                <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="coming soon..."
+                        android:textSize="12sp"
+                        android:textColor="@color/placeholder_text"
+                        android:fontFamily="sans-serif"
+                        android:alpha="0.7" />
 
             </LinearLayout>
 
         </LinearLayout>
 
     </ScrollView>
+
     <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
-    <Button
-        android:id="@+id/btnBack"
-        android:layout_width="0dp"
-        android:layout_height="48dp"
-        android:layout_weight="1"
-        android:layout_marginStart="4dp"
-        android:text="@string/back_button"
-        android:textSize="12sp"
-        android:background="@drawable/button_neutral"
-        android:textColor="@color/button_text_neutral"
-        android:contentDescription="@string/back_button_desc"
-        android:drawableStart="@drawable/ic_arrow_back"
-        android:drawablePadding="6dp"
-        android:gravity="center"/>
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+        <Button
+                android:id="@+id/btnBack"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="@string/back_button"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:background="@drawable/back_button_gradient"
+                android:textColor="@color/back_button_text"
+                android:contentDescription="@string/back_button_desc"
+                android:drawableStart="@drawable/ic_arrow_back"
+                android:drawablePadding="6dp"
+                android:gravity="center"
+                android:fontFamily="sans-serif-medium"
+                android:elevation="4dp"
+                android:stateListAnimator="@animator/button_press_animation" />
 
     </LinearLayout>
 
@@ -170,32 +262,36 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:background="@color/voice_helper_background"
-            android:padding="8dp"
-            android:gravity="center_vertical">
+            android:background="@drawable/voice_helper_gradient"
+            android:padding="10dp"
+            android:gravity="center_vertical"
+            android:elevation="2dp">
 
         <ImageView
                 android:layout_width="16dp"
                 android:layout_height="16dp"
                 android:layout_marginEnd="8dp"
                 android:src="@drawable/ic_mic"
-                android:contentDescription="@string/voice_commands_available_desc" />
+                android:contentDescription="@string/voice_commands_available_desc"
+                app:tint="@color/voice_helper_icon" />
 
         <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="@string/voice_commands_settings"
-                android:textSize="10sp"
-                android:textColor="@color/voice_helper_text" />
+                android:textSize="11sp"
+                android:textColor="@color/voice_helper_text_enhanced"
+                android:fontFamily="sans-serif" />
 
         <ImageView
                 android:id="@+id/voiceIndicator"
-                android:layout_width="12dp"
-                android:layout_height="12dp"
-                android:src="@drawable/voice_listening_indicator"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/voice_listening_pulse"
                 android:contentDescription="@string/voice_listening_indicator_desc"
                 android:visibility="gone" />
 
     </LinearLayout>
+
 </LinearLayout>
