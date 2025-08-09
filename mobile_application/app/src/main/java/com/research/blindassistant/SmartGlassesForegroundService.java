@@ -35,11 +35,6 @@ import android.speech.tts.TextToSpeech;
 import java.util.ArrayList;
 import java.util.Locale;
 
-/**
- * Foreground service that continuously monitors the smart glasses/servers and keeps the app active
- * for blind users even when the UI is closed. It posts clear voice/visual notifications about the
- * connection state so the user knows if glasses are active or not.
- */
 public class SmartGlassesForegroundService extends Service implements TextToSpeech.OnInitListener {
 
     public static final String ACTION_START = "com.research.blindassistant.action.START";
@@ -68,7 +63,6 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
         }
     };
 
-    // Background voice: TTS for spoken alerts + lightweight SpeechRecognizer for basic commands
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private SpeechRecognizer speechRecognizer;
@@ -92,7 +86,6 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
             Log.w(TAG, "TTS init failed", e);
         }
 
-        // Prepare speech recognizer for simple background voice commands
         setupBackgroundSpeechRecognizer();
 
         handler.post(periodicCheck);
