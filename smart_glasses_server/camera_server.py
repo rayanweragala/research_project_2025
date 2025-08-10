@@ -12,6 +12,16 @@ import socket
 import os
 from flask_cors import CORS
 
+try:
+    from picamera2 import Picamera2
+    from libcamera import controls
+    import libcamera
+    RPI_CAMERA_AVAILABLE = True
+    print("Picamera2 available - Raspberry Pi camera support enabled")
+except ImportError:
+    RPI_CAMERA_AVAILABLE = False
+    print("Picamera2 not available - falling back to OpenCV camera") 
+
 app = Flask(__name__)
 CORS(app) 
 logging.basicConfig(level=logging.INFO)
@@ -30,30 +40,115 @@ class SmartGlassesCameraServer:
         self.camera_height = 480
         self.fps = 15
         self.camera_index = -1  
+        self.picamera2 = None
+        self.camera_mode = None
+        self.rpi_camera_config = None
         
         
     def init_camera(self):
-        """Initialize camera with optimal settings"""
-        if self.camera is not None:
+        """Initialize camera with RPi camera priority, falling back to USB"""
+        
+        if(self.camera is not None and self.camera_mode == 'usb') or (self.camera2 is not None and self.cmera_mode=='rpi'):
             return True
-            
+        
         try:
+            if self.init_rpi_camera():
+                return True
+            
+            return self.init_usb_camera()
+            
+        except Exception as e:
+            print(f"Failed to initialize any camera: {e}")
+            self.release_camera()
+            return False
+        
+    def init_rpi_camera(self):
+        """Initialize Raspberry Pi camera with Picamera2"""
+
+        try:
+            if not RPI_CAMERA_AVAILABLE:
+                print("Raspberry Pi camera support not available")
+                return False
+            
+            print("Initializing Raspberry Pi camera...")
+            self.picamera2 = Picamera2()
+
+            camera_config = self.picamera2.create_still_configuration(
+                
+                main={"format":"RGB888","size": (self.camera_width, self.camera_height)},
+                controls={
+                    "FrameRate":self.fps,
+                    "ExposureTime": 8000,
+                    "AnalogueGain": 1.0,
+                    "Brightness": 0.1,
+                    "Contrast": 0.2,
+                    "Saturation": 1.1,
+                    "Sharpness": 1.1,
+                    "ColorGains": [1.4, 1.2],
+                }
+            )
+
+            self.picamera2.configure(camera_config)
+            self.rpi_camera_config = camera_config
+
+            self.picamera2.start()
+            time.sleep(4)
+
+            test_frame = self.picamera2.capture_array()
+            if test_frame is None or test_frame.size == 0:
+                test_frame_bgr = cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR)
+                mean_intensity = np.mean(test_frame_bgr)
+
+                if 15 < mean_intensity < 240:
+                    self.camera_mode = 'rpi'
+                    self.camera_index = 0
+                    print(f"Raspberry Pi camera initialized successfully")
+                    print(f"Camera resolution: {test_frame.shape}")
+                    print(f"Frame intensity: {mean_intensity:.1f}")
+                    return True
+                else:
+                    print(f"RPi camera test frame has invalid intensity: {mean_intensity}")
+
+            print("RPi camera test failed")
+            self.picamera2.stop()
+            self.picamera2.close()
+            self.picamera2 = None
+            return False
+        
+        except Exception as e:
+            print(f"RPi camera initialization failed: {e}")
+            if self.picamera2:
+                try:
+                    self.picamera2.stop()
+                    self.picamera2.close()
+                    self.picamera2 = None
+                except:
+                    pass
+            return False
+        
+    def init_usb_camera(self):
+        """Initialize USB camera as fallback"""
+        try:
+            print("Initializing USB camera...")
+        
             for camera_index in range(3):
                 test_camera = cv2.VideoCapture(camera_index)
                 if test_camera.isOpened():
                     test_camera.release() 
                     time.sleep(0.1) 
-                    
+                
                     self.camera = cv2.VideoCapture(camera_index)
                     if self.camera.isOpened():
                         self.camera_index = camera_index
-                        print(f"Camera {camera_index} opened successfully")
+                        self.camera_mode = 'usb'
+                        print(f"USB camera {camera_index} opened successfully")
                         break
                     else:
                         self.camera = None
-            
+        
             if self.camera is None or not self.camera.isOpened():
-                raise Exception("No camera found or unable to open camera")
+                print("No USB camera found")
+                return False
 
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_width)
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_height)
@@ -64,27 +159,43 @@ class SmartGlassesCameraServer:
             ret, test_frame = self.camera.read()
             if not ret:
                 self.release_camera()
-                raise Exception("Camera opened but cannot read frames")
-            
-            print(f"Camera initialized: {self.camera_width}x{self.camera_height} @ {self.fps}fps")
+                print("USB camera opened but cannot read frames")
+                return False
+        
+            print(f"USB camera initialized: {self.camera_width}x{self.camera_height} @ {self.fps}fps")
             return True
-            
+        
         except Exception as e:
-            print(f"Failed to initialize camera: {e}")
+            print(f"Failed to initialize USB camera: {e}")
             self.release_camera()
             return False
     
     def release_camera(self):
-        """Properly release camera resources"""
+        """Release camera resources (RPi or USB)"""
         try:
             with self.camera_lock:
+                if self.picamera2 is not None:
+                    print("Releasing RPi camera...")
+                    try:
+                        self.picamera2.stop()
+                        self.picamera2.close()
+                        self.picamera2 = None
+                        print("RPi camera released successfully")
+                    except Exception as e:
+                        print(f"Error releasing RPi camera: {e}")
+
                 if self.camera is not None:
-                    print(f"Releasing camera {self.camera_index}")
-                    self.camera.release()
-                    self.camera = None
-                    self.camera_index = -1
-                    time.sleep(0.5)  
-                    print("Camera released successfully")
+                    print(f"Releasing USB camera {self.camera_index}")
+                    try:
+                        self.camera.release()
+                        self.camera = None
+                        print("USB camera released successfully")
+                    except Exception as e:
+                        print(f"Error releasing USB camera: {e}")
+            
+                self.camera_index = -1
+                self.camera_mode = None
+                time.sleep(0.5)
         except Exception as e:
             print(f"Error releasing camera: {e}")
     
@@ -128,27 +239,54 @@ class SmartGlassesCameraServer:
         print("Camera streaming stopped and resources released")
     
     def _camera_capture_loop(self):
-        """Main camera capture loop"""
+        """Main camera capture loop (RPi or USB)"""
         frame_count = 0
         start_time = time.time()
         consecutive_failures = 0
         max_failures = 5
+
+
+        print(f"Starting camera capture loop (mode: {self.camera_mode})")
         
-        while self.is_streaming and self.camera is not None:
+        while self.is_streaming:
             try:
-                with self.camera_lock:
-                    if self.camera is None:
-                        break
-                    ret, frame = self.camera.read()
-                
-                if not ret:
-                    consecutive_failures += 1
-                    print(f"Failed to read frame from camera (attempt {consecutive_failures})")
+                frame = None
+            
+                if self.camera_mode == 'rpi' and self.picamera2:
+                    try:
+                        frame_rgb = self.picamera2.capture_array()
+                        if frame_rgb is not None and frame_rgb.size > 0:
+                            frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                        else:
+                            print("RPi camera: Empty frame")
+                            consecutive_failures += 1
+                    except Exception as e:
+                        print(f"RPi camera capture error: {e}")
+                        consecutive_failures += 1
                     
+                elif self.camera_mode == 'usb' and self.camera:
+                    try:
+                        with self.camera_lock:
+                            if self.camera is None:
+                                break
+                            ret, frame = self.camera.read()
+                    
+                        if not ret or frame is None:
+                            print("USB camera: Failed to read frame")
+                            consecutive_failures += 1
+                            frame = None
+                    except Exception as e:
+                        print(f"USB camera capture error: {e}")
+                        consecutive_failures += 1
+                        frame = None
+                else:
+                    print("No camera available for capture")
+                    break
+            
+                if frame is None:
                     if consecutive_failures >= max_failures:
                         print("Too many consecutive failures, stopping stream")
                         break
-                        
                     time.sleep(0.1)
                     continue
 
@@ -158,25 +296,30 @@ class SmartGlassesCameraServer:
 
                 timestamp = time.time()
                 current_fps = frame_count/(time.time()-start_time) if (time.time()-start_time) > 0 else 0
-                frame_info = f"Frame: {frame_count} | FPS: {current_fps:.1f} | Cam: {self.camera_index}"
-                cv2.putText(frame, frame_info, (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                camera_info = f"Smart Glasses | Mode: {self.camera_mode.upper()} | "
+                frame_info = f"Frame: {frame_count} | FPS: {current_fps:.1f}"
+            
+                cv2.putText(frame, camera_info, (10, 25), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                cv2.putText(frame, frame_info, (10, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
                 self.latest_frame = frame.copy()
-                
+        
                 try:
                     self.frame_queue.put_nowait({
                         'frame': frame,
                         'timestamp': timestamp,
-                        'frame_count': frame_count
+                        'frame_count': frame_count,
+                        'camera_mode': self.camera_mode
                     })
                 except:
                     pass
-                
+            
                 frame_count += 1
 
                 time.sleep(1.0 / self.fps)
-                
+            
             except Exception as e:
                 print(f"Error in camera capture loop: {e}")
                 consecutive_failures += 1
@@ -184,8 +327,8 @@ class SmartGlassesCameraServer:
                     print("Too many errors in capture loop, stopping")
                     break
                 time.sleep(0.1)
-        
-        print("Camera capture loop ended")
+    
+        print(f"Camera capture loop ended (mode: {self.camera_mode})")
     
     def get_latest_frame_base64(self):
         """Get the latest frame as base64 encoded JPEG"""
@@ -193,16 +336,19 @@ class SmartGlassesCameraServer:
             return None
             
         try:
+            quality = 90 if self.camera_mode == 'rpi' else 85
             _, buffer = cv2.imencode('.jpg', self.latest_frame, 
-                                   [cv2.IMWRITE_JPEG_QUALITY, 85])
-            
+                               [cv2.IMWRITE_JPEG_QUALITY, quality])
+        
             frame_base64 = base64.b64encode(buffer).decode('utf-8')
             
             return {
                 'image': frame_base64,
                 'timestamp': time.time(),
                 'width': self.latest_frame.shape[1],
-                'height': self.latest_frame.shape[0]
+                'height': self.latest_frame.shape[0],
+                'camera_mode': self.camera_mode,
+                'quality': quality
             }
             
         except Exception as e:
@@ -238,30 +384,42 @@ def index():
 
 @app.route('/api/camera/health', methods=['GET'])
 def camera_health():
-    """Check camera server health"""
+    """Check camera server health with RPi camera info"""
     print("Health check requested")
     
-    camera_available = False
-    if camera_server.camera is not None:
-        camera_available = True
-    else:
+    rpi_camera_available = False
+    usb_camera_available = False
+
+    if RPI_CAMERA_AVAILABLE:
+        try:
+            test_picam = Picamera2()
+            test_picam.close()
+            rpi_camera_available = True
+        except:
+            pass
+
+    if not rpi_camera_available:
         for i in range(3):
             test_cam = cv2.VideoCapture(i)
             if test_cam.isOpened():
-                camera_available = True
+                usb_camera_available = True
                 test_cam.release()
                 time.sleep(0.1)
-                break
-    
+                break    
     response = {
         'status': 'healthy',
-        'camera_available': camera_available,
+        'rpi_camera_available': rpi_camera_available,
+        'usb_camera_available': usb_camera_available,
+        'camera_available': rpi_camera_available or usb_camera_available,
         'is_streaming': camera_server.is_streaming,
+        'camera_mode': camera_server.camera_mode,
         'connected_clients': len(camera_server.connected_clients),
         'resolution': f"{camera_server.camera_width}x{camera_server.camera_height}",
         'fps': camera_server.fps,
-        'camera_index': camera_server.camera_index if camera_server.camera else -1
+        'camera_index': camera_server.camera_index if camera_server.camera_mode else -1,
+        'picamera2_available': RPI_CAMERA_AVAILABLE
     }
+
     print(f"Health response: {response}")
     return jsonify(response)
 
@@ -276,7 +434,7 @@ def connect_client():
         if not camera_server.start_streaming():
             return jsonify({
                 'success': False,
-                'message': 'Failed to start camera streaming - camera may not be available'
+                'message': 'Failed to start camera streaming - no camera available'
             }), 500
         
         camera_server.add_client(client_id)
@@ -285,9 +443,11 @@ def connect_client():
             'success': True,
             'message': f'Client {client_id} connected successfully',
             'stream_url': '/api/camera/frame',
+            'camera_mode': camera_server.camera_mode,
             'resolution': f"{camera_server.camera_width}x{camera_server.camera_height}",
             'fps': camera_server.fps,
-            'camera_index': camera_server.camera_index
+            'camera_index': camera_server.camera_index,
+            'optimized_for': 'smart_glasses'
         })
         
     except Exception as e:
@@ -420,7 +580,15 @@ def camera_settings():
             'height': camera_server.camera_height,
             'fps': camera_server.fps,
             'is_streaming': camera_server.is_streaming,
-            'camera_index': camera_server.camera_index
+            'camera_mode': camera_server.camera_mode,
+            'camera_index': camera_server.camera_index,
+            'rpi_camera_available': RPI_CAMERA_AVAILABLE,
+            'optimizations': {
+                'smart_glasses_mode': True,
+                'enhanced_contrast': camera_server.camera_mode == 'rpi',
+                'mirror_effect': True,
+                'high_quality_encoding': camera_server.camera_mode == 'rpi'
+            }
         })
     
     elif request.method == 'POST':
@@ -428,18 +596,28 @@ def camera_settings():
             data = request.json
 
             if 'fps' in data:
-                new_fps = max(1, min(30, int(data['fps'])))
-                camera_server.fps = new_fps
-                print(f"FPS updated to: {new_fps}")
+                new_fps = max(5, min(30, int(data['fps'])))
+                if new_fps != camera_server.fps:
+                    camera_server.fps = new_fps
+                    settings_changed = True
+                    print(f"FPS updated to: {new_fps}")
+
+            if settings_changed and camera_server.is_streaming:
+                print("Restarting camera to apply new settings...")
+                camera_server.stop_streaming()
+                time.sleep(0.5)
+                camera_server.start_streaming()
             
             return jsonify({
                 'success': True,
-                'message': 'Settings updated',
+                'message': 'Settings updated for smart glasses',
                 'settings': {
                     'width': camera_server.camera_width,
                     'height': camera_server.camera_height,
                     'fps': camera_server.fps,
-                    'camera_index': camera_server.camera_index
+                    'camera_mode': camera_server.camera_mode,
+                    'camera_index': camera_server.camera_index,
+                    'restart_required': settings_changed
                 }
             })
             
@@ -462,17 +640,30 @@ atexit.register(camera_server.cleanup)
 
 if __name__ == '__main__':
     print("="*60)
-    camera_available = False
+    rpi_camera_available = False
+    if RPI_CAMERA_AVAILABLE:
+        try:
+            test_picam = Picamera2()
+            test_picam.close()
+            rpi_camera_available = True
+        except:
+            pass
+    usb_camera_available = False
     for i in range(3):
         test_cam = cv2.VideoCapture(i)
         if test_cam.isOpened():
-            camera_available = True
+            usb_camera_available = True
             test_cam.release()
             time.sleep(0.1)
             break
+
+    print(f"RPi Camera Status: {'Available' if rpi_camera_available else 'Not Available'}")
+    print(f"USB Camera Status: {'Available' if usb_camera_available else 'Not Available'}")
+    print(f"Priority: RPi Camera -> USB Camera")
     
-    print(f"Camera Status: {'Available' if camera_available else 'Not Available'}")
-    
+    if not (rpi_camera_available or usb_camera_available):
+        print("WARNING: No cameras detected!")
+        
     local_ip = get_local_ip()
     port = 5001
     

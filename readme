@@ -5,6 +5,10 @@ pip install Pillow
 pip install onnxruntime
 pip install insightface
 
+2025-08-10
+pip install picamera2
+sudo apt install python3-libcamera python3-kms++
+
 ***********************
 
 pip install -r requirements.txt

@@ -53,6 +53,9 @@ class EnhancedFaceRecognitionServer:
 
         self.picamera2 = None
         self.camera_mode = None
+        self.camera_width = 640
+        self.camera_height = 480
+        self.fps = 15
         self.rpi_camera_config = None
         self.camera= None
         self.camera_active = False
@@ -123,22 +126,24 @@ class EnhancedFaceRecognitionServer:
         """Initialize Raspberry Pi camera with Picamera2"""
         try:
             if not RPI_CAMERA_AVAILABLE:
-                 logging.warning("Picamera2 not available, falling back to USB")
-                 return self.init_usb_camera()
+                logging.warning("Picamera2 not available, falling back to USB")
+                return self.init_usb_camera()
             
-            logging info("Initializing Raspbery pi camera...")
+            logging.info("Initializing Raspbery pi camera...")
 
             self.picamera2 = Picamera2()
 
             camera_config = self.picamera2.create_preview_configuration(
-                main={"format": "RGB888", "size": (640, 480)},
+                main={"format": "RGB888", "size":  (self.camera_width, self.camera_height)},
                 controls={
-                    "FrameRate": 30,
-                    "ExposureTime": 10000,  # 10ms
+                    "FrameRate":self.fps,
+                    "ExposureTime": 8000,
                     "AnalogueGain": 1.0,
-                    "Brightness": 0.0,
-                    "Contrast": 1.0,
-                    "Saturation": 1.0
+                    "Brightness": 0.1,
+                    "Contrast": 0.2,
+                    "Saturation": 1.1,
+                    "Sharpness": 1.1,
+                    "ColorGains": [1.4, 1.2],
                 }
             )
 
@@ -150,9 +155,72 @@ class EnhancedFaceRecognitionServer:
 
             test_frame = self.picamera2.capture_array()
             if test_frame is not None and test_frame.size > 0:
+                test_frame_bgr = cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR)
+                mean_intensity = np.mean(test_frame_bgr)
+
+                if 15 < mean_intensity < 240:
+                    self.camera_mode = 'rpi'
+                    logging.info("Raspbery pi camera initialized successfully")
+                    logging.info(f"camera resolution: " {test_frame.shape}"")
+                    return True
+                else:
+                    logging.warning(f"RPI camera test frame has invalid intensity:  {mean_intensity}")
+
+            self.picamera2.stop()
+            self.picamera2.close()
+            self.picamera2 = None
+            logging.warning("Raspberry Pi camera test frame failed, falling back to USB")
+            return self.init_usb_camera()
                 
         except Exception as e:
+            logging.error(f"RPi camera initialization failed: {e}")
+            if self.picamera2:
+                try:
+                    self.picamera2.stop()
+                    self.picamera2.close()
+                    self.picamera2 = None
+                except:
+                    pass
             return self.init_usb_camera()
+
+    def init_usb_camera(self):
+        """Initializing Opencv camera as fallback"""
+        try:
+            logging.info("Initializing USB camera")
+            backends_to_try = [cv2.CAP_V4L2,cv2.CAP_ANY]
+
+            for camera_id in [0,1,2]:
+                logging.info(f"Trying USB camera {camera_id}...")
+
+                for backend in backends_to_try:
+                    try:
+                        test_camera = cv2.VideoCapture(camera_id,backend)
+
+                        if test_camera.isOpened():
+                            test_camera.set(cv2.CAP_PROP_FRAME_WIDTH,640)
+                            test_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                            test_camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                            test_camera.set(cv2.CAP_PROP_FPS, 30)
+
+                            ret, frame = test_camera.read()
+                            test_camera.release()
+
+                            if ret and frame is not None and np.mean(frame) > 15:
+                                self.camera = cv2.VideoCapture(camera_id, backend)
+                                self.configure_camera()
+                                self.camera_mode = 'usb'
+                                logging.info(f"USB camera {camera_id} initialized successfully")
+                                return True
+                        else:
+                            test_camera.release()
+                    except Exception as e:
+                        logging.debug(f"USB camera {camera_id} backend {backend} failed: {e}")
+                        continue
+            logging.error("No working cameras found")
+            return False
+        except Exception as e:
+            logging.error(f"USB camera initialization error: {e}")
+            return False
 
     def init_face_model(self):
         """Initialize InsightFace model with error handling"""
@@ -291,7 +359,7 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Error loading face database: {e}")
 
     def extract_face_encoding(self, image):
-        """Enhanced face encoding extraction with better quality assessment"""
+        """face encoding extraction with better quality assessment"""
         try:
             if not self.model_loaded:
                 logging.warning("InsightFace model not loaded, using fallback")
@@ -363,7 +431,7 @@ class EnhancedFaceRecognitionServer:
         return face_area * (1 + center_score * 0.3)
 
     def _calculate_blur_score(self, image, bbox):
-        """Enhanced blur detection"""
+        """blur detection"""
         try:
             x1, y1, x2, y2 = map(int, bbox)
             face_roi = image[y1:y2, x1:x2]
@@ -381,7 +449,7 @@ class EnhancedFaceRecognitionServer:
             return 0.5
         
     def _calculate_lightning_score(self, image, bbox):
-        """Enhanced lighting quality assessment"""
+        """lighting quality assessment"""
         try:
             x1, y1, x2, y2 = map(int, bbox)
             face_roi = image[y1:y2, x1:x2]
@@ -404,7 +472,7 @@ class EnhancedFaceRecognitionServer:
             return 0.5
         
     def _calculate_face_angle_score(self, face):
-        """Enhanced face angle assessment"""
+        """face angle assessment"""
         try:
             if hasattr(face, 'kps') and face.kps is not None:
                 landmarks = face.kps
@@ -461,7 +529,7 @@ class EnhancedFaceRecognitionServer:
             return 0.7
 
     def fallback_face_detection(self, image):
-        """Enhanced fallback detection"""
+        """fallback detection"""
         try:
             face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -511,7 +579,7 @@ class EnhancedFaceRecognitionServer:
             return None, 0.0, None
 
     def recognize_face_with_averaging(self, image):
-        """Enhanced recognition with multiple averaging methods"""
+        """recognition with multiple averaging methods"""
         start_time = time.time()
         self.recognition_stats['total_requests'] += 1
         
@@ -673,7 +741,7 @@ class EnhancedFaceRecognitionServer:
             return frame
 
     def _match_with_averaging(self, encoding, quality):
-        """Enhanced matching with multiple averaging methods"""
+        """matching with multiple averaging methods"""
         if not self.model_loaded or not self.face_encodings:
             return None, 0.0, "no_model_or_data"
         
@@ -799,7 +867,7 @@ class EnhancedFaceRecognitionServer:
         stats['quality_scores'].append(quality)
 
     def check_cache(self, image_hash):
-        """Enhanced cache with better expiry"""
+        """cache with better expiry"""
         try:
             current_time = time.time()
             
@@ -828,7 +896,7 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Cache store error: {e}")
 
     def log_recognition(self, person_name, confidence, quality_score, processing_time, method_used):
-        """Enhanced recognition logging"""
+        """ recognition logging"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -843,68 +911,45 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Error logging recognition: {e}")
 
     def start_camera(self):
-        """Enhanced camera initialization with multiple backends"""
+        """ camera initialization with Rpi camera priority"""
         try:
             with self.camera_lock:
                 if self.camera_active:
                     logging.info("Camera already active")
                     return True
             
-                backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_V4L2, cv2.CAP_ANY]
-            
-                for camera_id in [0, 1, 2]:
-                    logging.info(f"Trying camera {camera_id}...")
+                self.camera_error = None
+
+                if self.init_rpi_camera():
+                    self.camera_active = True
+                    self.camera_capture = False
+
+                    self.frame_capture_thread = threading.Thread(
+                        target= self._continuous_capture,
+                        daemon=True
+                    )
+                    self.frame_capture_thread()
+                    time.sleep(0.5)
+
+                    logging.info("RPi camera started successfully")
+                    return True
                 
-                    for backend in backends_to_try:
-                        try:
-                            test_camera = cv2.VideoCapture(camera_id, backend)
+                if self.camera_mode == 'usb' and self.camera and self.camera.isOpened():
+                    if self._validate_camera():
+                        self.camera_active = True
+                        self.stop_capture = False
                         
-                            if test_camera.isOpened():
-                                test_camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                                test_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                                test_camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                                test_camera.set(cv2.CAP_PROP_FPS, 30)
-                            
-                                valid_frames = 0
-                                for test_attempt in range(5):
-                                    ret, frame = test_camera.read()
-                                    if ret and frame is not None and frame.size > 0:
-                                        if np.mean(frame) > 10:
-                                            valid_frames += 1
-                                    time.sleep(0.1)
+                        self.frame_capture_thread = threading.Thread(
+                            target= self._continuous_capture,
+                            daemon= True
+                        )
 
-                                test_camera.release()
-                            
-                                if valid_frames >= 2:
-                                    self.camera = cv2.VideoCapture(camera_id, backend)
-                                    if self.configure_camera():  
-                                        if self._validate_camera():
-                                            self.camera_active = True
-                                            self.stop_capture = False
-                                            self.camera_error = None
+                        self.frame_capture_thread.start()
+                        time.sleep(0.5)
 
-                                            self.frame_capture_thread = threading.Thread(
-                                                target=self._continuous_capture,
-                                                daemon=True
-                                            )
-                                            self.frame_capture_thread.start()
-                                            time.sleep(0.5)
-                                    
-                                            logging.info(f"Camera {camera_id} initialized successfully with backend {backend}")
-                                            return True
-                                        else:
-                                            self.camera.release()
-                                            self.camera = None
-                                    else:
-                                        self.camera.release()
-                                        self.camera = None
-                            else:
-                                test_camera.release()
-                            
-                        except Exception as e:
-                            logging.debug(f"Backend {backend} failed for camera {camera_id}: {e}")
-                            continue
-            
+                        logging.info("usb camera started successfully as fallback")
+                        return True
+                
                 self.camera_error = "No working cameras found"
                 logging.error(self.camera_error)
                 return False
@@ -919,7 +964,6 @@ class EnhancedFaceRecognitionServer:
         try:
             if not self.camera or not self.camera.isOpened():
                 return False  
-          
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_settings['width'])
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_settings['height'])
             self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  
@@ -978,43 +1022,67 @@ class EnhancedFaceRecognitionServer:
             return False
 
     def _continuous_capture(self):
-        """Continuously capture frames in background thread"""
+        """Continuously capture frames in background thread (RPi or USB)"""
         frame_count = 0
         error_count = 0
         max_errors = 10
         last_good_frame_time = time.time()
 
-        logging.info("Starting continuous capture thread")
+        logging.info("Starting continuous capture thread (mode: {self.camera_mode})")
 
         while not self.stop_capture and error_count < max_errors:
             try:
-                if self.camera and self.camera.isOpened():
+                if self.camera_mode == 'rpi' and self.picamera2:
+                    try:
+                        frame_rgb = self.picamera2
+                        if frame_rgb is not None and frame_rgb.size > 0:
+                            frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)  
+                            mean_intensity = np.mean(frame_bgr)
+
+                            if 15 < mean_intensity < 240:
+                                with self.camera_lock:
+                                    self.last_frame = frame_bgr.copy()
+                                frame_count += 1
+                                error_count = 0
+                                last_good_frame_time = time.time()
+
+                                if frame_count % 100 == 0:
+                                    logging.info(f"RPi camera: captured {frame_count} frames")
+                            else:
+                                error_count += 1
+                                logging.warning(f"RPi camera: Invalid frame mean intensity {mean_intensity}")
+                        else:
+                            error_count += 1
+                            logging.warning("empty frame captured by RPi camera")
+                    except Exception as e:
+                        error_count += 1
+                        logging.error(f"Error capturing frame: {e}")
+                        continue
+                elif self.camera_mode == 'usb' and self.camera and self.camera.isOpened():
                     ret, frame = self.camera.read()
                     if ret and frame is not None and frame.size > 0:
                         mean_intensity = np.mean(frame)
-
-                        if mean_intensity > 15 and mean_intensity < 240:
+                    
+                        if 15 < mean_intensity < 240:
                             with self.camera_lock:
                                 self.last_frame = frame.copy()
                             frame_count += 1
                             error_count = 0
                             last_good_frame_time = time.time()
-
-                            if (frame_count % 100 == 0):
-                                logging.info(f"Captured {frame_count} frames")
+                        
+                            if frame_count % 100 == 0:
+                                logging.info(f"USB camera: Captured {frame_count} frames")
                         else:
                             error_count += 1
-                            logging.warning("Invalid frame intensity")
-                            time.sleep(0.1)
+                            logging.warning(f"USB camera: Invalid frame intensity {mean_intensity}")
                     else:
                         error_count += 1
-                        logging.warning("Failed to read frame from camera")
-                        time.sleep(0.1)
+                        logging.warning("USB camera: Failed to read frame")
                 else:
                     error_count += 1
-                    logging.warning("Camera not opened or already released")
+                    logging.warning("No camera available for capture")
                     time.sleep(0.5)
-                    
+        
                 if time.time() - last_good_frame_time > 5.0:
                     logging.error("No good frames for 5 seconds, attempting camera restart")
                     self._restart_camera_internal()
@@ -1027,9 +1095,9 @@ class EnhancedFaceRecognitionServer:
                 
             except Exception as e:
                 error_count += 1
-                logging.error(f"Error capturing frame: {e}")
+                logging.error(f"Error in capture loop: {e}")
                 time.sleep(0.1)
-        
+
         if error_count >= max_errors:
             logging.error("Max frame capture errors reached, stopping camera")
             self.camera_error = "Camera capture failed"
@@ -1074,39 +1142,72 @@ class EnhancedFaceRecognitionServer:
                 self.stop_capture = True
                 self.camera_active = False
 
+                if self.picamera2:
+                    try:
+                        self.picamera2.stop()
+                        self.picamera2.close()
+                        self.picamera2 = None
+                        logging.info("RPi camera stopped")
+                    except Exception as e:
+                        logging.error(f"Error stopping RPi camera: {e}")
+
                 if self.camera:
-                    self.camera.release()
-                    self.camera = None
+                    try:
+                        self.camera.release()
+                        self.camera = None
+                        logging.info("USB camera stopped")
+                    except Exception as e:
+                        logging.error(f"Error stopping USB camera: {e}")
 
                 self.last_frame = None
-                 
+                self.camera_mode = None
+             
                 if self.frame_capture_thread and self.frame_capture_thread.is_alive():
                     self.frame_capture_thread.join(timeout=2.0)
 
-                logging.info("Camera stopped successfully")
-                return True
-            
+            logging.info("Camera stopped successfully")
+            return True
+        
         except Exception as e:
             logging.error(f"Error stopping camera: {e}")
             return False
         
     def capture_frame(self):
-        """Get the latest captured frame"""
+        """Get the latest captured frame (RPI or USB)"""
         try:
             with self.camera_lock:
-                if self.last_frame is not None:
-                    return self.last_frame.copy()
-                elif self.camera and self.camera.isOpened():
-                    ret, frame = self.camera.read()
-                    if ret and frame is not None:
-                        self.last_frame = frame.copy()
-                        return self.last_frame
+                if self.camera_mode == 'rpi' and self.picamera2:
+                    try:
+                        frame_rgb = self.picamera2.capture_array()
+                        if frame_rgb is not None and frame_rgb.size > 0:
+                            frame_bgr = cv2.cvtColor(frame_rgb,cv2.COLOR_RGB2BGR)
+                            self.last_frame = frame_bgr.copy()
+                            return frame_bgr
+                        else:
+                            logging.warning("RPi camera returned empty frame")
+                            return None
+                    except Exception as e:
+                        logging.error(f"RPI camera capture error: {e}")
+                        return None
+                    
+                elif self.camera_mode == 'usb':
+                    if self.last_frame is not None:
+                        return self.last_frame.copy()
+                    elif self.camera and self.camera.isOpened():
+                        ret, frame = self.camera.read()
+                        if ret and frame is not None:
+                            self.last_frame = frame.copy()
+                            return self.last_frame
+                        else:
+                            logging.warning("USB camera read failed")
+                            return None
                     else:
-                        logging.warning("Direct camera read failed")
+                        logging.warning("No USB camera available")
                         return None
                 else:
                     logging.warning("No camera available for frame capture")
                     return None
+        
         except Exception as e:
             logging.error(f"Error capturing frame: {e}")
             return None
@@ -1130,7 +1231,7 @@ class EnhancedFaceRecognitionServer:
             return None
 
     def add_person_enhanced(self, name, images_base64):
-        """Enhanced person registration with support for 10-15 images and quality analysis"""
+        """ person registration with support for 10-15 images and quality analysis"""
         try:
             if not self.model_loaded:
                 return {
@@ -1525,13 +1626,15 @@ def web_interface():
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Enhanced health check endpoint"""
+    """health check endpoint"""
     return jsonify({
         'status': 'healthy',
         'model_loaded': face_server.model_loaded,
         'people_count': len(face_server.face_encodings),
         'camera_active': face_server.camera_active,
+        'camera_mode': face_server.camera_mode,
         'camera_error': face_server.camera_error,
+        'rpi_camera_available': RPI_CAMERA_AVAILABLE,
         'recognition_stats': face_server.recognition_stats,
         'cache_size': len(face_server.recognition_cache),
         'averaging_methods': face_server.averaging_methods,
@@ -1619,7 +1722,7 @@ def recognize_person():
 
 @app.route('/api/register_enhanced', methods=['POST'])
 def register_person_enhanced():
-    """Enhanced registration endpoint for 10-15 images"""
+    """registration endpoint for 10-15 images"""
     try:
         data = request.json
         
@@ -2205,16 +2308,26 @@ atexit.register(cleanup_camera)
 if __name__ == '__main__':
     print("="*80)
 
-    camera_available = False
-    for i in range(3):
-        test_cam = cv2.VideoCapture(i)
-        if test_cam.isOpened():
-            camera_available = True
-            test_cam.release()
-            time.sleep(0.1)
-            break
+    rpi_camepr_available = False
+    if RPI_CAMERA_AVAILABLE:
+        try:
+            test_picam = Picamera2()
+            test_picam.close()
+            rpi_camera_available = True
+        except:
+            pass
+
+        usb_camera_available = False
+        for i in range(3):
+            test_cam = cv2.VideoCapture(i)
+            if test_cam.isOpened():
+                usb_camera_available = True
+                test_cam.release()
+                time.sleep(0.1)
+                break
     
-    print(f"Camera Status: {'Available' if camera_available else 'Not Available'}")
+    print(f"RPi Camera Status: {'Available' if rpi_camera_available else 'Not Available'}")
+    print(f"USB Camera Status: {'Available' if usb_camera_available else 'Not Available'}")
     
     local_ip = get_local_ip()
     port = 5000
