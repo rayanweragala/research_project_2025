@@ -18,6 +18,16 @@ import threading
 import socket
 from collections import defaultdict, deque
 
+try:
+    from picamera2 import Picamera2
+    from libcamera import controls
+
+    RPI_CAMERA_AVAILABLE = True;
+    print("Picamera2 available - Raspberry Pi camera support enabled")
+except ImportError:
+    RPI_CAMERA_AVAILABLE = False
+    print("Picamera2 not available - falling back to OpenCV")
+
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -33,14 +43,17 @@ class EnhancedFaceRecognitionServer:
         self.db_path = "face_database.db"
         self.face_encodings = {}
 
-        self.recognition_threshold = 0.35  
-        self.quality_threshold = 0.30      
+        self.recognition_threshold = 0.25  
+        self.quality_threshold = 0.20      
         self.min_face_size = 40
         self.max_embeddings_per_person = 20  
 
         self.recognition_cache = {}
         self.cache_duration = 3.0 
 
+        self.picamera2 = None
+        self.camera_mode = None
+        self.rpi_camera_config = None
         self.camera= None
         self.camera_active = False
         self.camera_lock = threading.Lock()
@@ -97,14 +110,49 @@ class EnhancedFaceRecognitionServer:
             'width': 640,
             'height': 480,
             'fps': 25,
-            'brightness': 55,
-            'contrast': 55,
-            'saturation': 50
+            'brightness': 0.0,
+            'contrast': 1.0,
+            'saturation': 1.0
         }
 
         self.init_database()
         self.init_face_model()
         self.load_face_database()
+
+    def init_rpi_camera(self):
+        """Initialize Raspberry Pi camera with Picamera2"""
+        try:
+            if not RPI_CAMERA_AVAILABLE:
+                 logging.warning("Picamera2 not available, falling back to USB")
+                 return self.init_usb_camera()
+            
+            logging info("Initializing Raspbery pi camera...")
+
+            self.picamera2 = Picamera2()
+
+            camera_config = self.picamera2.create_preview_configuration(
+                main={"format": "RGB888", "size": (640, 480)},
+                controls={
+                    "FrameRate": 30,
+                    "ExposureTime": 10000,  # 10ms
+                    "AnalogueGain": 1.0,
+                    "Brightness": 0.0,
+                    "Contrast": 1.0,
+                    "Saturation": 1.0
+                }
+            )
+
+            self.picamera2.configure(camera_config)
+            self.rpi_camera_config = camera_config
+
+            self.picamera2.start()
+            time.sleep(4)
+
+            test_frame = self.picamera2.capture_array()
+            if test_frame is not None and test_frame.size > 0:
+                
+        except Exception as e:
+            return self.init_usb_camera()
 
     def init_face_model(self):
         """Initialize InsightFace model with error handling"""
@@ -599,7 +647,7 @@ class EnhancedFaceRecognitionServer:
             if frame is None:
                 return None
         
-            quality = max(10, min(100, quality))
+            quality = max(90, min(100, quality))
         
             ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
             if not ret:
@@ -612,6 +660,17 @@ class EnhancedFaceRecognitionServer:
         except Exception as e:
             logging.error(f"Error converting frame to base64: {e}")
             return None
+        
+    def preprocess_camera_frame(self, frame):
+        """Preprocess camera frame for better recognition"""
+        try:    
+            enhanced = cv2.convertScaleAbs(frame, alpha=1.1, beta=10)
+            denoised = cv2.bilateralFilter(enhanced, 5, 50, 50)
+        
+            return denoised
+        except Exception as e:
+            logging.error(f"Frame preprocessing error: {e}")
+            return frame
 
     def _match_with_averaging(self, encoding, quality):
         """Enhanced matching with multiple averaging methods"""
@@ -2081,7 +2140,9 @@ def get_camera_frame():
                     'timestamp': datetime.now().isoformat()
                 }), 500
 
-        recognition_result = face_server.recognize_face_with_averaging(frame)
+        processed_frame = face_server.preprocess_camera_frame(frame)
+        recognition_result = face_server.recognize_face_with_averaging(processed_frame)
+        
         
         response_data = {
             'recognized': recognition_result.get('recognized', False),
