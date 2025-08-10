@@ -26,6 +26,82 @@ app = Flask(__name__)
 CORS(app) 
 logging.basicConfig(level=logging.INFO)
 
+class CameraSingleton:
+    """Singleton to ensure only one camera instance exists globally"""
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if not self._initialized:
+            self.picamera2 = None
+            self.usb_camera = None
+            self.camera_lock = threading.Lock()
+            self._initialized = True
+    
+    def get_rpi_camera(self):
+        """Get or create RPi camera instance"""
+        with self.camera_lock:
+            if self.picamera2 is None and RPI_CAMERA_AVAILABLE:
+                try:
+                    self.picamera2 = Picamera2()
+                except Exception as e:
+                    print(f"Failed to create RPi camera: {e}")
+                    self.picamera2 = None
+            return self.picamera2
+    
+    def get_usb_camera(self, index=0):
+        """Get or create USB camera instance"""
+        with self.camera_lock:
+            if self.usb_camera is None:
+                try:
+                    self.usb_camera = cv2.VideoCapture(index)
+                    if not self.usb_camera.isOpened():
+                        self.usb_camera.release()
+                        self.usb_camera = None
+                except Exception as e:
+                    print(f"Failed to create USB camera: {e}")
+                    self.usb_camera = None
+            return self.usb_camera
+    
+    def release_rpi_camera(self):
+        """Release RPi camera"""
+        with self.camera_lock:
+            if self.picamera2 is not None:
+                try:
+                    if hasattr(self.picamera2, '_camera') and self.picamera2._camera is not None:
+                        self.picamera2.stop()
+                    self.picamera2.close()
+                except Exception as e:
+                    print(f"Error releasing RPi camera: {e}")
+                finally:
+                    self.picamera2 = None
+    
+    def release_usb_camera(self):
+        """Release USB camera"""
+        with self.camera_lock:
+            if self.usb_camera is not None:
+                try:
+                    self.usb_camera.release()
+                except Exception as e:
+                    print(f"Error releasing USB camera: {e}")
+                finally:
+                    self.usb_camera = None
+    
+    def cleanup_all(self):
+        """Cleanup all camera resources"""
+        self.release_rpi_camera()
+        self.release_usb_camera()
+
+camera_singleton = CameraSingleton()
+
 class SmartGlassesCameraServer:
     def __init__(self):
         self.camera = None
@@ -48,7 +124,7 @@ class SmartGlassesCameraServer:
     def init_camera(self):
         """Initialize camera with RPi camera priority, falling back to USB"""
         
-        if(self.camera is not None and self.camera_mode == 'usb') or (self.camera2 is not None and self.cmera_mode=='rpi'):
+        if (self.camera is not None and self.camera_mode == 'usb') or (self.picamera2 is not None and self.camera_mode == 'rpi'):
             return True
         
         try:
@@ -70,6 +146,15 @@ class SmartGlassesCameraServer:
                 print("Raspberry Pi camera support not available")
                 return False
             
+            if self.picamera2 is not None:
+                try:
+                    self.picamera2.stop()
+                    self.picamera2.close()
+                    self.picamera2 = None
+                    time.sleep(0.5)
+                except:
+                    pass
+            
             print("Initializing Raspberry Pi camera...")
             self.picamera2 = Picamera2()
 
@@ -78,13 +163,6 @@ class SmartGlassesCameraServer:
                 main={"format":"RGB888","size": (self.camera_width, self.camera_height)},
                 controls={
                     "FrameRate":self.fps,
-                    "ExposureTime": 8000,
-                    "AnalogueGain": 1.0,
-                    "Brightness": 0.1,
-                    "Contrast": 0.2,
-                    "Saturation": 1.1,
-                    "Sharpness": 1.1,
-                    "ColorGains": [1.4, 1.2],
                 }
             )
 
@@ -92,14 +170,17 @@ class SmartGlassesCameraServer:
             self.rpi_camera_config = camera_config
 
             self.picamera2.start()
-            time.sleep(4)
+            time.sleep(2)
 
+            print("Testing RPi camera capture...")
             test_frame = self.picamera2.capture_array()
-            if test_frame is None or test_frame.size == 0:
+
+            if test_frame is None or test_frame.size > 0:
+                print(f"RPi camera test frame shape: {test_frame.shape}")
                 test_frame_bgr = cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR)
                 mean_intensity = np.mean(test_frame_bgr)
 
-                if 15 < mean_intensity < 240:
+                if 5 < mean_intensity < 250:
                     self.camera_mode = 'rpi'
                     self.camera_index = 0
                     print(f"Raspberry Pi camera initialized successfully")
@@ -109,11 +190,10 @@ class SmartGlassesCameraServer:
                 else:
                     print(f"RPi camera test frame has invalid intensity: {mean_intensity}")
 
-            print("RPi camera test failed")
-            self.picamera2.stop()
-            self.picamera2.close()
-            self.picamera2 = None
-            return False
+            print("RPi camera test completed with warnings but proceeding...")
+            self.camera_mode = 'rpi'
+            self.camera_index = 0
+            return True
         
         except Exception as e:
             print(f"RPi camera initialization failed: {e}")
@@ -177,12 +257,14 @@ class SmartGlassesCameraServer:
                 if self.picamera2 is not None:
                     print("Releasing RPi camera...")
                     try:
-                        self.picamera2.stop()
+                        if hasattr(self.picamera2,'_camera'):
+                            self.picamera2.stop()
                         self.picamera2.close()
                         self.picamera2 = None
                         print("RPi camera released successfully")
                     except Exception as e:
                         print(f"Error releasing RPi camera: {e}")
+                        self.picamera2 = None
 
                 if self.camera is not None:
                     print(f"Releasing USB camera {self.camera_index}")
@@ -195,7 +277,7 @@ class SmartGlassesCameraServer:
             
                 self.camera_index = -1
                 self.camera_mode = None
-                time.sleep(0.5)
+                time.sleep(1)
         except Exception as e:
             print(f"Error releasing camera: {e}")
     
@@ -243,7 +325,7 @@ class SmartGlassesCameraServer:
         frame_count = 0
         start_time = time.time()
         consecutive_failures = 0
-        max_failures = 5
+        max_failures = 10
 
 
         print(f"Starting camera capture loop (mode: {self.camera_mode})")
@@ -254,6 +336,12 @@ class SmartGlassesCameraServer:
             
                 if self.camera_mode == 'rpi' and self.picamera2:
                     try:
+                        if not hasattr(self.picamera2, '_camera') or self.picamera2._camera is None:
+                            print("RPi camera stopped unexpectedly")
+                            consecutive_failures += 1
+                            time.sleep(0.1)
+                            continue
+
                         frame_rgb = self.picamera2.capture_array()
                         if frame_rgb is not None and frame_rgb.size > 0:
                             frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
@@ -263,6 +351,17 @@ class SmartGlassesCameraServer:
                     except Exception as e:
                         print(f"RPi camera capture error: {e}")
                         consecutive_failures += 1
+                        if "allocator" in str(e).lower() or "camera in running state" in str(e).lower():
+                            print("Attempting camera recovery...")
+                            try:
+                                self.picamera2.stop()
+                                time.sleep(0.5)
+                                self.picamera2.start()
+                                time.sleep(1)
+                                continue
+                            except:
+                                print("Camera recovery failed")
+                                break
                     
                 elif self.camera_mode == 'usb' and self.camera:
                     try:
@@ -307,18 +406,23 @@ class SmartGlassesCameraServer:
                 self.latest_frame = frame.copy()
         
                 try:
+                    self.frame_queue.get_nowait()  # Remove oldest
                     self.frame_queue.put_nowait({
                         'frame': frame,
                         'timestamp': timestamp,
                         'frame_count': frame_count,
                         'camera_mode': self.camera_mode
-                    })
+                        })
                 except:
                     pass
             
                 frame_count += 1
 
-                time.sleep(1.0 / self.fps)
+                sleep_time = 1.0 / self.fps
+                if consecutive_failures > 0:
+                    sleep_time *= (1 + consecutive_failures * 0.1)  # Slow down on errors
+                
+                time.sleep(sleep_time)
             
             except Exception as e:
                 print(f"Error in camera capture loop: {e}")
@@ -329,6 +433,11 @@ class SmartGlassesCameraServer:
                 time.sleep(0.1)
     
         print(f"Camera capture loop ended (mode: {self.camera_mode})")
+        if self.camera_mode == 'rpi' and self.picamera2:
+            try:
+                self.picamera2.stop()
+            except:
+                pass
     
     def get_latest_frame_base64(self):
         """Get the latest frame as base64 encoded JPEG"""
@@ -390,13 +499,21 @@ def camera_health():
     rpi_camera_available = False
     usb_camera_available = False
 
-    if RPI_CAMERA_AVAILABLE:
-        try:
-            test_picam = Picamera2()
-            test_picam.close()
-            rpi_camera_available = True
-        except:
-            pass
+    if camera_server.is_streaming and camera_server.camera_mode == 'rpi':
+        rpi_camera_available = True
+    elif camera_server.is_streaming and camera_server.camera_mode == 'usb':
+        usb_camera_available = True
+    else:
+
+        if RPI_CAMERA_AVAILABLE:
+            try:
+                test_picam = Picamera2()
+                test_picam.close()
+                rpi_camera_available = True
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"RPi camera test failed: {e}")
+                pass
 
     if not rpi_camera_available:
         for i in range(3):

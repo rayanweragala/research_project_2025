@@ -129,7 +129,7 @@ class EnhancedFaceRecognitionServer:
                 logging.warning("Picamera2 not available, falling back to USB")
                 return self.init_usb_camera()
             
-            logging.info("Initializing Raspbery pi camera...")
+            logging.info("Initializing Raspberry pi camera...")
 
             self.picamera2 = Picamera2()
 
@@ -143,7 +143,7 @@ class EnhancedFaceRecognitionServer:
                     "Contrast": 0.2,
                     "Saturation": 1.1,
                     "Sharpness": 1.1,
-                    "ColorGains": [1.4, 1.2],
+                    # "ColorGains": [1.4, 1.2],
                 }
             )
 
@@ -161,7 +161,7 @@ class EnhancedFaceRecognitionServer:
                 if 15 < mean_intensity < 240:
                     self.camera_mode = 'rpi'
                     logging.info("Raspbery pi camera initialized successfully")
-                    logging.info(f"camera resolution: " {test_frame.shape}"")
+                    logging.info(f"camera resolution: {test_frame.shape}")
                     return True
                 else:
                     logging.warning(f"RPI camera test frame has invalid intensity:  {mean_intensity}")
@@ -922,13 +922,13 @@ class EnhancedFaceRecognitionServer:
 
                 if self.init_rpi_camera():
                     self.camera_active = True
-                    self.camera_capture = False
+                    self.stop_capture = False
 
                     self.frame_capture_thread = threading.Thread(
                         target= self._continuous_capture,
                         daemon=True
                     )
-                    self.frame_capture_thread()
+                    self.frame_capture_thread.start()
                     time.sleep(0.5)
 
                     logging.info("RPi camera started successfully")
@@ -1028,13 +1028,13 @@ class EnhancedFaceRecognitionServer:
         max_errors = 10
         last_good_frame_time = time.time()
 
-        logging.info("Starting continuous capture thread (mode: {self.camera_mode})")
+        logging.info(f"Starting continuous capture thread (mode: {self.camera_mode})")
 
         while not self.stop_capture and error_count < max_errors:
             try:
                 if self.camera_mode == 'rpi' and self.picamera2:
                     try:
-                        frame_rgb = self.picamera2
+                        frame_rgb = self.picamera2.capture_array()
                         if frame_rgb is not None and frame_rgb.size > 0:
                             frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)  
                             mean_intensity = np.mean(frame_bgr)
@@ -2308,7 +2308,7 @@ atexit.register(cleanup_camera)
 if __name__ == '__main__':
     print("="*80)
 
-    rpi_camepr_available = False
+    rpi_camera_available = False
     if RPI_CAMERA_AVAILABLE:
         try:
             test_picam = Picamera2()
@@ -2317,14 +2317,14 @@ if __name__ == '__main__':
         except:
             pass
 
-        usb_camera_available = False
-        for i in range(3):
-            test_cam = cv2.VideoCapture(i)
-            if test_cam.isOpened():
-                usb_camera_available = True
-                test_cam.release()
-                time.sleep(0.1)
-                break
+    usb_camera_available = False
+    for i in range(3):
+        test_cam = cv2.VideoCapture(i)
+        if test_cam.isOpened():
+            usb_camera_available = True
+            test_cam.release()
+            time.sleep(0.1)
+            break
     
     print(f"RPi Camera Status: {'Available' if rpi_camera_available else 'Not Available'}")
     print(f"USB Camera Status: {'Available' if usb_camera_available else 'Not Available'}")
