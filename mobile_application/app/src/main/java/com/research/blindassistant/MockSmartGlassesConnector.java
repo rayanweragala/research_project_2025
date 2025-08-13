@@ -14,13 +14,12 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import java.util.UUID;
-import
 
 public class MockSmartGlassesConnector implements SmartGlassesConnector {
 
     private static final String TAG = "MockSmartGlasses";
 
-    private static final String CAMERA_SERVER_URL = "http://10.187.202.95:5001";
+    private static final String CAMERA_SERVER_URL = "http://10.231.176.126:5001";
 
     private RequestQueue requestQueue;
     private Handler mainHandler;
@@ -254,7 +253,7 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
     }
 
     private void registerPersonWithBase64Images(String name, String[] imagesBase64) {
-        String url = "http://10.187.202.95:5000/api/register";
+        String url = "http://10.231.176.126:5000";
 
         try {
             Log.d(TAG, "Preparing registration request for: " + name);

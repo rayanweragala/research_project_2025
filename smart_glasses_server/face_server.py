@@ -12,6 +12,10 @@ import time
 from flask_cors import CORS
 import io
 from PIL import Image
+import PIL.Image
+import sys
+if not hasattr(PIL.Image, 'Image'):
+        sys.modules['PIL.Image'].Image = PIL.Image
 import traceback
 import atexit
 import threading
@@ -135,10 +139,11 @@ class EnhancedFaceRecognitionServer:
 
             camera_config = self.picamera2.create_preview_configuration(
                 main={"format": "RGB888", "size":  (self.camera_width, self.camera_height)},
+                buffer_count=6,
                 controls={
                     "FrameRate":self.fps,
-                    "ExposureTime": 8000,
-                    "AnalogueGain": 1.0,
+                    "ExposureTime": 20000,
+                    "AnalogueGain": 2.0,
                     "Brightness": 0.1,
                     "Contrast": 0.2,
                     "Saturation": 1.1,
@@ -257,7 +262,7 @@ class EnhancedFaceRecognitionServer:
             return False
 
     def init_database(self):
-        """Initialize SQLite database with enhanced tables"""
+        """Initialize SQLite database with tables"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -323,7 +328,7 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Database initialization error: {e}")
 
     def load_face_database(self):
-        """Load existing face encodings with enhanced metadata"""
+        """Load existing face encodings with metadata"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -1173,41 +1178,14 @@ class EnhancedFaceRecognitionServer:
             return False
         
     def capture_frame(self):
-        """Get the latest captured frame (RPI or USB)"""
+        """Get the latest captured frame"""
         try:
             with self.camera_lock:
-                if self.camera_mode == 'rpi' and self.picamera2:
-                    try:
-                        frame_rgb = self.picamera2.capture_array()
-                        if frame_rgb is not None and frame_rgb.size > 0:
-                            frame_bgr = cv2.cvtColor(frame_rgb,cv2.COLOR_RGB2BGR)
-                            self.last_frame = frame_bgr.copy()
-                            return frame_bgr
-                        else:
-                            logging.warning("RPi camera returned empty frame")
-                            return None
-                    except Exception as e:
-                        logging.error(f"RPI camera capture error: {e}")
-                        return None
-                    
-                elif self.camera_mode == 'usb':
-                    if self.last_frame is not None:
-                        return self.last_frame.copy()
-                    elif self.camera and self.camera.isOpened():
-                        ret, frame = self.camera.read()
-                        if ret and frame is not None:
-                            self.last_frame = frame.copy()
-                            return self.last_frame
-                        else:
-                            logging.warning("USB camera read failed")
-                            return None
-                    else:
-                        logging.warning("No USB camera available")
-                        return None
+                if self.last_frame is not None:
+                    return self.last_frame.copy()
                 else:
-                    logging.warning("No camera available for frame capture")
+                    logging.warning("No frame available in buffer")
                     return None
-        
         except Exception as e:
             logging.error(f"Error capturing frame: {e}")
             return None
@@ -1244,7 +1222,7 @@ class EnhancedFaceRecognitionServer:
             if len(images_base64) < 5:
                 return {
                     'success': False,
-                    'message': 'Minimum 5 images required for enhanced registration',
+                    'message': 'Minimum 5 images required for registration',
                     'photos_processed': 0,
                     'quality_analysis': {}
                 }
@@ -1395,14 +1373,14 @@ class EnhancedFaceRecognitionServer:
             
             return {
                 'success': True,
-                'message': f'Successfully registered {name} with enhanced processing',
+                'message': f'Successfully registered {name} with processing',
                 'photos_processed': len(successful_encodings),
                 'quality_analysis': quality_analysis
             }
                 
         except Exception as e:
             conn.rollback()
-            logging.error(f"Error in enhanced person registration: {e}")
+            logging.error(f"Error in person registration: {e}")
             logging.error(f"Traceback: {traceback.format_exc()}")
             return {
                 'success': False,
@@ -1643,7 +1621,7 @@ def health_check():
 
 @app.route('/api/recognize_realtime', methods=['POST'])
 def recognize_realtime():
-    """Real-time recognition endpoint with enhanced averaging"""
+    """Real-time recognition endpoint with averaging"""
     try:
         data = request.json
         
@@ -1742,7 +1720,7 @@ def register_person_enhanced():
             return jsonify({'error': 'Images must be a list'}), 400
             
         if len(images) < 5:
-            return jsonify({'error': 'Minimum 5 images required for enhanced registration'}), 400
+            return jsonify({'error': 'Minimum 5 images required for registration'}), 400
             
         if len(images) > 20:
             return jsonify({'error': 'Maximum 20 images allowed'}), 400
@@ -1760,7 +1738,7 @@ def register_person_enhanced():
 
 @app.route('/api/register', methods=['POST'])
 def register_person():
-    """Legacy registration endpoint - redirects to enhanced"""
+    """Legacy registration endpoint - redirects to enhanced registration"""
     try:
         data = request.json
         
@@ -1778,7 +1756,7 @@ def register_person():
 
 @app.route('/api/people', methods=['GET'])
 def list_people():
-    """List all registered people with enhanced details"""
+    """List all registered people with details"""
     try:
         conn = sqlite3.connect(face_server.db_path)
         cursor = conn.cursor()
@@ -2199,7 +2177,7 @@ def stop_camera():
     
 @app.route('/api/camera/frame', methods=['GET'])
 def get_camera_frame():
-    """Get current camera frame with enhanced face recognition"""
+    """Get current camera frame with face recognition"""
     try:
         include_image = request.args.get('include_image', 'true').lower() == 'true'
         image_quality = int(request.args.get('quality', '85'))
@@ -2328,7 +2306,11 @@ if __name__ == '__main__':
     
     print(f"RPi Camera Status: {'Available' if rpi_camera_available else 'Not Available'}")
     print(f"USB Camera Status: {'Available' if usb_camera_available else 'Not Available'}")
+    print(f"Priority: RPi Camera -> USB Camera")
     
+    if not (rpi_camera_available or usb_camera_available):
+        print("WARNING: No cameras detected!")
+
     local_ip = get_local_ip()
     port = 5000
     
@@ -2342,10 +2324,10 @@ if __name__ == '__main__':
     print(f"   Test Server: GET /api/test")
     print(f"   Real-time Recognition: POST /api/recognize_realtime")
     print(f"   File Recognition: POST /api/recognize")
-    print(f"   Enhanced Registration: POST /api/register_enhanced")
+    print(f"   Registration: POST /api/register_enhanced")
     print(f"   Legacy Registration: POST /api/register")
     print(f"   Server Health: GET /api/health")
-    print(f"   Enhanced Analytics: GET /api/analytics_enhanced")
+    print(f"   Analytics: GET /api/analytics_enhanced")
     print(f"   Daily Report: GET /api/daily_report?date=YYYY-MM-DD")
     print(f"   List People: GET /api/people")
     print(f"   Delete Person: DELETE /api/delete_person")
@@ -2387,6 +2369,6 @@ if __name__ == '__main__':
             threaded=True
         )
     except KeyboardInterrupt:
-        print("\n\nShutting down enhanced face recognition server...")
+        print("\n\nShutting down face server...")
         cleanup_camera()
-        print("Enhanced face recognition server stopped and resources released.")
+        print("Face server stopped and resources released.")

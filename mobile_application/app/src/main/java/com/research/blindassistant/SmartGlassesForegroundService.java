@@ -45,7 +45,7 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
     private static final String CHANNEL_ID = "smart_glasses_monitor";
     private static final int NOTIF_ID = 1011;
 
-    private static final String SERVER_URL = "http://10.187.202.95:5000";
+    private static final String SERVER_URL = "http://10.231.176.126:5000";
 
     private Handler handler;
     private RequestQueue requestQueue;

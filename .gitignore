@@ -1,6 +1,7 @@
 # === PYTHON & SERVER ===
 smart_glasses_server/face_recognition_env/
 smart_glasses_server/venv/
+smart_glasses_server/env/
 __pycache__/
 *.pyc
 *.pyo
