@@ -19,7 +19,7 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
 
     private static final String TAG = "MockSmartGlasses";
 
-    private static final String CAMERA_SERVER_URL = "http://10.231.176.126:5001";
+    private static final String CAMERA_SERVER_URL = "http://10.231.176.126:5000";
 
     private RequestQueue requestQueue;
     private Handler mainHandler;
@@ -175,7 +175,7 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
     }
 
     private void pollForFrame() {
-        String url = CAMERA_SERVER_URL + "/api/camera/frame";
+        String url = CAMERA_SERVER_URL + "/api/camera/frame_add_friend";
 
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.GET, url, null,

@@ -41,6 +41,7 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
     public static final String ACTION_STOP = "com.research.blindassistant.action.STOP";
     public static final String ACTION_CHECK_NOW = "com.research.blindassistant.action.CHECK_NOW";
     public static final String ACTION_START_CAMERA = "com.research.blindassistant.action.START_CAMERA";
+    public static final String ACTION_STOP_CAMERA = "com.research.blindassistant.action.STOP_CAMERA";
     private static final String TAG = "SGForegroundService";
     private static final String CHANNEL_ID = "smart_glasses_monitor";
     private static final int NOTIF_ID = 1011;
@@ -53,6 +54,8 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
     private boolean lastHealthy = false;
     private int peopleCount = 0;
     private long checkIntervalMs = 10_000;
+    private boolean cameraWasActiveBeforeStop = false;
+    private boolean cameraStoppedByAddFriend = false;
 
     private final Runnable periodicCheck = new Runnable() {
         @Override
@@ -79,7 +82,6 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
         createChannel();
         startForeground(NOTIF_ID, buildNotification("Checking smart glasses status...", true));
         running = true;
-        // Initialize TTS for background spoken feedback
         try {
             tts = new TextToSpeech(getApplicationContext(), this);
         } catch (Exception e) {
@@ -103,6 +105,8 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
                 checkHealth(true);
             } else if (ACTION_START_CAMERA.equals(action)) {
                 startCamera();
+            } else if (ACTION_STOP_CAMERA.equals(action)) {
+                handleCameraStopRequest();
             }
         }
         return START_STICKY;
@@ -134,6 +138,11 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
                         boolean cameraActive = response.optBoolean("camera_active", false);
 
                         this.peopleCount = count;
+                        if (cameraStoppedByAddFriend && !cameraActive && cameraWasActiveBeforeStop) {
+                            Log.d(TAG, "Camera was stopped by AddFriend but should be active, attempting restart");
+                            startCamera();
+                            cameraStoppedByAddFriend = false;
+                        }
                         updateState(healthy && cameraActive, count, userInitiated);
                     } catch (JSONException e) {
                         Log.e(TAG, "Parse error", e);
@@ -155,20 +164,79 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
             text = "Smart glasses ready • Camera active • " + count + " people";
             if (!lastHealthy || announce) {
                 notify(text, false);
-                speakThrottled("Smart glasses ready");
+                if (!cameraStoppedByAddFriend) {
+                    speakThrottled("Smart glasses ready");
+                }
             } else {
                 getNotificationManager().notify(NOTIF_ID, buildNotification(text, false));
             }
         } else {
-            text = "Smart glasses NOT active. Open app to reconnect.";
-            if (lastHealthy || announce) {
-                notify(text, true);
-                speakThrottled("Smart glasses not active");
+            if (cameraStoppedByAddFriend) {
+                text = "Camera temporarily stopped for face registration";
             } else {
-                getNotificationManager().notify(NOTIF_ID, buildNotification(text, true));
+                text = "Smart glasses NOT active. Open app to reconnect.";
+            }
+
+            if (lastHealthy || announce) {
+                notify(text, !cameraStoppedByAddFriend);
+                if (!cameraStoppedByAddFriend) {
+                    speakThrottled("Smart glasses not active");
+                }
+            } else {
+                getNotificationManager().notify(NOTIF_ID, buildNotification(text, !cameraStoppedByAddFriend));
             }
         }
         lastHealthy = healthyAndActive;
+    }
+
+    private void handleCameraStopRequest() {
+        Log.d(TAG, "Handling camera stop request from AddFriendActivity");
+
+        String url = SERVER_URL + "/api/health";
+        JsonObjectRequest healthRequest = new JsonObjectRequest(
+                Request.Method.GET, url, null,
+                response -> {
+                    boolean cameraActive = response.optBoolean("camera_active", false);
+                    cameraWasActiveBeforeStop = cameraActive;
+
+                    if (cameraActive) {
+                        stopCameraForAddFriend();
+                    } else {
+                        Log.d(TAG, "Camera was already inactive");
+                        cameraStoppedByAddFriend = true;
+                    }
+                },
+                error -> {
+                    Log.w(TAG, "Health check failed before stopping camera", error);
+                    stopCameraForAddFriend();
+                }
+        );
+        healthRequest.setRetryPolicy(new DefaultRetryPolicy(3000, 0, 1f));
+        requestQueue.add(healthRequest);
+    }
+
+    private void stopCameraForAddFriend() {
+        Log.d(TAG, "Stopping camera for AddFriendActivity");
+        cameraStoppedByAddFriend = true;
+
+        String url = SERVER_URL + "/api/camera/stop";
+        JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, url, null,
+                response -> {
+                    Log.d(TAG, "Camera stopped successfully for AddFriendActivity");
+                    updateNotificationForAddFriend();
+                },
+                error -> {
+                    Log.w(TAG, "Failed to stop camera for AddFriendActivity", error);
+                    cameraStoppedByAddFriend = false;
+                }
+        );
+        req.setRetryPolicy(new DefaultRetryPolicy(4000, 0, 1f));
+        requestQueue.add(req);
+    }
+
+    private void updateNotificationForAddFriend() {
+        String text = "Camera temporarily stopped for face registration";
+        getNotificationManager().notify(NOTIF_ID, buildNotification(text, false));
     }
 
     private void notify(String text, boolean highPriority) {
@@ -240,6 +308,10 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
                 .addAction(R.drawable.ic_stop, "Stop", stopPending)
                 .setPriority(problematic ? NotificationCompat.PRIORITY_HIGH : NotificationCompat.PRIORITY_LOW);
 
+        if(!cameraStoppedByAddFriend){
+            b.addAction(R.drawable.ic_camera_on, "Start camera", startCamPending);
+        }
+        b.addAction(R.drawable.ic_stop, "Stop", stopPending);
         return b.build();
     }
 
@@ -268,6 +340,7 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
                 @Override public void onRmsChanged(float rmsdB) {}
                 @Override public void onBufferReceived(byte[] buffer) {}
                 @Override public void onEndOfSpeech() {}
+
                 @Override public void onEvent(int eventType, Bundle params) {}
                 @Override public void onPartialResults(Bundle partialResults) {}
 
@@ -306,6 +379,7 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
         boolean uiActive = getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
                 .getBoolean("ui_recognition_active", false);
         if (uiActive) return;
+        if (cameraStoppedByAddFriend) return;
         try {
             isListening = true;
             speechRecognizer.startListening(speechIntent);

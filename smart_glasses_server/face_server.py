@@ -139,29 +139,25 @@ class EnhancedFaceRecognitionServer:
 
             camera_config = self.picamera2.create_preview_configuration(
                 main={"format": "RGB888", "size":  (self.camera_width, self.camera_height)},
-                buffer_count=6,
-                controls={
-                    "FrameRate":self.fps,
-                    "ExposureTime": 20000,
-                    "AnalogueGain": 2.0,
-                    "Brightness": 0.1,
-                    "Contrast": 0.2,
-                    "Saturation": 1.1,
-                    "Sharpness": 1.1,
-                    # "ColorGains": [1.4, 1.2],
-                }
+                buffer_count=2,
             )
 
             self.picamera2.configure(camera_config)
             self.rpi_camera_config = camera_config
 
             self.picamera2.start()
-            time.sleep(4)
+            time.sleep(2)
 
             test_frame = self.picamera2.capture_array()
             if test_frame is not None and test_frame.size > 0:
                 test_frame_bgr = cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR)
                 mean_intensity = np.mean(test_frame_bgr)
+
+                r_mean = np.mean(test_frame[:,:,0])
+                g_mean = np.mean(test_frame[:,:,1])
+                b_mean = np.mean(test_frame[:,:,2])
+
+                logging.info(f"Test frame: R={r_mean:.1f}, G={g_mean:.1f}, B={b_mean:.1f}, intensity={mean_intensity:.1f}")
 
                 if 15 < mean_intensity < 240:
                     self.camera_mode = 'rpi'
@@ -1595,7 +1591,7 @@ class EnhancedFaceRecognitionServer:
             }
 
 face_server = EnhancedFaceRecognitionServer()
-
+connected_clients = {}
 
 @app.route('/')
 def web_interface():
@@ -2283,6 +2279,176 @@ def cleanup_camera():
 
 atexit.register(cleanup_camera)
 
+@app.route('/api/camera/health', methods=['GET'])
+def camera_health():
+    """Camera health check endpoint for Java client"""
+    try:
+        camera_available = face_server.camera_active or (face_server.camera_error is None)
+        
+        return jsonify({
+            'status': 'healthy',
+            'camera_available': camera_available,
+            'camera_mode': face_server.camera_mode or 'unknown',
+            'resolution': f"{face_server.camera_width}x{face_server.camera_height}",
+            'fps': face_server.fps,
+            'active_clients': len(connected_clients)
+        })
+    except Exception as e:
+        logging.error(f"Camera health check error: {e}")
+        return jsonify({
+            'status': 'error',
+            'camera_available': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/camera/connect', methods=['POST'])
+def connect_client():
+    """Connect a client to the camera stream"""
+    try:
+        data = request.json or {}
+        client_id = data.get('client_id', 'unknown')
+        logging.info(f"Connect request from client: {client_id}")
+        
+        if client_id in connected_clients:
+            logging.info(f"Client {client_id} already connected")
+            return jsonify({
+                'success': True,
+                'message': f'Client {client_id} already connected',
+                'stream_url': '/api/camera/frame',
+                'camera_mode': face_server.camera_mode or 'smart_glasses',
+                'resolution': f"{face_server.camera_width}x{face_server.camera_height}",
+                'fps': face_server.fps,
+                'camera_index': 0,
+                'optimized_for': 'smart_glasses'
+            })
+        
+        connected_clients[client_id] = {
+            'connected_at': time.time(),
+            'last_request': time.time()
+        }
+        
+        if not face_server.camera_active:
+            success = face_server.start_camera()
+            if not success:
+                del connected_clients[client_id]
+                return jsonify({
+                    'success': False,
+                    'message': 'Failed to start camera streaming - no camera available'
+                }), 500
+        
+        return jsonify({
+            'success': True,
+            'message': f'Client {client_id} connected successfully',
+            'stream_url': '/api/camera/frame',
+            'camera_mode': face_server.camera_mode or 'smart_glasses',
+            'resolution': f"{face_server.camera_width}x{face_server.camera_height}",
+            'fps': face_server.fps,
+            'camera_index': 0,
+            'optimized_for': 'smart_glasses'
+        })
+        
+    except Exception as e:
+        logging.error(f"Connect error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/camera/disconnect', methods=['POST'])
+def disconnect_client():
+    """Disconnect a client from the camera stream"""
+    try:
+        data = request.json or {}
+        client_id = data.get('client_id', 'unknown')
+        logging.info(f"Disconnect request from client: {client_id}")
+        
+        if client_id in connected_clients:
+            del connected_clients[client_id]
+        
+        if not connected_clients and face_server.camera_active:
+            face_server.stop_camera()
+            logging.info("No clients connected, stopping camera")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Client {client_id} disconnected'
+        })
+        
+    except Exception as e:
+        logging.error(f"Disconnect error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/', methods=['POST'])
+def register_face_java():
+    """Face registration endpoint for Java client"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'success': False, 'message': 'No JSON data provided'}), 400
+        
+        name = data.get('name', '').strip()
+        images = data.get('images', [])
+        
+        if not name:
+            return jsonify({'success': False, 'message': 'Name required'}), 400
+        
+        if not images:
+            return jsonify({'success': False, 'message': 'Images required'}), 400
+        
+        result = face_server.add_person_enhanced(name, images)
+        
+        return jsonify({
+            'success': result['success'],
+            'message': result['message']
+        })
+        
+    except Exception as e:
+        logging.error(f"Java registration error: {e}")
+        return jsonify({
+            'success': False, 
+            'message': f'Registration error: {str(e)}'
+        }), 500
+    
+@app.route('/api/camera/frame_add_friend', methods=['GET'])
+def get_camera_frame_java():
+    """Get camera frame in Java-compatible format (separate from existing endpoint)"""
+    try:
+        if not face_server.camera_active:
+            return jsonify({
+                'success': False, 
+                'error': 'Camera not streaming',
+                'debug': {
+                    'is_streaming': face_server.camera_active,
+                    'camera_mode': face_server.camera_mode,
+                    'connected_clients': len(connected_clients),
+                    'camera_error': face_server.camera_error
+                }
+            }), 400
+        
+        frame = face_server.capture_frame()
+        if frame is None:
+            return jsonify({
+                'success': False, 
+                'error': 'No frame available'
+            }), 404
+
+        frame_base64 = face_server.frame_to_base64(frame)
+        if frame_base64 is None:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to encode frame'
+            }), 500
+        
+        return jsonify({
+            'success': True,
+            'frame_data': {
+            'image': frame_base64,
+            'timestamp': time.time()
+        }
+    })
+        
+    except Exception as e:
+        logging.error(f"Java frame endpoint error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    
 if __name__ == '__main__':
     print("="*80)
 

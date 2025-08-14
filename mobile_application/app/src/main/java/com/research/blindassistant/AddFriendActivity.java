@@ -16,6 +16,11 @@ import android.util.Log;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import com.android.volley.DefaultRetryPolicy;
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
@@ -27,6 +32,7 @@ import static com.research.blindassistant.StringResources.AddFriend;
 public class AddFriendActivity extends AppCompatActivity implements TextToSpeech.OnInitListener, RecognitionListener,IntelligentCaptureManager.CaptureProgressCallback,SmartGlassesConnector.SmartGlassesCallback,FaceRecognitionService.FaceRecognitionCallback {
 
     private static final String TAG = "AddFriendActivity";
+    private static final String SERVER_URL = "http://10.231.176.126:5000";
     private TextView statusText, instructionsText, nameDisplayText,progressText;
     private Button btnStart,btnStartOver,btnCancel;
     private ImageView captureIndicator,qualityIndicator;
@@ -41,14 +47,14 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     private FaceRecognitionService faceRecognitionService;
     private ToneGenerator toneGenerator;
     private Handler mainHandler;
-
+    private RequestQueue requestQueue;
     private boolean isListening = false;
     private boolean isTtsReady = false;
     private String friendName = "";
     private CaptureState currentState = CaptureState.WAITING_FOR_NAME;
     private int speechRetryCount = 0;
     private static final int MAX_SPEECH_RETRIES = 3;
-
+    private boolean cameraStoppedByActivity = false;
     private static final int TONE_CAPTURE_SUCCESS = ToneGenerator.TONE_PROP_BEEP2;
     private static final int TONE_QUALITY_GOOD = ToneGenerator.TONE_DTMF_1;
     private static final int TONE_COMPLETE = ToneGenerator.TONE_CDMA_CONFIRM;
@@ -74,6 +80,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_add_friend_enhanced);
+        requestQueue = Volley.newRequestQueue(this);
         setupServices();
         initializeComponents();
         setupVoiceRecognition();
@@ -90,6 +97,51 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         }
     }
 
+    private void stopBackgroundCamera(){
+        Log.d(TAG,"stopping background camera");
+
+        String url = SERVER_URL + "/api/camera/stop";
+        JsonObjectRequest stopCameraRequest = new JsonObjectRequest(
+                Request.Method.POST, url,null,
+                response -> {
+                    Log.d(TAG,"Background camera stopped successfull");
+                    cameraStoppedByActivity = true;
+
+                    runOnUiThread(() -> {
+                        if(statusText != null){
+                            statusText.setText("Background camera stopped - Ready for face registration");
+                        }
+                    });
+                },
+                error ->{
+                    Log.w(TAG, "Background camera stop failed", error);
+                }
+        );
+        stopCameraRequest.setRetryPolicy(new DefaultRetryPolicy(3000,1,1f));
+        requestQueue.add(stopCameraRequest);
+    }
+
+    private void restartBackgroundCamera(){
+        if(!cameraStoppedByActivity){
+            Log.d(TAG, "Camera was not stopped by this activity, no need to restart");
+            return;
+        }
+        Log.d(TAG, "Restarting background camera after AddFriend activity");
+
+        String url = SERVER_URL + "/api/camera/start";
+        JsonObjectRequest startCameraRequest = new JsonObjectRequest(
+                Request.Method.POST,url,null,
+                response -> {
+                    Log.d(TAG, "Background camera restarted successfully");
+                },
+                error -> {
+                    Log.w(TAG, "Failed to restart background camera", error);
+                }
+        );
+
+        startCameraRequest.setRetryPolicy(new DefaultRetryPolicy(3000,1,1f));
+        requestQueue.add(startCameraRequest);
+    }
     private void setupServices(){
         statusManager = new StatusManager(this);
         faceRecognitionService = new FaceRecognitionService(this);
@@ -622,9 +674,8 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
 
                     liveFeedPreview.setImageBitmap(scaledFrame);
 
-                    if(scaledFrame != frame){
-                        //since original frame might still need don't recycle here
-                    }
+//                    if(scaledFrame != frame){
+//                    }
                 } else {
                     liveFeedPreview.setImageBitmap(frame);
                 }
@@ -801,7 +852,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     protected void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "Destroying activity");
-
+        restartBackgroundCamera();
         stopVoiceListening();
 
         if (ttsEngine != null) {
@@ -828,6 +879,10 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         if (toneGenerator != null) {
             toneGenerator.release();
         }
+
+        if(requestQueue != null){
+            requestQueue.stop();
+        }
     }
 
     @Override
@@ -842,5 +897,19 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         if (currentState == CaptureState.WAITING_FOR_NAME) {
             startVoiceListening();
         }
+    }
+
+    @Override
+    public void onBackPressed(){
+        Log.d(TAG, "Back button pressed, restarting background camera");
+        restartBackgroundCamera();
+        super.onBackPressed();
+    }
+
+    @Override
+    public void finish() {
+        Log.d(TAG, "Activity finishing, restarting background camera");
+        restartBackgroundCamera();
+        super.finish();
     }
 }
