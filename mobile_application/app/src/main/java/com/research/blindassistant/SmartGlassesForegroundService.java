@@ -42,6 +42,7 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
     public static final String ACTION_CHECK_NOW = "com.research.blindassistant.action.CHECK_NOW";
     public static final String ACTION_START_CAMERA = "com.research.blindassistant.action.START_CAMERA";
     public static final String ACTION_STOP_CAMERA = "com.research.blindassistant.action.STOP_CAMERA";
+    public static final String ACTION_COMPLETE_SHUTDOWN = "com.research.blindassistant.action.COMPLETE_SHUTDOWN";
     private static final String TAG = "SGForegroundService";
     private static final String CHANNEL_ID = "smart_glasses_monitor";
     private static final int NOTIF_ID = 1011;
@@ -73,6 +74,7 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
     private boolean isListening = false;
     private long lastTtsAtMs = 0L;
     private static final long TTS_THROTTLE_MS = 3000;
+    private boolean isCompleteShutdown = false;
 
     @Override
     public void onCreate() {
@@ -101,6 +103,9 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
             if (ACTION_STOP.equals(action)) {
                 stopSelf();
                 return START_NOT_STICKY;
+            } else if (ACTION_COMPLETE_SHUTDOWN.equals(action)) {
+                performCompleteShutdown();
+                return START_NOT_STICKY;
             } else if (ACTION_CHECK_NOW.equals(action)) {
                 checkHealth(true);
             } else if (ACTION_START_CAMERA.equals(action)) {
@@ -117,15 +122,103 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
         super.onDestroy();
         running = false;
         handler.removeCallbacksAndMessages(null);
+
         if (requestQueue != null) requestQueue.stop();
-        try { if (speechRecognizer != null) speechRecognizer.destroy(); } catch (Exception ignored) {}
-        try { if (tts != null) { tts.stop(); tts.shutdown(); } } catch (Exception ignored) {}
+        try {
+            if (speechRecognizer != null) {
+                speechRecognizer.destroy();
+            }
+        } catch (Exception ignored) {}
+        try {
+            if (tts != null) {
+                tts.stop();
+                tts.shutdown();
+            }
+        } catch (Exception ignored) {}
+
         Log.d(TAG, "Foreground service destroyed");
     }
 
     @Nullable
     @Override
     public IBinder onBind(Intent intent) { return null; }
+
+    private void performCompleteShutdown() {
+        Log.d(TAG, "Performing complete shutdown of smart glasses system");
+        isCompleteShutdown = true;
+        running = false;
+
+        String stopCameraUrl = SERVER_URL + "/api/camera/stop";
+        JsonObjectRequest stopCameraRequest = new JsonObjectRequest(
+                Request.Method.POST, stopCameraUrl, null,
+                response -> {
+                    Log.d(TAG, "Camera stopped successfully during shutdown");
+                    stopSmartGlassesSystem();
+                },
+                error -> {
+                    Log.w(TAG, "Failed to stop camera during shutdown, proceeding anyway", error);
+                    stopSmartGlassesSystem();
+                }
+        );
+        stopCameraRequest.setRetryPolicy(new DefaultRetryPolicy(3000, 0, 1f));
+        requestQueue.add(stopCameraRequest);
+
+        handler.postDelayed(() -> {
+            if (isCompleteShutdown) {
+                Log.d(TAG, "Forcing service shutdown due to timeout");
+                stopSelf();
+            }
+        }, 5000);
+    }
+
+    private void stopSmartGlassesSystem() {
+        String shutdownUrl = SERVER_URL + "/api/system/shutdown";
+        JsonObjectRequest shutdownRequest = new JsonObjectRequest(
+                Request.Method.POST, shutdownUrl, null,
+                response -> {
+                    Log.d(TAG, "Smart glasses system shutdown successfully");
+                    finalizeShutdown();
+                },
+                error -> {
+                    Log.w(TAG, "Failed to shutdown smart glasses system via API", error);
+                    finalizeShutdown();
+                }
+        );
+        shutdownRequest.setRetryPolicy(new DefaultRetryPolicy(3000, 0, 1f));
+        requestQueue.add(shutdownRequest);
+    }
+
+    private void finalizeShutdown() {
+        updateNotificationForShutdown();
+        handler.postDelayed(() -> stopSelf(), 2000);
+    }
+
+    private void updateNotificationForShutdown() {
+        String text = "Smart glasses system stopped completely";
+        Notification shutdownNotification = buildShutdownNotification(text);
+        getNotificationManager().notify(NOTIF_ID, shutdownNotification);
+    }
+
+    private Notification buildShutdownNotification(String contentText) {
+        Intent openIntent = new Intent(this, MainActivity.class);
+        PendingIntent contentPending = PendingIntent.getActivity(
+                this, 0, openIntent,
+                Build.VERSION.SDK_INT >= 31
+                        ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE
+                        : PendingIntent.FLAG_UPDATE_CURRENT
+        );
+
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stop)
+                .setContentTitle("Blind Assistant")
+                .setContentText(contentText)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(contentText))
+                .setOngoing(false)
+                .setAutoCancel(true)
+                .setContentIntent(contentPending)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build();
+    }
 
     private void checkHealth(boolean userInitiated) {
         String url = SERVER_URL + "/api/health";

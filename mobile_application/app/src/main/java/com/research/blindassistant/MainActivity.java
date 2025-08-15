@@ -27,7 +27,7 @@ import static com.research.blindassistant.StringResources.Main;
 
 public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener,RecognitionListener {
 
-    private Button btnPeopleRecognition,btnVoiceCommand,btnNavigation,btnSettings;
+    private Button btnPeopleRecognition,btnVoiceCommand,btnNavigation,btnSettings, btnStopSmartGlasses;
     private TextView statusText;
     private TextToSpeech ttsEngine;
     private SpeechRecognizer speechRecognizer;
@@ -79,6 +79,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         btnNavigation = findViewById(R.id.btnNavigation);
         btnSettings = findViewById(R.id.btnSettings);
         statusText = findViewById(R.id.statusText);
+        btnStopSmartGlasses = findViewById(R.id.btnStopSmartGlasses);
     }
 
     private void setupVoiceRecognition() {
@@ -167,6 +168,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             }, 1500);
         });
 
+        btnStopSmartGlasses.setOnClickListener(v->{
+            stopSmartGlasses();
+        });
     }
 
     private void addHapticFeedback() {
@@ -279,12 +283,25 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             speak(StringResources.getString(Main.STOPPING_VOICE_COMMANDS), StringResources.getCurrentLocale());
             stopListening();
 
-        } else {
+        } else if(lowerCommand.contains("stop") || lowerCommand.contains("shutdown") || lowerCommand.contains("turn off")
+                || lowerCommand.contains("stop smart glasses")) {
+            stopListening();
+            stopSmartGlasses();
+        }else {
             Log.d("VoiceCommand", "Command not recognized: " + command);
             speak("Command not recognized. You said: " + command, StringResources.getCurrentLocale());
 
             speak("Try saying: face, navigation, settings, or stop", StringResources.getCurrentLocale());
         }
+    }
+
+    private void stopSmartGlasses(){
+        speak("Stopping smart glasses...",StringResources.getCurrentLocale());
+        updateStatus("Stopping smart glasses...");
+
+        Intent stopIntent = new Intent(this, SmartGlassesForegroundService.class);
+        stopIntent.setAction(SmartGlassesForegroundService.ACTION_COMPLETE_SHUTDOWN);
+        startService(stopIntent);
     }
 
     private double calculateSimilarity(String s1, String s2) {
