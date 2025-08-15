@@ -1998,7 +1998,6 @@ def get_historical_data():
         conn = sqlite3.connect(face_server.db_path)
         cursor = conn.cursor()
         
-        # Get data for the last 7 days
         days = []
         total_recognitions = 0
         best_day = 0
@@ -2056,7 +2055,6 @@ def generate_test_data():
         conn = sqlite3.connect(face_server.db_path)
         cursor = conn.cursor()
         
-        # Get registered people
         cursor.execute("SELECT name FROM people")
         people = [row[0] for row in cursor.fetchall()]
         
@@ -2066,11 +2064,9 @@ def generate_test_data():
                 'error': 'No registered people found. Please register at least one person first.'
             }), 400
         
-        # Generate test data for today
         today = datetime.now().date()
         test_data_count = 0
         
-        # Generate 10-20 test recognitions
         import random
         for i in range(random.randint(10, 20)):
             person = random.choice(people)
@@ -2079,7 +2075,6 @@ def generate_test_data():
             processing_time = random.uniform(0.1, 0.5)
             method = random.choice(['standard', 'weighted_average', 'temporal', 'enhanced'])
             
-            # Random time during the day
             hour = random.randint(8, 20)
             minute = random.randint(0, 59)
             second = random.randint(0, 59)

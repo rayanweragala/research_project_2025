@@ -81,6 +81,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_add_friend_enhanced);
         requestQueue = Volley.newRequestQueue(this);
+        stopBackgroundCamera();
         setupServices();
         initializeComponents();
         setupVoiceRecognition();
