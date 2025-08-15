@@ -57,8 +57,8 @@ class EnhancedFaceRecognitionServer:
 
         self.picamera2 = None
         self.camera_mode = None
-        self.camera_width = 640
-        self.camera_height = 480
+        self.camera_width = 1280
+        self.camera_height = 720
         self.fps = 15
         self.rpi_camera_config = None
         self.camera= None
@@ -139,33 +139,43 @@ class EnhancedFaceRecognitionServer:
 
             camera_config = self.picamera2.create_preview_configuration(
                 main={"format": "RGB888", "size":  (self.camera_width, self.camera_height)},
-                buffer_count=2,
+                buffer_count=4,
             )
 
             self.picamera2.configure(camera_config)
             self.rpi_camera_config = camera_config
+            
+            controls = {
+            "AeEnable": True,
+            "AwbEnable": True,
+            "Brightness": 0.1,
+            "Contrast": 1.2,
+            "Saturation": 1.1,
+            "Sharpness": 1.2,
+        }
 
+            self.picamera2.set_controls(controls)
             self.picamera2.start()
-            time.sleep(2)
+            time.sleep(3)
 
-            test_frame = self.picamera2.capture_array()
-            if test_frame is not None and test_frame.size > 0:
-                test_frame_bgr = cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR)
-                mean_intensity = np.mean(test_frame_bgr)
+            for i in range(5): 
+                test_frame = self.picamera2.capture_array()
+                if test_frame is not None and test_frame.size > 0:
+                    test_frame_bgr = cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR)
+                    mean_intensity = np.mean(test_frame_bgr)
 
-                r_mean = np.mean(test_frame[:,:,0])
-                g_mean = np.mean(test_frame[:,:,1])
-                b_mean = np.mean(test_frame[:,:,2])
+                    gray = cv2.cvtColor(test_frame_bgr, cv2.COLOR_BGR2GRAY)
+                    sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-                logging.info(f"Test frame: R={r_mean:.1f}, G={g_mean:.1f}, B={b_mean:.1f}, intensity={mean_intensity:.1f}")
+                    logging.info(f"Test frame {i+1}: intensity={mean_intensity:.1f}, sharpness={sharpness:.1f}")
 
-                if 15 < mean_intensity < 240:
-                    self.camera_mode = 'rpi'
-                    logging.info("Raspbery pi camera initialized successfully")
-                    logging.info(f"camera resolution: {test_frame.shape}")
-                    return True
-                else:
-                    logging.warning(f"RPI camera test frame has invalid intensity:  {mean_intensity}")
+                    if 20 < mean_intensity < 230 and sharpness > 100:  # Better quality thresholds
+                        self.camera_mode = 'rpi'
+                        self.camera_width = 1280
+                        self.camera_height = 720
+                        logging.info(f"Raspberry Pi camera initialized successfully at {self.camera_width}x{self.camera_height}")
+                        return True
+                time.sleep(0.5)
 
             self.picamera2.stop()
             self.picamera2.close()
@@ -237,18 +247,40 @@ class EnhancedFaceRecognitionServer:
                 return False
             
             try:
+                logging.info("Loading InsightFace model ...")
+
                 self.model = insightface.app.FaceAnalysis(
                     providers=['CPUExecutionProvider'],
                     allowed_modules=['detection','recognition']
                 )
-                self.model.prepare(ctx_id=0, det_size=(320, 320))
+                self.model.prepare(ctx_id=0, det_size=(640, 640))
+            
+                test_image = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+                test_faces = self.model.get(test_image)
+            
                 self.model_loaded = True
-                logging.info("InsightFace model loaded successfully")
+                logging.info("InsightFace model loaded and tested successfully")
                 return True
                 
             except Exception as e:
-                logging.error(f"Failed to initialize InsightFace model: {e}")
-                logging.error(f"Traceback: {traceback.format_exc()}")
+                logging.info("Attempting to download InsightFace models...")
+            try:
+                import insightface.model_zoo as model_zoo
+                det_model = model_zoo.get_model('retinaface_r50_v1')
+                rec_model = model_zoo.get_model('arcface_r100_v1')
+                logging.info("Models downloaded, retrying initialization...")
+                
+                self.model = insightface.app.FaceAnalysis(
+                    providers=['CPUExecutionProvider'],
+                    allowed_modules=['detection', 'recognition']
+                )
+                self.model.prepare(ctx_id=0, det_size=(640, 640))
+                self.model_loaded = True
+                logging.info("InsightFace model loaded successfully after manual download")
+                return True
+                
+            except Exception as download_error:
+                logging.error(f"Model download failed: {download_error}")
                 self.model_loaded = False
                 return False
                 
@@ -731,12 +763,35 @@ class EnhancedFaceRecognitionServer:
             return None
         
     def preprocess_camera_frame(self, frame):
-        """Preprocess camera frame for better recognition"""
-        try:    
-            enhanced = cv2.convertScaleAbs(frame, alpha=1.1, beta=10)
-            denoised = cv2.bilateralFilter(enhanced, 5, 50, 50)
+        """Enhanced frame preprocessing for better recognition quality"""
+        try:
+            if frame is None:
+                return None
         
-            return denoised
+            height, width = frame.shape[:2]
+            if width > 1280:
+                scale = 1280 / width
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
+        
+            denoised = cv2.bilateralFilter(frame, 9, 75, 75)
+        
+            lab = cv2.cvtColor(denoised, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            l = clahe.apply(l)
+            enhanced = cv2.merge([l, a, b])
+            enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+        
+            kernel = np.array([[-1,-1,-1],
+                               [-1, 9,-1],
+                               [-1,-1,-1]])
+            sharpened = cv2.filter2D(enhanced, -1, kernel)
+        
+            result = cv2.addWeighted(enhanced, 0.7, sharpened, 0.3, 0)
+        
+            return result
         except Exception as e:
             logging.error(f"Frame preprocessing error: {e}")
             return frame
