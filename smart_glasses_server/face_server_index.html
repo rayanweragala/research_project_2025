@@ -658,10 +658,10 @@
         </div>
         
         <div class="tabs">
-            <div class="tab active">🎥 Live Recognition</div>
-            <div class="tab">📊 Analytics</div>
-            <div class="tab">📋 Reports</div>
-            <div class="tab">👥 People</div>
+            <div class="tab active" onclick="switchTab(event, 'live')">🎥 Live Recognition</div>
+            <div class="tab" onclick="switchTab(event, 'analytics')">📊 Analytics</div>
+            <div class="tab" onclick="switchTab(event, 'reports')">📋 Reports</div>
+            <div class="tab" onclick="switchTab(event, 'people')">👥 People</div>
         </div>
         
         <div id="live-tab" class="tab-content active">
@@ -769,83 +769,86 @@
         let recognitionInterval;
         let currentStats = {};
 
-function showToast(message, type = 'info', title = '', duration = 4000) {
-    const toastContainer = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
+    function showToast(message, type = 'info', title = '', duration = 4000) {
+        const toastContainer = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
     
-    const icons = {
-        success: '✅',
-        error: '❌',
-        warning: '⚠️',
-        info: 'ℹ️'
-    };
+        const icons = {
+            success: '✅',
+            error: '❌',
+            warning: '⚠️',
+            info: 'ℹ️'
+        };
     
-    const titles = {
-        success: title || 'Success',
-        error: title || 'Error',
-        warning: title || 'Warning', 
-        info: title || 'Information'
-    };
+        const titles = {
+            success: title || 'Success',
+            error: title || 'Error',
+            warning: title || 'Warning', 
+            info: title || 'Information'
+        };
     
-    toast.innerHTML = `
-        <div class="toast-header">
-            <span>${icons[type]} ${titles[type]}</span>
-            <button class="toast-close" onclick="closeToast(this)">&times;</button>
-        </div>
-        <div class="toast-message">${message}</div>
-    `;
+        toast.innerHTML = `
+            <div class="toast-header">
+                <span>${icons[type]} ${titles[type]}</span>
+                <button class="toast-close" onclick="closeToast(this)">&times;</button>
+            </div>
+            <div class="toast-message">${message}</div>
+        `;
     
-    toastContainer.appendChild(toast);
+        toastContainer.appendChild(toast);
     
-    setTimeout(() => toast.classList.add('show'), 100);
+        setTimeout(() => toast.classList.add('show'), 100);
     
-    setTimeout(() => {
-        if (toast.parentNode) {
-            closeToast(toast.querySelector('.toast-close'));
-        }
-    }, duration);
-}
-
-function closeToast(button) {
-    const toast = button.closest('.toast');
-    toast.classList.remove('show');
-    setTimeout(() => {
-        if (toast.parentNode) {
-            toast.parentNode.removeChild(toast);
-        }
-    }, 400);
-}
-
-function switchTab(event, tabName) {
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-
-    document.querySelectorAll('.tab').forEach(tab => {
-        tab.classList.remove('active');
-    });
-
-    const tabContent = document.getElementById(tabName + '-tab');
-    if (tabContent) {
-        tabContent.classList.add('active');
+        setTimeout(() => {
+            if (toast.parentNode) {
+                closeToast(toast.querySelector('.toast-close'));
+            }
+        }, duration);
     }
 
-    event.target.classList.add('active');
-
-    switch(tabName) {
-        case 'analytics':
-            loadAnalytics();
-            break;
-        case 'reports':
-            setDefaultReportDate();
-            loadDailyReport();
-            break;
-        case 'people':
-            loadPeopleList();
-            break;
+    function closeToast(button) {
+        const toast = button.closest('.toast');
+        toast.classList.remove('show');
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        }, 400);
     }
-}
+
+    function switchTab(event, tabName) {
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            const tabContent = document.getElementById(tabName + '-tab');
+            if (tabContent) {
+                tabContent.classList.add('active');
+            }
+
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+
+            switch(tabName) {
+                case 'analytics':
+                    loadAnalytics();
+                    break;
+                case 'reports':
+                    setDefaultReportDate();
+                    loadDailyReport();
+                    break;
+                case 'people':
+                    loadPeopleList();
+                    break;
+            }
+        }
+
 
 function startRecognition() {
     if (!recognitionActive) {
@@ -902,10 +905,18 @@ function getServerFrame() {
     if (!recognitionActive) return;
     
     fetch('/api/camera/frame')
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.image) {
-                document.getElementById('cameraFeed').src = 'data:image/jpeg;base64,' + data.image;
+                const cameraFeed = document.getElementById('cameraFeed');
+                if (cameraFeed) {
+                    cameraFeed.src = 'data:image/jpeg;base64,' + data.image;
+                }
                 displayResult(data);
                 updateCurrentResult(data);
             } else if (data.error) {
@@ -926,7 +937,7 @@ function getServerFrame() {
                 recognized: false,
                 name: null,
                 confidence: 0,
-                message: `Frame error: ${err.message}`,
+                message: `Connection error: ${err.message}`,
                 quality_score: 0,
                 processing_time: 0,
                 error: true
@@ -1020,7 +1031,12 @@ function displayResult(data) {
 
 function loadAnalytics() {
     fetch('/api/analytics_enhanced')
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
         .then(data => {
             currentStats = data;
             updateAnalyticsDisplay(data);
@@ -1028,34 +1044,45 @@ function loadAnalytics() {
         .catch(err => {
             console.error('Analytics error:', err);
             showToast('Failed to load analytics data', 'error', 'Analytics Error');
+            
+            const analyticsElements = ['recognitionRate', 'avgTime', 'totalRequests', 'enhancedMethods'];
+            analyticsElements.forEach(elementId => {
+                const element = document.getElementById(elementId);
+                if (element) element.textContent = '0';
+            });
         });
 }
 
 function updateAnalyticsDisplay(data) {
-    if (data.recognition_stats) {
+    if (data && data.recognition_stats) {
         let stats = data.recognition_stats;
         let rate = stats.total_requests > 0 ? 
             (stats.successful_recognitions / stats.total_requests * 100).toFixed(1) : 0;
         
-        document.getElementById('recognitionRate').textContent = rate + '%';
-        document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
-        document.getElementById('totalRequests').textContent = stats.total_requests;
+        const recognitionRateEl = document.getElementById('recognitionRate');
+        const avgTimeEl = document.getElementById('avgTime');
+        const totalRequestsEl = document.getElementById('totalRequests');
+        const enhancedMethodsEl = document.getElementById('enhancedMethods');
+        
+        if (recognitionRateEl) recognitionRateEl.textContent = rate + '%';
+        if (avgTimeEl) avgTimeEl.textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
+        if (totalRequestsEl) totalRequestsEl.textContent = stats.total_requests;
         
         let enhancedCount = (stats.weighted_average_applied || 0) + 
                           (stats.temporal_smoothing_applied || 0) + 
                           (stats.outliers_removed || 0);
-        document.getElementById('enhancedMethods').textContent = enhancedCount;
+        if (enhancedMethodsEl) enhancedMethodsEl.textContent = enhancedCount;
     }
     
-    if (data.method_usage) {
+    if (data && data.method_usage) {
         updateMethodChart(data.method_usage);
     }
     
-    if (data.recent_recognitions) {
+    if (data && data.recent_recognitions) {
         updateConfidenceChart(data.recent_recognitions);
     }
 
-    if (data.hourly_distribution) {
+    if (data && data.hourly_distribution) {
         updateHourlyChart(data.hourly_distribution);
     }
 }
@@ -1707,7 +1734,12 @@ function formatConfidenceLevel(level) {
 
 function initializeDashboard() {
     fetch('/api/health')
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
         .then(data => {
             const statusEl = document.getElementById('status');
             if (statusEl) {
@@ -1738,10 +1770,16 @@ function initializeDashboard() {
     setDefaultReportDate();
 }
 
+
 function startPeriodicUpdates() {
     setInterval(() => {
         fetch('/api/health')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.recognition_stats) {
                     let stats = data.recognition_stats;
@@ -1766,37 +1804,33 @@ function startPeriodicUpdates() {
                     
                     const analyticsTab = document.getElementById('analytics-tab');
                     if (analyticsTab && analyticsTab.classList.contains('active')) {
-                        const recognitionRateEl = document.getElementById('recognitionRate');
-                        const avgTimeEl = document.getElementById('avgTime');
-                        const totalRequestsEl = document.getElementById('totalRequests');
-                        const enhancedMethodsEl = document.getElementById('enhancedMethods');
+                        const elements = {
+                            recognitionRate: rate + '%',
+                            avgTime: (stats.avg_processing_time * 1000).toFixed(0) + 'ms',
+                            totalRequests: stats.total_requests,
+                            enhancedMethods: (stats.weighted_average_applied || 0) + 
+                                           (stats.temporal_smoothing_applied || 0) + 
+                                           (stats.outliers_removed || 0)
+                        };
                         
-                        if (recognitionRateEl) recognitionRateEl.textContent = rate + '%';
-                        if (avgTimeEl) avgTimeEl.textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
-                        if (totalRequestsEl) totalRequestsEl.textContent = stats.total_requests;
-                        
-                        let enhancedCount = (stats.weighted_average_applied || 0) + 
-                                          (stats.temporal_smoothing_applied || 0) + 
-                                          (stats.outliers_removed || 0);
-                        if (enhancedMethodsEl) enhancedMethodsEl.textContent = enhancedCount;
+                        Object.entries(elements).forEach(([id, value]) => {
+                            const element = document.getElementById(id);
+                            if (element) element.textContent = value;
+                        });
                     }
                 }
             })
-            .catch(err => console.error('Health check error:', err));
+            .catch(err => {
+                console.error('Periodic health check error:', err);
+            });
     }, 5000);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    const tabs = document.querySelectorAll('.tab');
-    tabs.forEach(tab => {
-        tab.addEventListener('click', function(event) {
-            const tabName = this.dataset.tab || 
-                           (this.textContent.includes('Live') ? 'live' :
-                            this.textContent.includes('Analytics') ? 'analytics' :
-                            this.textContent.includes('Reports') ? 'reports' : 'people');
-            switchTab(event, tabName);
-        });
-    });
     initializeDashboard();
     startPeriodicUpdates();
 });
+
+</script>
+</body>
+</html>
