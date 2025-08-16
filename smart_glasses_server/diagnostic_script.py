@@ -200,9 +200,9 @@ def main():
     print("\n" + "=" * 50)
     
     if all_good:
-        print("✓ All systems working! Your face recognition should work properly.")
+        print("✓ All systems working!")
     else:
-        print("✗ Issues detected. See fix commands below:")
+        print("✗ Issues detected.")
         generate_fix_commands()
     
     print("\n" + "=" * 50)
