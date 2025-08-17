@@ -57,9 +57,9 @@ class EnhancedFaceRecognitionServer:
 
         self.picamera2 = None
         self.camera_mode = None
-        self.camera_width = 1280
-        self.camera_height = 720
-        self.fps = 15
+        self.camera_width = 1920
+        self.camera_height = 1080
+        self.fps = 30
         self.rpi_camera_config = None
         self.camera= None
         self.camera_active = False
@@ -139,7 +139,7 @@ class EnhancedFaceRecognitionServer:
 
             camera_config = self.picamera2.create_preview_configuration(
                 main={"format": "RGB888", "size":  (self.camera_width, self.camera_height)},
-                buffer_count=4,
+                buffer_count=6,
             )
 
             self.picamera2.configure(camera_config)
@@ -148,15 +148,17 @@ class EnhancedFaceRecognitionServer:
             controls = {
             "AeEnable": True,
             "AwbEnable": True,
-            "Brightness": 0.1,
-            "Contrast": 1.2,
-            "Saturation": 1.1,
-            "Sharpness": 1.2,
+            "AwbMode": controls.AwbModeEnum.Auto,
+            "AeExposureMode": controls.AeExposureModeEnum.Normal,
+            "ExposureValue": 0.0, 
+            "Contrast": 1.1,
+            "Saturation": 1.0,
+            "Sharpness": 1.0,
         }
 
             self.picamera2.set_controls(controls)
             self.picamera2.start()
-            time.sleep(3)
+            time.sleep(5)
 
             for i in range(5): 
                 test_frame = self.picamera2.capture_array()
@@ -171,8 +173,6 @@ class EnhancedFaceRecognitionServer:
 
                     if 20 < mean_intensity < 230 and sharpness > 100:  # Better quality thresholds
                         self.camera_mode = 'rpi'
-                        self.camera_width = 1280
-                        self.camera_height = 720
                         logging.info(f"Raspberry Pi camera initialized successfully at {self.camera_width}x{self.camera_height}")
                         return True
                 time.sleep(0.5)
@@ -2458,8 +2458,8 @@ def register_face_java():
         }), 500
     
 @app.route('/api/camera/frame_add_friend', methods=['GET'])
-def get_camera_frame_java():
-    """Get camera frame in Java-compatible format (separate from existing endpoint)"""
+def get_camera_frame_add_friend():
+    """Get camera frame for add friend"""
     try:
         if not face_server.camera_active:
             return jsonify({
