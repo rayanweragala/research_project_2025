@@ -1,5 +1,5 @@
 import statistics
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, Response, request, jsonify, send_from_directory
 import cv2
 import numpy as np
 import base64
@@ -137,50 +137,50 @@ class EnhancedFaceRecognitionServer:
 
             self.picamera2 = Picamera2()
 
-            camera_config = self.picamera2.create_preview_configuration(
-                main={"format": "RGB888", "size":  (self.camera_width, self.camera_height)},
-                buffer_count=6,
+            
+            config = self.picamera2.create_video_configuration(
+                sensor={"output_size": (1280, 720)}, 
+                main={"size": (1280, 720)},            
+                lores={"size": (320, 240)},            
+                buffer_count=4
             )
 
-            self.picamera2.configure(camera_config)
-            self.rpi_camera_config = camera_config
+            self.picamera2.configure(config)
             
-            controls = {
-            "AeEnable": True,
-            "AwbEnable": True,
-            "AwbMode": controls.AwbModeEnum.Auto,
-            "AeExposureMode": controls.AeExposureModeEnum.Normal,
-            "ExposureValue": 0.0, 
-            "Contrast": 1.1,
-            "Saturation": 1.0,
-            "Sharpness": 1.0,
-        }
+            self.picamera2.set_controls({
+                "FrameRate": 60.0,
+                "AeEnable": True,
+                "AwbEnable": True,
+                "Brightness": 0.0,
+                "Contrast": 1.0,
+                "Saturation": 1.0,
+                "Sharpness": 1.2,
+                "AeConstraintMode": 1,
+                "AeMeteringMode": 0
+        })
 
-            self.picamera2.set_controls(controls)
             self.picamera2.start()
-            time.sleep(5)
+            time.sleep(2)
 
-            for i in range(5): 
-                test_frame = self.picamera2.capture_array()
-                if test_frame is not None and test_frame.size > 0:
-                    test_frame_bgr = cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR)
-                    mean_intensity = np.mean(test_frame_bgr)
-
-                    gray = cv2.cvtColor(test_frame_bgr, cv2.COLOR_BGR2GRAY)
+            for i in range(5):
+                frame = self.picamera2.capture_array()
+                if frame is not None and frame.size:
+                    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    mean_intensity = np.mean(bgr)
+                    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
                     sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
-
-                    logging.info(f"Test frame {i+1}: intensity={mean_intensity:.1f}, sharpness={sharpness:.1f}")
-
-                    if 20 < mean_intensity < 230 and sharpness > 100:  # Better quality thresholds
+                    logging.info(f"Frame {i+1}: intensity={mean_intensity:.1f}, sharpness={sharpness:.1f}")
+                    if 20 < mean_intensity < 230 and sharpness > 5:
                         self.camera_mode = 'rpi'
-                        logging.info(f"Raspberry Pi camera initialized successfully at {self.camera_width}x{self.camera_height}")
+                        self.camera_width, self.camera_height = 1280, 720
+                        logging.info("Raspberry Pi camera initialized successfully.")
                         return True
                 time.sleep(0.5)
 
             self.picamera2.stop()
             self.picamera2.close()
             self.picamera2 = None
-            logging.warning("Raspberry Pi camera test frame failed, falling back to USB")
+            logging.warning("Test frame failed; falling back to USB")
             return self.init_usb_camera()
                 
         except Exception as e:
@@ -2499,6 +2499,8 @@ def get_camera_frame_add_friend():
         logging.error(f"Java frame endpoint error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
     
+
+
 if __name__ == '__main__':
     print("="*80)
 
