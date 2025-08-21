@@ -10,6 +10,7 @@
               tools:context=".AddFriendActivity">
 
     <LinearLayout
+            android:id="@+id/headerLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -17,14 +18,27 @@
             android:padding="8dp"
             android:background="@color/header_background">
 
-        <ImageView
-                android:id="@+id/captureIndicator"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginEnd="12dp"
-                android:src="@drawable/ic_person_add"
-                android:contentDescription="@string/add_friend_status_indicator_desc"
-                app:tint="@color/accent_text" />
+        <FrameLayout
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="12dp">
+
+            <View
+                    android:id="@+id/statusIndicatorBackground"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/status_indicator_background_disconnected"/>
+
+            <ImageView
+                    android:id="@+id/statusIndicator"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_visibility_off"
+                    android:contentDescription="@string/smart_glasses_status_desc"
+                    app:tint="@color/status_disconnected"/>
+        </FrameLayout>
 
         <LinearLayout
                 android:layout_width="0dp"
@@ -43,13 +57,13 @@
                     android:contentDescription="@string/current_status_desc" />
 
             <TextView
+                    android:id="@+id/statusSubtext"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/smart_glasses_face_registration"
                     android:textSize="12sp"
                     android:textColor="@color/secondary_text"
                     android:layout_marginTop="2dp" />
-
         </LinearLayout>
 
         <ImageView
@@ -60,6 +74,14 @@
                 android:contentDescription="@string/image_quality_indicator_desc"
                 android:visibility="gone"
                 app:tint="@color/accent_text" />
+
+        <View
+                android:id="@+id/connectionPulse"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/connection_pulse_indicator"
+                android:visibility="gone" />
 
     </LinearLayout>
 

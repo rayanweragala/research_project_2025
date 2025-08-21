@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="camera_server_url">http://10.231.176.126:5001</string>
+    <integer name="frame_poll_interval_ms">200</integer>
+    <string name="mock_smart_glass_connector_log_tag">MockSmartGlasses</string>
+    <integer name="max_speech_retries">3</integer>
+    <integer name="preview_update_interval">100</integer>
+    <string name="add_friend_activity_tag">AddFriendActivity</string>
+    <string name="boot_reciever_tag">BootReceiver</string>
+    <integer name="audio_permission_request">100</integer>
+    <string name="face_server_url">http://10.187.202.95:5000</string>
+    <integer name="recognition_interval">2000</integer>
+    <integer name="frame_request_interval">500</integer>
+    <string name="enhanced_add_friend_activity_tag">EnhancedFaceRecognition</string>
+    <dimen name="min_face_size_ratio">0.20</dimen>
+    <dimen name="max_face_size_ratio">0.85</dimen>
+    <dimen name="optimal_face_size_ratio">0.40</dimen>
+    <dimen name="min_brightness">60</dimen>
+    <dimen name="max_brightness">220</dimen>
+    <dimen name="optimal_brightness">128</dimen>
+    <dimen name="max_head_rotation_yaw">25</dimen>
+    <dimen name="max_head_rotation_pitch">20</dimen>
+    <dimen name="max_head_rotation_roll">15</dimen>
+    <dimen name="min_quality_score">0.6</dimen>
+    <dimen name="eye_openness_threshold">0.3</dimen>
+    <dimen name="max_blur_variance">100</dimen>
+    <string name="face_quality_analyzer_tag">FaceQualityAnalyzer</string>
+    <string name="face_recognition_service_tag">FaceRecognitionService</string>
+    <integer name="min_captures">5</integer>
+    <integer name="max_captures">12</integer>
+    <integer name="target_high_quality">3</integer>
+    <integer name="capture_cooldown_ms">1200</integer>
+    <integer name="min_time_between_angles">2000</integer>
+    <dimen name="high_quality_threshold">0.85</dimen>
+    <dimen name="acceptable_quality_threshold">0.65</dimen>
+    <dimen name="emergency_quality_threshold">0.45</dimen>
+    <dimen name="min_pose_difference">8</dimen>
+    <dimen name="min_position_difference">0.15</dimen>
+    <string name="intelligent_capture_manager_tag">IntelligentCaptureManager</string>
+    <integer name="max_consecutive_rejections">15</integer>
+    <integer name="emergency_mode_time_out">20000</integer>
+    <integer name="max_faces">10</integer>
+    <dimen name="min_face_size">20.0</dimen>
+    <dimen name="min_confidence">0.4</dimen>
+    <string name="local_face_detector_capture_manager_tag">LocalFaceDetector</string>
+    <integer name="permission_request_record_audio">1</integer>
+    <integer name="permission_request_notifications">2</integer>
+    <integer name="tts_throttle_ms">3000</integer>
+
+
+</resources>

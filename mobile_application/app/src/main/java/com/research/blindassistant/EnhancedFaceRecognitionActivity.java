@@ -1,6 +1,7 @@
 package com.research.blindassistant;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.*;
@@ -32,17 +33,21 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import static com.research.blindassistant.StringResources.FaceRecognition;
 
 public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         implements TextToSpeech.OnInitListener, RecognitionListener {
 
     private static final String TAG = "EnhancedFaceRecognition";
     private static final int AUDIO_PERMISSION_REQUEST = 100;
-    private static final String SERVER_URL = "http://10.187.202.95:5000";
+    private static final String SERVER_URL = "http://10.231.176.126:5000";
 
     private TextView statusText, resultsText, instructionsText, performanceText;
     private Button btnStartRecognition, btnStopRecognition, btnBack, btnAddFriend;
@@ -60,7 +65,6 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private boolean isListening = false;
     private boolean serverConnected = false;
     private boolean serverCameraActive = false;
-
     private int totalFramesReceived = 0;
     private int framesWithFaces = 0;
     private int framesSentToServer = 0;
@@ -70,11 +74,16 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private final int RECOGNITION_INTERVAL = 2000;
     private final int FRAME_REQUEST_INTERVAL = 500;
 
+    private StatusManager statusManager;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_enhanced_face_recognition_server);
+        setContentView(R.layout.activity_enhanced_face_recognition);
 
+        statusManager = new StatusManager(this);
+        statusManager.updateStatus(StatusManager.ConnectionStatus.DISCONNECTED,
+                "Smart Glasses Disconnected", "Connecting to server...");
         initializeComponents();
         checkPermissions();
         setupVoiceRecognition();
@@ -88,7 +97,7 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
 
         testServerConnection();
 
-        speak("Smart glasses interface ready. Connecting to camera server.");
+        speak(StringResources.getString(FaceRecognition.SMART_GLASSES_READY));
     }
     private void initializeComponents() {
         statusText = findViewById(R.id.statusText);
@@ -102,7 +111,6 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         statusIndicator = findViewById(R.id.statusIndicator);
         cameraFeedView = findViewById(R.id.cameraFeedView);
 
-        updateConnectionStatus();
         updateInstructions("Connecting to smart glasses camera server...");
 
         ttsEngine = new TextToSpeech(this, this);
@@ -131,11 +139,11 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         btnStartRecognition.setOnClickListener(v -> startRecognition());
         btnStopRecognition.setOnClickListener(v -> stopRecognition());
         btnBack.setOnClickListener(v -> {
-            speak("Going back to main menu");
+            speak(StringResources.getString(FaceRecognition.BACK_TO_MAIN));
             finish();
         });
         btnAddFriend.setOnClickListener(v -> {
-            speak("Opening face registration");
+            speak(StringResources.getString(FaceRecognition.OPENING_REGISTRATION));
             startActivity(new Intent(this, AddFriendActivity.class));
         });
     }
@@ -146,7 +154,7 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
             button.setOnLongClickListener(v -> {
                 v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                 String buttonText = ((Button) v).getText().toString();
-                speak("Button: " + buttonText);
+                speak(String.format(StringResources.getString(FaceRecognition.BUTTON_PREFIX), buttonText));
                 return true;
             });
         }
@@ -155,23 +163,27 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private void testServerConnection() {
         String url = SERVER_URL + "/api/health";
 
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
+        @SuppressLint("DefaultLocale") JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
                 response -> {
                     try {
                         String status = response.getString("status");
                         if ("healthy".equals(status)) {
                             serverConnected = true;
+
                             int peopleCount = response.getInt("people_count");
                             boolean cameraActive = response.optBoolean("camera_active", false);
 
-                            updateConnectionStatus();
-
                             if (cameraActive) {
                                 serverCameraActive = true;
-                                speak(String.format("Smart glasses connected. Camera active. %d people registered.", peopleCount));
+                                statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,"Smart Glasses Connected",String.format("Camera active • %d people registered", peopleCount));
+                                speak(String.format(StringResources.getString(FaceRecognition.SMART_GLASSES_CONNECTED), peopleCount));
                                 updateInstructions("Smart glasses ready! Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
                             } else {
-                                speak(String.format("Server connected with %d people registered. Starting camera...", peopleCount));
+                                statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTING,
+                                        "Server Connected",
+                                        String.format("Starting camera • %d people registered", peopleCount));
+
+                                speak(String.format(StringResources.getString(FaceRecognition.SERVER_CONNECTED), peopleCount));
                                 startServerCamera();
                             }
                         }
@@ -198,8 +210,10 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                         boolean success = response.getBoolean("success");
                         if (success) {
                             serverCameraActive = true;
-                            updateConnectionStatus();
-                            speak("Smart glasses camera activated");
+                            statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
+                                    "Smart Glasses Ready", "Camera active • Ready for recognition");
+
+                            speak(StringResources.getString(FaceRecognition.CAMERA_ACTIVATED));
                             updateInstructions("Smart glasses ready! Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
                         } else {
                             handleServerError("Failed to start smart glasses camera");
@@ -220,43 +234,67 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     private void handleServerError(String message) {
         serverConnected = false;
         serverCameraActive = false;
-        updateConnectionStatus();
+        statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                "Connection Failed", message);
         updateInstructions(message);
         speak(message);
     }
 
     private void startRecognition() {
-        if (!isRecognizing && serverConnected && serverCameraActive) {
-            isRecognizing = true;
-            btnStartRecognition.setVisibility(View.GONE);
-            btnStopRecognition.setVisibility(View.VISIBLE);
-            statusIndicator.setImageResource(R.drawable.ic_visibility_on);
-
-            updateStatus("Recognition Active - Receiving Smart Glasses Feed");
-            updateResults("Analyzing smart glasses camera feed with AI...");
-            updateInstructions("Recognition running. Say 'STOP' to end or 'ADD FRIEND' if you see someone new");
-            speak("Face recognition started. Processing smart glasses camera feed.");
-
-            startVoiceListening();
-            resetPerformanceStats();
-            startFrameProcessing();
-
-        } else if (!serverConnected) {
+         if (!serverConnected) {
             speak("Smart glasses server not connected. Please check connection.");
-        } else if (!serverCameraActive) {
-            speak("Smart glasses camera not active. Please wait for camera initialization.");
+            return;
         }
+         if (!serverCameraActive) {
+            speak("starting smart glass camera....");
+            startServerCamera();
+            mainHandler.postDelayed(()->{
+                if(serverCameraActive){
+                    startRecognition();
+                }else{
+                    speak("Smart glasses camera not active. Please check connection.");
+                }
+            },3000);
+            return;
+        }
+
+         if(isRecognizing){
+             return;
+         }
+
+        isRecognizing = true;
+        try {
+            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("ui_recognition_active", true).apply();
+        } catch (Exception ignored) {}
+        btnStartRecognition.setVisibility(View.GONE);
+        btnStopRecognition.setVisibility(View.VISIBLE);
+        statusIndicator.setImageResource(R.drawable.ic_visibility_on);
+
+        statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
+                "Recognition Active", "Processing smart glasses feed...");
+        updateResults("Analyzing smart glasses camera feed with AI...");
+        updateInstructions("Recognition running. Say 'STOP' to end or 'ADD FRIEND' if you see someone new");
+        speak("Face recognition started. Processing smart glasses camera feed.");
+
+        startVoiceListening();
+        resetPerformanceStats();
+        startFrameProcessing();
     }
 
     private void stopRecognition() {
         if (isRecognizing) {
             isRecognizing = false;
+            try {
+                getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                        .edit().putBoolean("ui_recognition_active", false).apply();
+            } catch (Exception ignored) {}
             btnStartRecognition.setVisibility(View.VISIBLE);
             btnStopRecognition.setVisibility(View.GONE);
-            statusIndicator.setImageResource(R.drawable.ic_visibility_off);
+            statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
+                    "Smart Glasses Ready", "Recognition stopped • Ready to start");
 
             updateStatus("Recognition Stopped");
-            updateResults("Press start to begin recognition");
             updateInstructions("Say 'START' to begin recognition or 'ADD FRIEND' to register new faces");
             speak("Face recognition stopped");
 
@@ -284,6 +322,12 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
     }
 
     private void requestFrameFromServer() {
+
+        if (!serverCameraActive) {
+            Log.w(TAG, "Server camera not active, skipping frame request");
+            return;
+        }
+
         String url = SERVER_URL + "/api/camera/frame";
 
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
@@ -291,14 +335,37 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                     try {
                         totalFramesReceived++;
 
+                        if(response.has("error")){
+                            String errorMsg = response.getString("error");
+                            Log.w(TAG, "Error requesting frame from server: " + errorMsg);
+                            statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                                    "Frame Error", errorMsg);
+                            mainHandler.post(() -> {
+                                updateResults("⚠️ " + errorMsg);
+                            });
+                            return;
+                        }
+
+                        if (serverConnected && serverCameraActive && isRecognizing) {
+                            statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTED,
+                                    "Recognition Active", "Processing frames...");
+                        }
+
                         String imageBase64 = response.getString("image");
                         boolean serverRecognized = response.optBoolean("recognized", false);
                         String serverMessage = response.optString("message", "Processing...");
                         double serverConfidence = response.optDouble("confidence", 0.0);
+                        String recognizedName = response.optString("name", null);
+                        String confidenceLevel = response.optString("confidence_level", "unknown");
+                        Double qualityScore = response.optDouble("quality_score",0.0);
+                        Double processingTime = response.optDouble("processing_time",0.0);
+                        String methodUsed = response.optString("method_used", "unknown");
 
                         displayFrame(imageBase64);
 
-                        processFrameLocally(imageBase64, serverRecognized, serverMessage, serverConfidence);
+                        processServerRecognitionResult(serverRecognized, recognizedName, serverMessage,
+                                serverConfidence, confidenceLevel, qualityScore,
+                                processingTime, methodUsed);
 
                     } catch (JSONException e) {
                         Log.e(TAG, "Error parsing frame response", e);
@@ -306,6 +373,8 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                 },
                 error -> {
                     Log.e(TAG, "Frame request error", error);
+                    statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                            "Connection Issue", "Smart glasses feed interrupted");
                     if (isRecognizing) {
                         mainHandler.post(() -> {
                             updateResults("⚠️ Connection to smart glasses interrupted");
@@ -321,10 +390,14 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         try {
             byte[] imageBytes = Base64.decode(imageBase64, Base64.DEFAULT);
             Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-
+            File f = new File(getExternalFilesDir(null), "last_frame.jpg");
+            try (FileOutputStream fos = new FileOutputStream(f)) {
+                fos.write(Base64.decode(imageBase64, Base64.DEFAULT));
+            }
             if (bitmap != null) {
                 mainHandler.post(() -> {
                     cameraFeedView.setImageBitmap(bitmap);
+                    findViewById(R.id.noFeedMessage).setVisibility(View.GONE);
                 });
             }
         } catch (Exception e) {
@@ -332,57 +405,54 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         }
     }
 
-    private void processFrameLocally(String imageBase64, boolean serverRecognized,
-                                     String serverMessage, double serverConfidence) {
-        try {
-            byte[] imageBytes = Base64.decode(imageBase64, Base64.DEFAULT);
-            Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+    private void processServerRecognitionResult(boolean recognized, String name, String message,
+                                                double confidence, String confidenceLevel,
+                                                double qualityScore, double processingTime,
+                                                String methodUsed) {
+        String resultMessage;
+        if(recognized && name != null){
+            framesWithFaces++;
+            successfulRecognitions++;
 
-            if (bitmap == null) return;
+            resultMessage = String.format("✅ Smart Glasses AI: %s\n" +
+                            "🎯 Confidence: %.1f%% (%s)\n" +
+                            "📊 Quality: %.1f%%\n" +
+                            "⚡ Processing: %.0fms\n" +
+                            "🔧 Method: %s",
+                    name,
+                    confidence * 100,
+                    confidenceLevel,
+                    qualityScore * 100,
+                    processingTime * 1000,
+                    methodUsed);
 
-            LocalFaceDetector.FaceDetectionResult localResult = localFaceDetector.detectFaces(bitmap);
-
-            if (localResult.hasFaces()) {
-                framesWithFaces++;
-
-                String resultMessage;
-                if (serverRecognized) {
-                    successfulRecognitions++;
-                    resultMessage = String.format("✅ Smart Glasses: %s (%.1f%% confidence)",
-                            serverMessage, serverConfidence * 100);
-
-                    if (System.currentTimeMillis() - lastRecognitionTime > RECOGNITION_INTERVAL) {
-                        speak(serverMessage.replace("Recognized ", "") + " identified");
-                        lastRecognitionTime = System.currentTimeMillis();
-                    }
-                } else {
-                    resultMessage = String.format("❓ Smart Glasses: %s (%.1f%% similarity)",
-                            serverMessage, serverConfidence * 100);
-                }
-
-                resultMessage += String.format("\n🔍 Local AI: %s (Quality: %.1f%%)",
-                        localResult.getMessage(), localResult.getQualityScore() * 100);
-
-                final String finalMessage = resultMessage;
-                mainHandler.post(() -> {
-                    updateResults(finalMessage);
-                    updatePerformanceDisplay();
-                });
-            } else {
-                if (serverRecognized || serverConfidence > 0.3) {
-                    String resultMessage = String.format("📱 Smart Glasses: %s (%.1f%%)",
-                            serverMessage, serverConfidence * 100);
-
-                    mainHandler.post(() -> {
-                        updateResults(resultMessage);
-                        updatePerformanceDisplay();
-                    });
-                }
+            if (System.currentTimeMillis() - lastRecognitionTime > RECOGNITION_INTERVAL) {
+                speak(name + " identified");
+                lastRecognitionTime = System.currentTimeMillis();
             }
+        } else if(qualityScore > 0.3){
+            framesWithFaces++;
 
-        } catch (Exception e) {
-            Log.e(TAG, "Error processing frame locally", e);
+            resultMessage = String.format("❓ Smart Glasses AI: %s\n" +
+                            "🎯 Similarity: %.1f%%\n" +
+                            "📊 Quality: %.1f%%\n" +
+                            "⚡ Processing: %.0fms",
+                    message,
+                    confidence * 100,
+                    qualityScore * 100,
+                    processingTime * 1000);
+        } else {
+            resultMessage = String.format("👀 Smart Glasses AI: %s\n" +
+                            "⚡ Processing: %.0fms",
+                    message,
+                    processingTime * 1000);
         }
+
+        mainHandler.post(() -> {
+            updateResults(resultMessage);
+            updatePerformanceDisplay();
+        });
+
     }
     private void startVoiceListening() {
         if (!isListening) {
@@ -421,113 +491,6 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         }
     }
 
-    private void processFrame(byte[] data, Camera camera) {
-        try {
-            Camera.Size previewSize = camera.getParameters().getPreviewSize();
-            YuvImage yuvImage = new YuvImage(data, ImageFormat.NV21,
-                    previewSize.width, previewSize.height, null);
-
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            yuvImage.compressToJpeg(new Rect(0, 0, previewSize.width, previewSize.height), 70, out);
-            byte[] imageBytes = out.toByteArray();
-            Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-
-            if (bitmap == null) return;
-
-            LocalFaceDetector.FaceDetectionResult faceResult = localFaceDetector.detectFaces(bitmap);
-
-            if (faceResult.hasFaces()) {
-                framesWithFaces++;
-
-                if (faceResult.getQualityScore() > 0.5f &&
-                        System.currentTimeMillis() - lastRecognitionTime > RECOGNITION_INTERVAL) {
-
-                    sendFrameToServer(bitmap, faceResult);
-                    lastRecognitionTime = System.currentTimeMillis();
-                }
-
-                mainHandler.post(() -> {
-                    updateResults("Local AI: " + faceResult.getMessage() +
-                            String.format(" (Quality: %.1f%%)", faceResult.getQualityScore() * 100));
-                    updatePerformanceDisplay();
-                });
-            }
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error processing frame", e);
-        }
-    }
-
-    private void sendFrameToServer(Bitmap bitmap, LocalFaceDetector.FaceDetectionResult faceResult) {
-        try {
-            framesSentToServer++;
-
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream);
-            byte[] byteArray = byteArrayOutputStream.toByteArray();
-            String encoded = Base64.encodeToString(byteArray, Base64.DEFAULT);
-
-            JSONObject jsonBody = new JSONObject();
-            jsonBody.put("image", encoded);
-
-            String url = SERVER_URL + "/api/recognize_realtime";
-
-            JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, jsonBody,
-                    response -> handleServerRecognitionResponse(response, faceResult),
-                    error -> handleServerRecognitionError(error, faceResult));
-
-            request.setRetryPolicy(new DefaultRetryPolicy(10000, 0, 0));
-            requestQueue.add(request);
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error sending frame to server", e);
-        }
-    }
-
-    private void handleServerRecognitionResponse(JSONObject response, LocalFaceDetector.FaceDetectionResult localResult) {
-        try {
-            boolean recognized = response.getBoolean("recognized");
-            String message = response.getString("message");
-            double confidence = response.getDouble("confidence");
-            double processingTime = response.getDouble("processing_time");
-
-            if (recognized) {
-                successfulRecognitions++;
-                String name = response.getString("name");
-                String result = String.format("✅ Server: %s (%.1f%% confidence)", name, confidence * 100);
-
-                mainHandler.post(() -> {
-                    updateResults(result);
-                    updatePerformanceDisplay();
-                });
-
-                speak(String.format("%s identified", name));
-
-            } else {
-                String result = String.format("❓ Server: %s (%.1f%% similarity)", message, confidence * 100);
-
-                mainHandler.post(() -> {
-                    updateResults(result);
-                    updatePerformanceDisplay();
-                });
-            }
-
-            Log.d(TAG, String.format("Server processing time: %.0fms", processingTime * 1000));
-
-        } catch (JSONException e) {
-            Log.e(TAG, "Error parsing server response", e);
-            handleServerRecognitionError(null, localResult);
-        }
-    }
-
-    private void handleServerRecognitionError(VolleyError error, LocalFaceDetector.FaceDetectionResult localResult) {
-        Log.e(TAG, "Server recognition error", error);
-
-        mainHandler.post(() -> {
-            updateResults("⚠️ Server error - using local detection: " + localResult.getMessage());
-            updatePerformanceDisplay();
-        });
-    }
 
     private void resetPerformanceStats() {
         totalFramesReceived = 0;
@@ -592,21 +555,15 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         instructionsText.setContentDescription("Instructions: " + instructions);
     }
 
-    private void updateConnectionStatus() {
-        if (serverConnected && serverCameraActive) {
-            statusIndicator.setImageResource(R.drawable.ic_check_circle);
-            statusIndicator.setContentDescription("Smart glasses connected and camera active");
-        } else if (serverConnected) {
-            statusIndicator.setImageResource(R.drawable.ic_warning);
-            statusIndicator.setContentDescription("Server connected, camera starting");
-        } else {
-            statusIndicator.setImageResource(R.drawable.ic_error);
-            statusIndicator.setContentDescription("Smart glasses server not connected");
-        }
+    private void speak(String text) {
+        speak(text, null);
     }
 
-    private void speak(String text) {
+    private void speak(String text, Locale locale) {
         if (ttsEngine != null) {
+            if (locale != null && locale != ttsEngine.getLanguage()) {
+                ttsEngine.setLanguage(locale);
+            }
             ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "SMART_GLASSES_UTTERANCE");
         }
     }
@@ -672,6 +629,11 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
             stopRecognition();
         }
 
+        try {
+            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("ui_recognition_active", false).apply();
+        } catch (Exception ignored) {}
+
         if (ttsEngine != null) {
             ttsEngine.stop();
             ttsEngine.shutdown();
@@ -697,6 +659,10 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         if (isRecognizing) {
             stopRecognition();
         }
+        try {
+            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("ui_recognition_active", false).apply();
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -705,6 +671,16 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         if (serverConnected && !isRecognizing) {
             testServerConnection();
         }
+
+        try {
+            Intent svc = new Intent(this, SmartGlassesForegroundService.class)
+                    .setAction(SmartGlassesForegroundService.ACTION_START);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(svc);
+            } else {
+                startService(svc);
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override

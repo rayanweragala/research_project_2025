@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              xmlns:tools="http://schemas.android.com/tools"
+              xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools"
               android:layout_width="match_parent"
               android:layout_height="match_parent"
               android:orientation="vertical"
@@ -14,15 +14,31 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:padding="8dp"
+            android:id="@+id/headerLayout"
             android:background="@color/header_background">
 
-        <ImageView
-                android:id="@+id/statusIndicator"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginEnd="12dp"
-                android:src="@drawable/ic_visibility_off"
-                android:contentDescription="@string/smart_glasses_status_desc" />
+        <FrameLayout
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="12dp">
+
+            <View
+                    android:id="@+id/statusIndicatorBackground"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/status_indicator_background_disconnected"/>
+
+            <ImageView
+                    android:id="@+id/statusIndicator"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_visibility_off"
+                    android:contentDescription="@string/smart_glasses_status_desc"
+                    app:tint="@color/status_disconnected"/>
+
+        </FrameLayout>
 
         <LinearLayout
                 android:layout_width="0dp"
@@ -41,6 +57,7 @@
                     android:contentDescription="@string/current_status_desc" />
 
             <TextView
+                    android:id="@+id/statusSubtext"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/mobile_interface_subtitle"
@@ -49,6 +66,14 @@
                     android:layout_marginTop="2dp" />
 
         </LinearLayout>
+
+        <View
+                android:id="@+id/connectionPulse"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/connection_pulse_indicator"
+                android:visibility="gone" />
 
     </LinearLayout>
 
@@ -202,14 +227,12 @@
                     android:layout_height="56dp"
                     android:layout_weight="1"
                     android:layout_marginEnd="4dp"
-                    android:text="@string/start_glasses_btn"
+                    android:text="Start"
                     android:textSize="14sp"
                     android:textStyle="bold"
                     android:background="@drawable/button_primary"
                     android:textColor="@color/button_text_primary"
-                    android:contentDescription="@string/start_smart_glasses_recognition_desc"
-                    android:drawableTop="@drawable/ic_smart_glasses"
-                    android:drawablePadding="4dp" />
+                    android:contentDescription="@string/start_smart_glasses_recognition_desc" />
 
             <Button
                     android:id="@+id/btnStopRecognition"

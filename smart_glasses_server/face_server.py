@@ -1,18 +1,36 @@
-from flask import Flask, request, jsonify, render_template_string
+import statistics
+from flask import Flask, Response, request, jsonify, send_from_directory
 import cv2
 import numpy as np
 import base64
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import time
 from flask_cors import CORS
 import io
 from PIL import Image
+import PIL.Image
+import sys
+if not hasattr(PIL.Image, 'Image'):
+        sys.modules['PIL.Image'].Image = PIL.Image
 import traceback
 import atexit
+import threading
+import socket
+from collections import defaultdict, deque
+
+try:
+    from picamera2 import Picamera2
+    from libcamera import controls
+
+    RPI_CAMERA_AVAILABLE = True;
+    print("Picamera2 available - Raspberry Pi camera support enabled")
+except ImportError:
+    RPI_CAMERA_AVAILABLE = False
+    print("Picamera2 not available - falling back to OpenCV")
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -28,21 +46,192 @@ class EnhancedFaceRecognitionServer:
         self.model_loaded = False
         self.db_path = "face_database.db"
         self.face_encodings = {}
-        self.recognition_threshold = 0.6
+
+        self.recognition_threshold = 0.25  
+        self.quality_threshold = 0.20      
+        self.min_face_size = 40
+        self.max_embeddings_per_person = 20  
+
         self.recognition_cache = {}
         self.cache_duration = 3.0 
+
+        self.picamera2 = None
+        self.camera_mode = None
+        self.camera_width = 1920
+        self.camera_height = 1080
+        self.fps = 30
+        self.rpi_camera_config = None
+        self.camera= None
+        self.camera_active = False
+        self.camera_lock = threading.Lock()
+        self.last_frame = None
+        self.frame_capture_thread = None
+        self.stop_capture = False
+
+        self.temporal_window = 8 
+        self.temporal_results = deque(maxlen=self.temporal_window)
+        self.confidence_boost_threshold = 0.50
+        
+        self.averaging_methods = {
+            'weighted_average': True,
+            'outlier_removal': True,
+            'adaptive_threshold': True
+        }
+
+        self.camera_error = None
         
         self.recognition_stats = {
             'total_requests': 0,
             'successful_recognitions': 0,
             'cache_hits': 0,
             'avg_processing_time': 0.0,
-            'errors': 0
+            'errors': 0,
+            'high_confidence_recognitions': 0,
+            'low_quality_rejections': 0,
+            'temporal_smoothing_applied': 0,
+            'weighted_average_applied': 0,
+            'outliers_removed': 0,
+            'adaptive_threshold_used': 0
         }
         
+        self.recognition_history = defaultdict(list)
+        self.history_window = 15  
+        self.temporal_threshold = 0.55
+
+        self.confidence_levels = {
+            'very_high': 0.85,
+            'high': 0.75,
+            'medium': 0.60,
+            'low': 0.45,
+            'very_low': 0.30
+        }
+
+        self.daily_stats = defaultdict(lambda: {
+            'recognitions': 0,
+            'unique_people': set(),
+            'avg_confidence': 0.0,
+            'quality_scores': []
+        })
+
+        self.camera_settings = {
+            'width': 640,
+            'height': 480,
+            'fps': 25,
+            'brightness': 0.0,
+            'contrast': 1.0,
+            'saturation': 1.0
+        }
+
         self.init_database()
         self.init_face_model()
         self.load_face_database()
+
+    def init_rpi_camera(self):
+        """Initialize Raspberry Pi camera with Picamera2"""
+        try:
+            if not RPI_CAMERA_AVAILABLE:
+                logging.warning("Picamera2 not available, falling back to USB")
+                return self.init_usb_camera()
+            
+            logging.info("Initializing Raspberry pi camera...")
+
+            self.picamera2 = Picamera2()
+
+            
+            config = self.picamera2.create_video_configuration(
+                sensor={"output_size": (1280, 720)}, 
+                main={"size": (1280, 720)},            
+                lores={"size": (320, 240)},            
+                buffer_count=4
+            )
+
+            self.picamera2.configure(config)
+            
+            self.picamera2.set_controls({
+                "FrameRate": 60.0,
+                "AeEnable": True,
+                "AwbEnable": True,
+                "Brightness": 0.0,
+                "Contrast": 1.0,
+                "Saturation": 1.0,
+                "Sharpness": 1.2,
+                "AeConstraintMode": 1,
+                "AeMeteringMode": 0
+        })
+
+            self.picamera2.start()
+            time.sleep(2)
+
+            for i in range(5):
+                frame = self.picamera2.capture_array()
+                if frame is not None and frame.size:
+                    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    mean_intensity = np.mean(bgr)
+                    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+                    sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+                    logging.info(f"Frame {i+1}: intensity={mean_intensity:.1f}, sharpness={sharpness:.1f}")
+                    if 20 < mean_intensity < 230 and sharpness > 5:
+                        self.camera_mode = 'rpi'
+                        self.camera_width, self.camera_height = 1280, 720
+                        logging.info("Raspberry Pi camera initialized successfully.")
+                        return True
+                time.sleep(0.5)
+
+            self.picamera2.stop()
+            self.picamera2.close()
+            self.picamera2 = None
+            logging.warning("Test frame failed; falling back to USB")
+            return self.init_usb_camera()
+                
+        except Exception as e:
+            logging.error(f"RPi camera initialization failed: {e}")
+            if self.picamera2:
+                try:
+                    self.picamera2.stop()
+                    self.picamera2.close()
+                    self.picamera2 = None
+                except:
+                    pass
+            return self.init_usb_camera()
+
+    def init_usb_camera(self):
+        """Initializing Opencv camera as fallback"""
+        try:
+            logging.info("Initializing USB camera")
+            backends_to_try = [cv2.CAP_V4L2,cv2.CAP_ANY]
+
+            for camera_id in [0,1,2]:
+                logging.info(f"Trying USB camera {camera_id}...")
+
+                for backend in backends_to_try:
+                    try:
+                        test_camera = cv2.VideoCapture(camera_id,backend)
+
+                        if test_camera.isOpened():
+                            test_camera.set(cv2.CAP_PROP_FRAME_WIDTH,640)
+                            test_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                            test_camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                            test_camera.set(cv2.CAP_PROP_FPS, 30)
+
+                            ret, frame = test_camera.read()
+                            test_camera.release()
+
+                            if ret and frame is not None and np.mean(frame) > 15:
+                                self.camera = cv2.VideoCapture(camera_id, backend)
+                                self.configure_camera()
+                                self.camera_mode = 'usb'
+                                logging.info(f"USB camera {camera_id} initialized successfully")
+                                return True
+                        else:
+                            test_camera.release()
+                    except Exception as e:
+                        logging.debug(f"USB camera {camera_id} backend {backend} failed: {e}")
+                        continue
+            logging.error("No working cameras found")
+            return False
+        except Exception as e:
+            logging.error(f"USB camera initialization error: {e}")
+            return False
 
     def init_face_model(self):
         """Initialize InsightFace model with error handling"""
@@ -58,17 +247,40 @@ class EnhancedFaceRecognitionServer:
                 return False
             
             try:
+                logging.info("Loading InsightFace model ...")
+
                 self.model = insightface.app.FaceAnalysis(
-                    providers=['CPUExecutionProvider'] 
+                    providers=['CPUExecutionProvider'],
+                    allowed_modules=['detection','recognition']
                 )
                 self.model.prepare(ctx_id=0, det_size=(640, 640))
+            
+                test_image = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+                test_faces = self.model.get(test_image)
+            
                 self.model_loaded = True
-                logging.info("InsightFace model loaded successfully")
+                logging.info("InsightFace model loaded and tested successfully")
                 return True
                 
             except Exception as e:
-                logging.error(f"Failed to initialize InsightFace model: {e}")
-                logging.error(f"Traceback: {traceback.format_exc()}")
+                logging.info("Attempting to download InsightFace models...")
+            try:
+                import insightface.model_zoo as model_zoo
+                det_model = model_zoo.get_model('retinaface_r50_v1')
+                rec_model = model_zoo.get_model('arcface_r100_v1')
+                logging.info("Models downloaded, retrying initialization...")
+                
+                self.model = insightface.app.FaceAnalysis(
+                    providers=['CPUExecutionProvider'],
+                    allowed_modules=['detection', 'recognition']
+                )
+                self.model.prepare(ctx_id=0, det_size=(640, 640))
+                self.model_loaded = True
+                logging.info("InsightFace model loaded successfully after manual download")
+                return True
+                
+            except Exception as download_error:
+                logging.error(f"Model download failed: {download_error}")
                 self.model_loaded = False
                 return False
                 
@@ -78,7 +290,7 @@ class EnhancedFaceRecognitionServer:
             return False
 
     def init_database(self):
-        """Initialize SQLite database for face storage"""
+        """Initialize SQLite database with tables"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -88,7 +300,10 @@ class EnhancedFaceRecognitionServer:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    photo_count INTEGER DEFAULT 0
+                    photo_count INTEGER DEFAULT 0,
+                    avg_quality REAL DEFAULT 0.0,
+                    best_quality REAL DEFAULT 0.0,
+                    registration_method TEXT DEFAULT 'single'
                 )
             ''')
             
@@ -98,6 +313,8 @@ class EnhancedFaceRecognitionServer:
                     person_id INTEGER,
                     encoding BLOB NOT NULL,
                     image_quality REAL DEFAULT 0.0,
+                    weight REAL DEFAULT 1.0,
+                    is_outlier BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (person_id) REFERENCES people (id)
                 )
@@ -108,45 +325,74 @@ class EnhancedFaceRecognitionServer:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     person_name TEXT,
                     confidence REAL,
+                    quality_score REAL DEFAULT 0.0,
+                    processing_time REAL DEFAULT 0.0,
+                    method_used TEXT DEFAULT 'standard',
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     source TEXT DEFAULT 'realtime'
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS daily_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    report_date DATE UNIQUE,
+                    total_recognitions INTEGER DEFAULT 0,
+                    unique_people_count INTEGER DEFAULT 0,
+                    avg_confidence REAL DEFAULT 0.0,
+                    avg_quality REAL DEFAULT 0.0,
+                    avg_processing_time REAL DEFAULT 0.0,
+                    top_recognized_person TEXT,
+                    report_data TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
             conn.commit()
             conn.close()
-            logging.info("Database initialized successfully")
+            logging.info("Enhanced database initialized successfully")
             
         except Exception as e:
             logging.error(f"Database initialization error: {e}")
 
     def load_face_database(self):
-        """Load existing face encodings from database"""
+        """Load existing face encodings with metadata"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT p.name, fe.encoding FROM people p
+                SELECT p.name, fe.encoding, fe.image_quality, fe.weight, fe.is_outlier 
+                FROM people p
                 JOIN face_encodings fe ON p.id = fe.person_id
+                WHERE fe.is_outlier = FALSE
+                ORDER BY fe.image_quality DESC
             ''')
             
             results = cursor.fetchall()
             
-            for name, encoding_blob in results:
+            for name, encoding_blob, quality, weight, is_outlier in results:
                 encoding = np.frombuffer(encoding_blob, dtype=np.float32)
                 if name not in self.face_encodings:
                     self.face_encodings[name] = []
-                self.face_encodings[name].append(encoding)
+                
+                self.face_encodings[name].append({
+                    'encoding': encoding,
+                    'quality': quality,
+                    'weight': weight
+                })
             
             conn.close()
             logging.info(f"Loaded {len(self.face_encodings)} people from database")
             
+            for name in self.face_encodings:
+                self.face_encodings[name].sort(key=lambda x: x['quality'], reverse=True)
+                
         except Exception as e:
             logging.error(f"Error loading face database: {e}")
 
     def extract_face_encoding(self, image):
-        """Extract face encoding from image using InsightFace with fallback"""
+        """face encoding extraction with better quality assessment"""
         try:
             if not self.model_loaded:
                 logging.warning("InsightFace model not loaded, using fallback")
@@ -156,17 +402,39 @@ class EnhancedFaceRecognitionServer:
             if len(faces) == 0:
                 return None, 0.0, None
 
-            face = max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
+            face = max(faces, key=lambda x: self._calculate_face_priority(x, image.shape))
             
             face_area = (face.bbox[2] - face.bbox[0]) * (face.bbox[3] - face.bbox[1])
             image_area = image.shape[0] * image.shape[1]
             size_ratio = face_area / image_area
-            quality_score = min(1.0, size_ratio * 10)
+
+            blur_score = self._calculate_blur_score(image, face.bbox)
+            lightning_score = self._calculate_lightning_score(image, face.bbox)
+            angle_score = self._calculate_face_angle_score(face)
+            symmetry_score = self._calculate_face_symmetry_score(face)
+            eye_openness_score = self._calculate_eye_openness_score(face)
+
+            quality_score = min(1.0, 
+                size_ratio * 0.25 + 
+                blur_score * 0.25 + 
+                lightning_score * 0.20 + 
+                angle_score * 0.15 + 
+                symmetry_score * 0.10 + 
+                eye_openness_score * 0.05
+            )
             
             face_info = {
                 'bbox': face.bbox.tolist(),
                 'area_ratio': float(size_ratio),
-                'landmarks': face.kps.tolist() if hasattr(face, 'kps') else None
+                'landmarks': face.kps.tolist() if hasattr(face, 'kps') else None,
+                'quality_breakdown': {
+                    'size': float(size_ratio * 0.25),
+                    'blur': float(blur_score * 0.25),
+                    'lighting': float(lightning_score * 0.20),
+                    'angle': float(angle_score * 0.15),
+                    'symmetry': float(symmetry_score * 0.10),
+                    'eye_openness': float(eye_openness_score * 0.05)
+                }
             }
             
             return face.embedding, quality_score, face_info
@@ -176,8 +444,125 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Traceback: {traceback.format_exc()}")
             return None, 0.0, None
 
+    def _calculate_face_priority(self, face, image_shape):
+        """Calculate face priority for selection"""
+        bbox = face.bbox
+        face_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+        
+        face_center_x = (bbox[0] + bbox[2]) / 2
+        face_center_y = (bbox[1] + bbox[3]) / 2
+        image_center_x = image_shape[1] / 2
+        image_center_y = image_shape[0] / 2
+        
+        center_distance = np.sqrt(
+            (face_center_x - image_center_x)**2 + 
+            (face_center_y - image_center_y)**2
+        )
+        max_distance = np.sqrt(image_center_x**2 + image_center_y**2)
+        center_score = 1.0 - (center_distance / max_distance)
+        
+        return face_area * (1 + center_score * 0.3)
+
+    def _calculate_blur_score(self, image, bbox):
+        """blur detection"""
+        try:
+            x1, y1, x2, y2 = map(int, bbox)
+            face_roi = image[y1:y2, x1:x2]
+            gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+            
+            laplacian_var = cv2.Laplacian(gray_face, cv2.CV_64F).var()
+            
+            sobelx = cv2.Sobel(gray_face, cv2.CV_64F, 1, 0, ksize=3)
+            sobely = cv2.Sobel(gray_face, cv2.CV_64F, 0, 1, ksize=3)
+            sobel_magnitude = np.mean(np.sqrt(sobelx**2 + sobely**2))
+            
+            blur_score = min(1.0, (laplacian_var / 600.0 + sobel_magnitude / 150.0) / 2)
+            return blur_score
+        except:
+            return 0.5
+        
+    def _calculate_lightning_score(self, image, bbox):
+        """lighting quality assessment"""
+        try:
+            x1, y1, x2, y2 = map(int, bbox)
+            face_roi = image[y1:y2, x1:x2]
+            gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+            
+            mean_brightness = np.mean(gray_face)
+            std_brightness = np.std(gray_face)
+            
+            if 80 <= mean_brightness <= 180:
+                brightness_score = 1.0
+            else:
+                brightness_score = max(0.2, 1.0 - abs(mean_brightness - 130) / 130)
+            
+            contrast_score = min(1.0, std_brightness / 50.0)
+            
+            lighting_score = (brightness_score * 0.7 + contrast_score * 0.3)
+            return lighting_score
+            
+        except:
+            return 0.5
+        
+    def _calculate_face_angle_score(self, face):
+        """face angle assessment"""
+        try:
+            if hasattr(face, 'kps') and face.kps is not None:
+                landmarks = face.kps
+                left_eye = landmarks[0]
+                right_eye = landmarks[1]
+                nose = landmarks[2]
+                left_mouth = landmarks[3]
+                right_mouth = landmarks[4]
+                
+                eye_angle = abs(np.arctan2(right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]))
+                
+                mouth_angle = abs(np.arctan2(right_mouth[1] - left_mouth[1], right_mouth[0] - left_mouth[0]))
+                
+                avg_angle = (eye_angle + mouth_angle) / 2
+                angle_score = max(0.3, 1.0 - (avg_angle / 0.4))
+                
+                return min(1.0, angle_score)
+            return 0.7
+        except:
+            return 0.7
+
+    def _calculate_face_symmetry_score(self, face):
+        """Calculate facial symmetry score"""
+        try:
+            if hasattr(face, 'kps') and face.kps is not None:
+                landmarks = face.kps
+                left_eye = landmarks[0]
+                right_eye = landmarks[1]
+                nose = landmarks[2]
+                left_mouth = landmarks[3]
+                right_mouth = landmarks[4]
+                
+                face_center_x = (left_eye[0] + right_eye[0]) / 2
+                
+                nose_center_dist = abs(nose[0] - face_center_x)
+                
+                left_eye_dist = abs(left_eye[0] - face_center_x)
+                right_eye_dist = abs(right_eye[0] - face_center_x)
+                eye_symmetry = 1.0 - abs(left_eye_dist - right_eye_dist) / max(left_eye_dist, right_eye_dist)
+                
+                symmetry_score = (eye_symmetry + (1.0 - nose_center_dist / 50.0)) / 2
+                return max(0.3, min(1.0, symmetry_score))
+            return 0.7
+        except:
+            return 0.7
+
+    def _calculate_eye_openness_score(self, face):
+        """Calculate eye openness score"""
+        try:
+            if hasattr(face, 'kps') and face.kps is not None:
+                return 0.8  
+            return 0.7
+        except:
+            return 0.7
+
     def fallback_face_detection(self, image):
-        """Fallback face detection using OpenCV when InsightFace fails"""
+        """fallback detection"""
         try:
             face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -186,13 +571,28 @@ class EnhancedFaceRecognitionServer:
             if len(faces) == 0:
                 return None, 0.0, None
             
-            largest_face = max(faces, key=lambda x: x[2] * x[3])
-            x, y, w, h = largest_face
+            image_center = (image.shape[1]//2, image.shape[0]//2)
+            best_face = None
+            best_score = 0
             
+            for (x, y, w, h) in faces:
+                face_area = w * h
+                face_center = (x + w//2, y + h//2)
+                center_dist = np.sqrt((face_center[0] - image_center[0])**2 + 
+                                    (face_center[1] - image_center[1])**2)
+                max_dist = np.sqrt(image_center[0]**2 + image_center[1]**2)
+                center_score = 1.0 - (center_dist / max_dist)
+                
+                total_score = face_area * (1 + center_score * 0.5)
+                if total_score > best_score:
+                    best_score = total_score
+                    best_face = (x, y, w, h)
+            
+            x, y, w, h = best_face
             face_area = w * h
             image_area = image.shape[0] * image.shape[1]
             size_ratio = face_area / image_area
-            quality_score = min(1.0, size_ratio * 5)
+            quality_score = min(1.0, size_ratio * 6)
             
             face_roi = gray[y:y+h, x:x+w]
             face_resized = cv2.resize(face_roi, (128, 128))
@@ -211,8 +611,8 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Fallback face detection error: {e}")
             return None, 0.0, None
 
-    def recognize_face_realtime(self, image):
-        """Enhanced face recognition for real-time use with better error handling"""
+    def recognize_face_with_averaging(self, image):
+        """recognition with multiple averaging methods"""
         start_time = time.time()
         self.recognition_stats['total_requests'] += 1
         
@@ -243,12 +643,13 @@ class EnhancedFaceRecognitionServer:
                     'message': "No face detected",
                     'quality_score': 0.0,
                     'processing_time': float(time.time() - start_time),
-                    'model_loaded': self.model_loaded
+                    'model_loaded': self.model_loaded,
+                    'method_used': 'none'
                 }
                 self.cache_result(image_hash, result)
                 return result
             
-            if quality < 0.3:
+            if quality < self.quality_threshold:
                 result = {
                     'recognized': False,
                     'name': None,
@@ -257,58 +658,62 @@ class EnhancedFaceRecognitionServer:
                     'quality_score': float(quality),
                     'processing_time': float(time.time() - start_time),
                     'face_info': face_info,
-                    'model_loaded': self.model_loaded
+                    'model_loaded': self.model_loaded,
+                    'method_used': 'quality_filter'
                 }
                 self.cache_result(image_hash, result)
                 return result
             
-            best_match = None
-            best_similarity = 0.0
+            best_match, best_confidence, method_used = self._match_with_averaging(encoding, quality)
             
-            if self.model_loaded:
-                try:
-                    from sklearn.metrics.pairwise import cosine_similarity
-                    
-                    for name, stored_encodings in self.face_encodings.items():
-                        for stored_encoding in stored_encodings:
-                            similarity = cosine_similarity([encoding], [stored_encoding])[0][0]
-                            
-                            if similarity > best_similarity:
-                                best_similarity = similarity
-                                best_match = name
-                                
-                except ImportError:
-                    logging.warning("sklearn not available, using basic similarity")
-                    best_similarity = 0.0
-            else:
-                best_similarity = 0.0
-            
+            if best_match and best_confidence > 0.3:
+                self.temporal_results.append({
+                    'name': best_match,
+                    'confidence': best_confidence,
+                    'timestamp': time.time()
+                })
+
+                if len(self.temporal_results) >= 3:
+                    recent_results = [r for r in self.temporal_results if r['name'] == best_match]
+                    if len(recent_results) >= 2:
+                        avg_confidence = statistics.mean([r['confidence'] for r in recent_results])
+                        if avg_confidence > self.confidence_boost_threshold:
+                            best_confidence = min(0.96, avg_confidence * 1.15)
+                            method_used += "_temporal"
+                            self.recognition_stats['temporal_smoothing_applied'] += 1
+
             processing_time = time.time() - start_time
             
-            if best_similarity > self.recognition_threshold:
+            self._update_daily_stats(best_match, best_confidence, quality, processing_time)
+            
+            if best_confidence > self.recognition_threshold:
                 self.recognition_stats['successful_recognitions'] += 1
-                self.log_recognition(best_match, best_similarity)
+                self.log_recognition(best_match, best_confidence, quality, processing_time, method_used)
                 
                 result = {
                     'recognized': True,
                     'name': best_match,
-                    'confidence': float(best_similarity),
+                    'confidence': float(best_confidence),
+                    'confidence_level': self._get_confidence_level(best_confidence),
                     'message': f"Recognized {best_match}",
                     'quality_score': float(quality),  
                     'processing_time': float(processing_time),
                     'face_info': face_info,
-                    'model_loaded': self.model_loaded
+                    'model_loaded': self.model_loaded,
+                    'method_used': method_used
                 }
             else:
                 result = {
                     'recognized': False,
                     'name': None,
-                    'confidence': float(best_similarity),
-                    'message': "Unknown person" if self.model_loaded else "Model not loaded - detection only",
+                    'confidence': float(best_confidence),
+                    'confidence_level': self._get_confidence_level(best_confidence),
+                    'message': "Unknown person" if self.model_loaded else "Model not loaded",
                     'quality_score': float(quality),
                     'processing_time': float(processing_time),
                     'face_info': face_info,
-                    'model_loaded': self.model_loaded
+                    'model_loaded': self.model_loaded,
+                    'method_used': method_used
                 }
             
             total_requests = self.recognition_stats['total_requests']
@@ -333,11 +738,192 @@ class EnhancedFaceRecognitionServer:
                 'quality_score': 0.0,
                 'processing_time': float(time.time() - start_time),
                 'error': True,
-                'model_loaded': self.model_loaded
+                'model_loaded': self.model_loaded,
+                'method_used': 'error'
             }
+        
+    def frame_to_base64_quality(self, frame, quality=85):
+        """Convert frame to base64 string with adjustable quality"""
+        try:
+            if frame is None:
+                return None
+        
+            quality = max(90, min(100, quality))
+        
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+            if not ret:
+                logging.error("Failed to encode frame to JPEG")
+                return None
+        
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            return jpg_as_text
+    
+        except Exception as e:
+            logging.error(f"Error converting frame to base64: {e}")
+            return None
+        
+    def preprocess_camera_frame(self, frame):
+        """Enhanced frame preprocessing for better recognition quality"""
+        try:
+            if frame is None:
+                return None
+        
+            height, width = frame.shape[:2]
+            if width > 1280:
+                scale = 1280 / width
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
+        
+            denoised = cv2.bilateralFilter(frame, 9, 75, 75)
+        
+            lab = cv2.cvtColor(denoised, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            l = clahe.apply(l)
+            enhanced = cv2.merge([l, a, b])
+            enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+        
+            kernel = np.array([[-1,-1,-1],
+                               [-1, 9,-1],
+                               [-1,-1,-1]])
+            sharpened = cv2.filter2D(enhanced, -1, kernel)
+        
+            result = cv2.addWeighted(enhanced, 0.7, sharpened, 0.3, 0)
+        
+            return result
+        except Exception as e:
+            logging.error(f"Frame preprocessing error: {e}")
+            return frame
+
+    def _match_with_averaging(self, encoding, quality):
+        """matching with multiple averaging methods"""
+        if not self.model_loaded or not self.face_encodings:
+            return None, 0.0, "no_model_or_data"
+        
+        try:
+            from sklearn.metrics.pairwise import cosine_similarity
+            
+            best_match = None
+            best_confidence = 0.0
+            method_used = "standard"
+            
+            for name, stored_data in self.face_encodings.items():
+                confidences = []
+                weights = []
+                qualities = []
+                
+                for data in stored_data:
+                    stored_encoding = data['encoding']
+                    stored_quality = data['quality']
+                    stored_weight = data['weight']
+                    
+                    cosine_sim = cosine_similarity([encoding], [stored_encoding])[0][0]
+                    euclidean_dist = np.linalg.norm(encoding - stored_encoding)
+                    euclidean_sim = 1.0 / (1.0 + euclidean_dist)
+                    
+                    quality_factor = (quality + stored_quality) / 2
+                    combined_similarity = (
+                        cosine_sim * 0.6 + 
+                        euclidean_sim * 0.4
+                    ) * quality_factor
+                    
+                    confidences.append(combined_similarity)
+                    weights.append(stored_weight * stored_quality)
+                    qualities.append(stored_quality)
+                
+                if not confidences:
+                    continue
+                
+                if self.averaging_methods['outlier_removal'] and len(confidences) > 3:
+                    q1 = np.percentile(confidences, 25)
+                    q3 = np.percentile(confidences, 75)
+                    iqr = q3 - q1
+                    lower_bound = q1 - 1.5 * iqr
+                    upper_bound = q3 + 1.5 * iqr
+                    
+                    filtered_confidences = []
+                    filtered_weights = []
+                    
+                    for i, conf in enumerate(confidences):
+                        if lower_bound <= conf <= upper_bound:
+                            filtered_confidences.append(conf)
+                            filtered_weights.append(weights[i])
+                    
+                    if filtered_confidences:
+                        confidences = filtered_confidences
+                        weights = filtered_weights
+                        method_used = "outlier_removed"
+                        self.recognition_stats['outliers_removed'] += 1
+                
+                if self.averaging_methods['weighted_average'] and len(confidences) > 1:
+                    total_weight = sum(weights)
+                    if total_weight > 0:
+                        final_confidence = sum(c * w for c, w in zip(confidences, weights)) / total_weight
+                        method_used += "_weighted"
+                        self.recognition_stats['weighted_average_applied'] += 1
+                    else:
+                        final_confidence = statistics.mean(confidences)
+                else:
+                    top_scores = sorted(confidences, reverse=True)[:min(5, len(confidences))]
+                    final_confidence = statistics.mean(top_scores)
+                
+                if self.averaging_methods['adaptive_threshold']:
+                    sample_count = len(stored_data)
+                    if sample_count >= 10:
+                        final_confidence *= 1.05
+                        method_used += "_adaptive"
+                        self.recognition_stats['adaptive_threshold_used'] += 1
+                    elif sample_count >= 15:
+                        final_confidence *= 1.10
+                
+                avg_quality = statistics.mean(qualities)
+                if avg_quality > 0.8:
+                    final_confidence *= 1.03
+                
+                if final_confidence > best_confidence:
+                    best_confidence = final_confidence
+                    best_match = name
+            
+            return best_match, best_confidence, method_used
+            
+        except ImportError:
+            logging.warning("sklearn not available, using basic similarity")
+            return None, 0.0, "no_sklearn"
+        except Exception as e:
+            logging.error(f"Matching error: {e}")
+            return None, 0.0, "matching_error"
+
+    def _get_confidence_level(self, confidence):
+        """Get confidence level description"""
+        if confidence >= self.confidence_levels['very_high']:
+            return 'very_high'
+        elif confidence >= self.confidence_levels['high']:
+            return 'high'
+        elif confidence >= self.confidence_levels['medium']:
+            return 'medium'
+        elif confidence >= self.confidence_levels['low']:
+            return 'low'
+        else:
+            return 'very_low'
+
+    def _update_daily_stats(self, name, confidence, quality, processing_time):
+        """Update daily statistics"""
+        today = datetime.now().date()
+        stats = self.daily_stats[today]
+        
+        stats['recognitions'] += 1
+        if name:
+            stats['unique_people'].add(name)
+        
+        current_avg = stats['avg_confidence']
+        count = stats['recognitions']
+        stats['avg_confidence'] = ((current_avg * (count - 1)) + confidence) / count
+        
+        stats['quality_scores'].append(quality)
 
     def check_cache(self, image_hash):
-        """Check if we have a recent recognition for similar image"""
+        """cache with better expiry"""
         try:
             current_time = time.time()
             
@@ -365,28 +951,331 @@ class EnhancedFaceRecognitionServer:
         except Exception as e:
             logging.error(f"Cache store error: {e}")
 
-    def log_recognition(self, person_name, confidence):
-        """Log recognition for analytics"""
+    def log_recognition(self, person_name, confidence, quality_score, processing_time, method_used):
+        """ recognition logging"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO recognition_logs (person_name, confidence)
-                VALUES (?, ?)
-            ''', (person_name, confidence))
+                INSERT INTO recognition_logs 
+                (person_name, confidence, quality_score, processing_time, method_used)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (person_name, confidence, quality_score, processing_time, method_used))
             conn.commit()
             conn.close()
         except Exception as e:
             logging.error(f"Error logging recognition: {e}")
 
-    def add_person(self, name, images_base64):
-        """Add new person with multiple images"""
+    def start_camera(self):
+        """ camera initialization with Rpi camera priority"""
+        try:
+            with self.camera_lock:
+                if self.camera_active:
+                    logging.info("Camera already active")
+                    return True
+            
+                self.camera_error = None
+
+                if self.init_rpi_camera():
+                    self.camera_active = True
+                    self.stop_capture = False
+
+                    self.frame_capture_thread = threading.Thread(
+                        target= self._continuous_capture,
+                        daemon=True
+                    )
+                    self.frame_capture_thread.start()
+                    time.sleep(0.5)
+
+                    logging.info("RPi camera started successfully")
+                    return True
+                
+                if self.camera_mode == 'usb' and self.camera and self.camera.isOpened():
+                    if self._validate_camera():
+                        self.camera_active = True
+                        self.stop_capture = False
+                        
+                        self.frame_capture_thread = threading.Thread(
+                            target= self._continuous_capture,
+                            daemon= True
+                        )
+
+                        self.frame_capture_thread.start()
+                        time.sleep(0.5)
+
+                        logging.info("usb camera started successfully as fallback")
+                        return True
+                
+                self.camera_error = "No working cameras found"
+                logging.error(self.camera_error)
+                return False
+            
+        except Exception as e:
+            logging.error(f"Camera initialization error: {e}")
+            self.camera_error = f"Camera initialization failed: {str(e)}"
+            return False
+        
+    def configure_camera(self):
+        """Configure camera with validation"""
+        try:
+            if not self.camera or not self.camera.isOpened():
+                return False  
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_settings['width'])
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_settings['height'])
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  
+            self.camera.set(cv2.CAP_PROP_FPS, self.camera_settings['fps'])
+
+            optional_settings = [
+                (cv2.CAP_PROP_BRIGHTNESS, self.camera_settings['brightness'] / 100.0),
+                (cv2.CAP_PROP_CONTRAST, self.camera_settings['contrast'] / 100.0),
+                (cv2.CAP_PROP_SATURATION, self.camera_settings['saturation'] / 100.0),
+                (cv2.CAP_PROP_AUTO_EXPOSURE, 0.25), 
+                (cv2.CAP_PROP_EXPOSURE, -6),
+            ]
+        
+            for prop, value in optional_settings:
+                try:
+                    self.camera.set(prop, value)
+                except:
+                    pass
+            
+            logging.info("Camera configured successfully")
+            return True
+        
+        except Exception as e:
+            logging.error(f"Error configuring camera: {e}")
+            return False
+
+    def _validate_camera(self):
+        """Validate camera produces good frames"""
+        try:
+            if not self.camera or not self.camera.isOpened():
+                return False
+            
+            valid_frames = 0
+            for i in range(10):
+                ret, frame = self.camera.read()
+
+                if ret and frame is not None and frame.size > 0:
+                    mean_intensity = np.mean(frame)
+                    if mean_intensity > 15 and mean_intensity < 240:
+                        valid_frames += 1
+                        logging.debug(f"Frame {i+1}: valid (mean intensity: {mean_intensity:.1f})")
+                    else:
+                        logging.warning(f"Frame {i+1}: Invalid intensity {mean_intensity:.1f}")
+                else:
+                    logging.warning(f"Frame {i+1}: Failed to capture")
+                
+                time.sleep(0.05)
+
+            success_rate = valid_frames / 10
+            logging.info(f"Camera validation: {valid_frames}/10 valid frames ({success_rate*100:.1f}%)")
+        
+            return success_rate >= 0.6
+        
+        except Exception as e:
+            logging.error(f"Camera validation error: {e}")
+            return False
+
+    def _continuous_capture(self):
+        """Continuously capture frames in background thread (RPi or USB)"""
+        frame_count = 0
+        error_count = 0
+        max_errors = 10
+        last_good_frame_time = time.time()
+
+        logging.info(f"Starting continuous capture thread (mode: {self.camera_mode})")
+
+        while not self.stop_capture and error_count < max_errors:
+            try:
+                if self.camera_mode == 'rpi' and self.picamera2:
+                    try:
+                        frame_rgb = self.picamera2.capture_array()
+                        if frame_rgb is not None and frame_rgb.size > 0:
+                            frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)  
+                            mean_intensity = np.mean(frame_bgr)
+
+                            if 15 < mean_intensity < 240:
+                                with self.camera_lock:
+                                    self.last_frame = frame_bgr.copy()
+                                frame_count += 1
+                                error_count = 0
+                                last_good_frame_time = time.time()
+
+                                if frame_count % 100 == 0:
+                                    logging.info(f"RPi camera: captured {frame_count} frames")
+                            else:
+                                error_count += 1
+                                logging.warning(f"RPi camera: Invalid frame mean intensity {mean_intensity}")
+                        else:
+                            error_count += 1
+                            logging.warning("empty frame captured by RPi camera")
+                    except Exception as e:
+                        error_count += 1
+                        logging.error(f"Error capturing frame: {e}")
+                        continue
+                elif self.camera_mode == 'usb' and self.camera and self.camera.isOpened():
+                    ret, frame = self.camera.read()
+                    if ret and frame is not None and frame.size > 0:
+                        mean_intensity = np.mean(frame)
+                    
+                        if 15 < mean_intensity < 240:
+                            with self.camera_lock:
+                                self.last_frame = frame.copy()
+                            frame_count += 1
+                            error_count = 0
+                            last_good_frame_time = time.time()
+                        
+                            if frame_count % 100 == 0:
+                                logging.info(f"USB camera: Captured {frame_count} frames")
+                        else:
+                            error_count += 1
+                            logging.warning(f"USB camera: Invalid frame intensity {mean_intensity}")
+                    else:
+                        error_count += 1
+                        logging.warning("USB camera: Failed to read frame")
+                else:
+                    error_count += 1
+                    logging.warning("No camera available for capture")
+                    time.sleep(0.5)
+        
+                if time.time() - last_good_frame_time > 5.0:
+                    logging.error("No good frames for 5 seconds, attempting camera restart")
+                    self._restart_camera_internal()
+                    last_good_frame_time = time.time()
+
+                if error_count > 5:
+                    time.sleep(0.1)
+                else:
+                    time.sleep(1.0 / self.camera_settings['fps'])
+                
+            except Exception as e:
+                error_count += 1
+                logging.error(f"Error in capture loop: {e}")
+                time.sleep(0.1)
+
+        if error_count >= max_errors:
+            logging.error("Max frame capture errors reached, stopping camera")
+            self.camera_error = "Camera capture failed"
+            self.camera_active = False
+
+    def _restart_camera_internal(self):
+        """Internal camera restart without external locking"""
+        try:
+            if self.camera:
+                self.camera.release()
+                time.sleep(0.5)
+
+            backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_V4L2, cv2.CAP_ANY]
+
+            for camera_id in [0, 1, 2]:
+                for backend in backends_to_try:
+                    try:
+                        test_camera = cv2.VideoCapture(camera_id, backend)
+                        if test_camera.isOpened():
+                            ret, frame = test_camera.read()
+                            test_camera.release()
+                        
+                            if ret and frame is not None and np.mean(frame) > 15:
+                                self.camera = cv2.VideoCapture(camera_id, backend)
+                                self.configure_camera()
+                                logging.info("Camera restarted successfully")
+                                return True
+                    except:
+                        continue
+        
+            logging.error("Failed to restart camera")
+            return False
+        
+        except Exception as e:
+            logging.error(f"Camera restart error: {e}")
+            return False
+    
+    def stop_camera(self):
+        """Stop camera and cleanup"""
+        try:
+            with self.camera_lock:
+                self.stop_capture = True
+                self.camera_active = False
+
+                if self.picamera2:
+                    try:
+                        self.picamera2.stop()
+                        self.picamera2.close()
+                        self.picamera2 = None
+                        logging.info("RPi camera stopped")
+                    except Exception as e:
+                        logging.error(f"Error stopping RPi camera: {e}")
+
+                if self.camera:
+                    try:
+                        self.camera.release()
+                        self.camera = None
+                        logging.info("USB camera stopped")
+                    except Exception as e:
+                        logging.error(f"Error stopping USB camera: {e}")
+
+                self.last_frame = None
+                self.camera_mode = None
+             
+                if self.frame_capture_thread and self.frame_capture_thread.is_alive():
+                    self.frame_capture_thread.join(timeout=2.0)
+
+            logging.info("Camera stopped successfully")
+            return True
+        
+        except Exception as e:
+            logging.error(f"Error stopping camera: {e}")
+            return False
+        
+    def capture_frame(self):
+        """Get the latest captured frame"""
+        try:
+            with self.camera_lock:
+                if self.last_frame is not None:
+                    return self.last_frame.copy()
+                else:
+                    logging.warning("No frame available in buffer")
+                    return None
+        except Exception as e:
+            logging.error(f"Error capturing frame: {e}")
+            return None
+        
+    def frame_to_base64(self, frame):
+        """Convert frame to base64 string"""
+        try:
+            if frame is None:
+                return None
+            
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not ret:
+                logging.error("Failed to encode frame to JPEG")
+                return None
+            
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            return jpg_as_text
+        
+        except Exception as e:
+            logging.error(f"Error converting frame to base64: {e}")
+            return None
+
+    def add_person_enhanced(self, name, images_base64):
+        """ person registration with support for 10-15 images and quality analysis"""
         try:
             if not self.model_loaded:
                 return {
                     'success': False,
                     'message': 'Face recognition model not loaded. Please check server logs.',
-                    'photos_processed': 0
+                    'photos_processed': 0,
+                    'quality_analysis': {}
+                }
+            
+            if len(images_base64) < 5:
+                return {
+                    'success': False,
+                    'message': 'Minimum 5 images required for registration',
+                    'photos_processed': 0,
+                    'quality_analysis': {}
                 }
             
             conn = sqlite3.connect(self.db_path)
@@ -399,11 +1288,14 @@ class EnhancedFaceRecognitionServer:
                 person_id = result[0]
                 cursor.execute("DELETE FROM face_encodings WHERE person_id = ?", (person_id,))
             else:
-                cursor.execute("INSERT INTO people (name) VALUES (?)", (name,))
+                cursor.execute("INSERT INTO people (name, registration_method) VALUES (?, ?)", (name, 'enhanced'))
                 person_id = cursor.lastrowid
             
             successful_encodings = []
-            total_quality = 0.0
+            quality_scores = []
+            processing_results = []
+            
+            logging.info(f"Processing {len(images_base64)} images for {name}")
             
             for i, img_base64 in enumerate(images_base64):
                 try:
@@ -413,370 +1305,374 @@ class EnhancedFaceRecognitionServer:
                     
                     if image is None:
                         logging.warning(f"Could not decode image {i+1} for {name}")
+                        processing_results.append({
+                            'image_index': i+1,
+                            'status': 'decode_failed',
+                            'quality': 0.0,
+                            'message': 'Could not decode image'
+                        })
                         continue
 
-                    encoding, quality, _ = self.extract_face_encoding(image)
+                    encoding, quality, face_info = self.extract_face_encoding(image)
                     
-                    if encoding is not None and quality > 0.3:
-                        encoding_blob = encoding.tobytes()
-                        cursor.execute('''
-                            INSERT INTO face_encodings (person_id, encoding, image_quality)
-                            VALUES (?, ?, ?)
-                        ''', (person_id, encoding_blob, quality))
-                        
-                        successful_encodings.append(encoding)
-                        total_quality += quality
-                        
-                        logging.info(f"Processed image {i+1} for {name}, quality: {quality:.2f}")
+                    processing_results.append({
+                        'image_index': i+1,
+                        'status': 'processed',
+                        'quality': quality,
+                        'face_detected': encoding is not None,
+                        'face_info': face_info,
+                        'message': f"Quality: {quality:.2f}" if encoding is not None else "No face detected"
+                    })
+                    
+                    if encoding is not None and quality > 0.25:
+                        successful_encodings.append({
+                            'encoding': encoding,
+                            'quality': quality,
+                            'weight': quality  
+                        })
+                        quality_scores.append(quality)
+                        logging.info(f"Processed image {i+1} for {name}, quality: {quality:.3f}")
                     else:
-                        logging.warning(f"Poor quality or no face in image {i+1} for {name}")
+                        if encoding is None:
+                            logging.warning(f"No face detected in image {i+1} for {name}")
+                        else:
+                            logging.warning(f"Poor quality in image {i+1} for {name}: {quality:.3f}")
                     
                 except Exception as e:
                     logging.error(f"Error processing image {i+1} for {name}: {e}")
+                    processing_results.append({
+                        'image_index': i+1,
+                        'status': 'error',
+                        'quality': 0.0,
+                        'message': f'Processing error: {str(e)}'
+                    })
                     continue
             
-            if successful_encodings:
-                cursor.execute('''
-                    UPDATE people SET photo_count = ? WHERE id = ?
-                ''', (len(successful_encodings), person_id))
-
-                self.face_encodings[name] = successful_encodings
-                
-                conn.commit()
-                avg_quality = total_quality / len(successful_encodings)
-                
-                self.recognition_cache.clear()
-                
-                return {
-                    'success': True,
-                    'message': f'Successfully registered {name}',
-                    'photos_processed': len(successful_encodings),
-                    'average_quality': float(avg_quality)
-                }
-            else:
+            if len(successful_encodings) < 3:
                 conn.rollback()
                 return {
                     'success': False,
-                    'message': 'No suitable face images found',
-                    'photos_processed': 0
+                    'message': f'Insufficient valid images. Got {len(successful_encodings)}, need at least 3',
+                    'photos_processed': len(successful_encodings),
+                    'quality_analysis': {
+                        'total_images': len(images_base64),
+                        'processed_images': len(processing_results),
+                        'valid_images': len(successful_encodings),
+                        'average_quality': float(statistics.mean(quality_scores)) if quality_scores else 0.0,
+                        'quality_distribution': self._analyze_quality_distribution(quality_scores),
+                        'processing_details': processing_results
+                    }
                 }
+            
+            if len(successful_encodings) > 5:
+                filtered_encodings = self._remove_encoding_outliers(successful_encodings)
+                removed_count = len(successful_encodings) - len(filtered_encodings)
+                
+                if removed_count > 0:
+                    logging.info(f"Removed {removed_count} outlier encodings for {name}")
+                    successful_encodings = filtered_encodings
+            
+            for i, enc_data in enumerate(successful_encodings):
+                similarity_scores = []
+                for j, other_enc_data in enumerate(successful_encodings):
+                    if i != j:
+                        try:
+                            from sklearn.metrics.pairwise import cosine_similarity
+                            sim = cosine_similarity([enc_data['encoding']], [other_enc_data['encoding']])[0][0]
+                            similarity_scores.append(sim)
+                        except:
+                            similarity_scores.append(0.7)  
+                
+                avg_similarity = statistics.mean(similarity_scores) if similarity_scores else 0.7
+                enc_data['weight'] = (enc_data['quality'] * 0.7 + avg_similarity * 0.3)
+            
+            for enc_data in successful_encodings:
+                encoding_blob = enc_data['encoding'].tobytes()
+                cursor.execute('''
+                    INSERT INTO face_encodings (person_id, encoding, image_quality, weight)
+                    VALUES (?, ?, ?, ?)
+                ''', (person_id, encoding_blob, enc_data['quality'], enc_data['weight']))
+            
+            avg_quality = statistics.mean([e['quality'] for e in successful_encodings])
+            best_quality = max([e['quality'] for e in successful_encodings])
+            
+            cursor.execute('''
+                UPDATE people SET photo_count = ?, avg_quality = ?, best_quality = ? WHERE id = ?
+            ''', (len(successful_encodings), avg_quality, best_quality, person_id))
+
+            self.face_encodings[name] = successful_encodings
+            
+            conn.commit()
+            
+            self.recognition_cache.clear()
+            
+            quality_analysis = {
+                'total_images': len(images_base64),
+                'processed_images': len(processing_results),
+                'valid_images': len(successful_encodings),
+                'average_quality': float(avg_quality),
+                'best_quality': float(best_quality),
+                'quality_distribution': self._analyze_quality_distribution(quality_scores),
+                'outliers_removed': len(images_base64) - len(successful_encodings) - sum(1 for r in processing_results if r['status'] != 'processed' or not r.get('face_detected', False)),
+                'processing_details': processing_results,
+                'weight_distribution': {
+                    'min_weight': float(min([e['weight'] for e in successful_encodings])),
+                    'max_weight': float(max([e['weight'] for e in successful_encodings])),
+                    'avg_weight': float(statistics.mean([e['weight'] for e in successful_encodings]))
+                }
+            }
+            
+            return {
+                'success': True,
+                'message': f'Successfully registered {name} with processing',
+                'photos_processed': len(successful_encodings),
+                'quality_analysis': quality_analysis
+            }
                 
         except Exception as e:
             conn.rollback()
-            logging.error(f"Error adding person: {e}")
+            logging.error(f"Error in person registration: {e}")
+            logging.error(f"Traceback: {traceback.format_exc()}")
             return {
                 'success': False,
-                'message': f'Database error: {str(e)}',
-                'photos_processed': 0
+                'message': f'Registration error: {str(e)}',
+                'photos_processed': 0,
+                'quality_analysis': {'error': str(e)}
             }
         finally:
             conn.close()
 
-face_server = EnhancedFaceRecognitionServer()
-
-WEB_INTERFACE = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Smart Glasses Face Recognition</title>
-    <style>
-        body { font-family: Arial; margin: 20px; background: #f0f0f0; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
-        .camera-section { display: flex; gap: 20px; margin-bottom: 20px; }
-        .video-container { flex: 1; }
-        .controls { flex: 1; }
-        video { width: 100%; max-width: 640px; border: 2px solid #ddd; border-radius: 10px; }
-        canvas { display: none; }
-        .button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-        .start { background: #4CAF50; color: white; }
-        .stop { background: #f44336; color: white; }
-        .register { background: #2196F3; color: white; }
-        .results { margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px; }
-        .recognition-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
-        .recognized { background: #d4edda; border: 1px solid #c3e6cb; }
-        .unknown { background: #fff3cd; border: 1px solid #ffeaa7; }
-        .error { background: #f8d7da; border: 1px solid #f5c6cb; }
-        .stats { display: flex; gap: 20px; margin-top: 20px; }
-        .stat-box { flex: 1; padding: 15px; background: #e9ecef; border-radius: 5px; text-align: center; }
-        input[type="text"] { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
-        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
-        .status.error { background: #f8d7da; color: #721c24; }
-        .status.warning { background: #fff3cd; color: #856404; }
-        .status.success { background: #d4edda; color: #155724; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🤓 Smart Glasses Face Recognition</h1>
-        <p>Using laptop camera to simulate smart glasses feed</p>
+    def _analyze_quality_distribution(self, quality_scores):
+        """Analyze quality score distribution"""
+        if not quality_scores:
+            return {}
         
-        <div class="camera-section">
-            <div class="video-container">
-                <video id="video" autoplay muted></video>
-                <canvas id="canvas"></canvas>
-            </div>
+        return {
+            'min': float(min(quality_scores)),
+            'max': float(max(quality_scores)),
+            'mean': float(statistics.mean(quality_scores)),
+            'median': float(statistics.median(quality_scores)),
+            'std_dev': float(statistics.stdev(quality_scores)) if len(quality_scores) > 1 else 0.0,
+            'high_quality_count': sum(1 for q in quality_scores if q > 0.7),
+            'medium_quality_count': sum(1 for q in quality_scores if 0.4 <= q <= 0.7),
+            'low_quality_count': sum(1 for q in quality_scores if q < 0.4)
+        }
+
+    def _remove_encoding_outliers(self, encodings):
+        """Remove outlier encodings based on similarity"""
+        try:
+            from sklearn.metrics.pairwise import cosine_similarity
             
-            <div class="controls">
-                <h3>Controls</h3>
-                <button class="button start" onclick="startRecognition()">Start Recognition</button>
-                <button class="button stop" onclick="stopRecognition()">Stop Recognition</button>
-                
-                <h3>Register New Person</h3>
-                <input type="text" id="personName" placeholder="Enter person's name">
-                <button class="button register" onclick="registerPerson()">Register Current Face</button>
-                
-                <h3>System Status</h3>
-                <div id="status" class="status">Ready</div>
-            </div>
-        </div>
-        
-        <div class="stats">
-            <div class="stat-box">
-                <h4>Recognition Rate</h4>
-                <div id="recognitionRate">0%</div>
-            </div>
-            <div class="stat-box">
-                <h4>Avg Processing Time</h4>
-                <div id="avgTime">0ms</div>
-            </div>
-            <div class="stat-box">
-                <h4>Total Requests</h4>
-                <div id="totalRequests">0</div>
-            </div>
-            <div class="stat-box">
-                <h4>Error Rate</h4>
-                <div id="errorRate">0%</div>
-            </div>
-        </div>
-        
-        <div class="results">
-            <h3>Recognition Results</h3>
-            <div id="results"></div>
-        </div>
-    </div>
+            if len(encodings) <= 5:
+                return encodings  
+            
+            encoding_vectors = [e['encoding'] for e in encodings]
+            similarity_matrix = cosine_similarity(encoding_vectors)
+            
+            avg_similarities = []
+            for i in range(len(encodings)):
+                similarities = [similarity_matrix[i][j] for j in range(len(encodings)) if i != j]
+                avg_similarities.append(statistics.mean(similarities))
+            
+            threshold = statistics.mean(avg_similarities) - statistics.stdev(avg_similarities)
+            
+            filtered_encodings = []
+            for i, encoding in enumerate(encodings):
+                if avg_similarities[i] >= threshold:
+                    filtered_encodings.append(encoding)
+            
+            min_keep = max(3, int(len(encodings) * 0.6))
+            if len(filtered_encodings) < min_keep:
+                indexed_encodings = [(i, e) for i, e in enumerate(encodings)]
+                indexed_encodings.sort(key=lambda x: avg_similarities[x[0]], reverse=True)
+                filtered_encodings = [e for i, e in indexed_encodings[:min_keep]]
+            
+            return filtered_encodings
+            
+        except Exception as e:
+            logging.error(f"Error removing outliers: {e}")
+            return encodings  
 
-    <script>
-        let video = document.getElementById('video');
-        let canvas = document.getElementById('canvas');
-        let ctx = canvas.getContext('2d');
-        let recognitionActive = false;
-        let recognitionInterval;
-
-        async function initCamera() {
-            try {
-                if (navigator.mediaDevices === undefined) {
-                    navigator.mediaDevices = {};
+    def generate_daily_report(self, date=None):
+        """Generate comprehensive daily analysis report"""
+        if date is None:
+            date = datetime.now().date()
+        
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT person_name, confidence, quality_score, processing_time, method_used, timestamp
+                FROM recognition_logs 
+                WHERE DATE(timestamp) = ?
+                ORDER BY timestamp DESC
+            ''', (date,))
+            
+            daily_recognitions = cursor.fetchall()
+            
+            if not daily_recognitions:
+                return {
+                    'date': str(date),
+                    'summary': 'No recognitions recorded for this date',
+                    'total_recognitions': 0
                 }
-
-                if (navigator.mediaDevices.getUserMedia === undefined) {
-                    navigator.mediaDevices.getUserMedia = function(constraints) {
-                        const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-                        if (!getUserMedia) {
-                            throw new Error('getUserMedia not supported');
-                        }
-                        return new Promise((resolve, reject) => {
-                            getUserMedia.call(navigator, constraints, resolve, reject);
-                        });
-                    }
-                }
-
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                };
-            } catch (err) {
-                console.error('Camera error:', err);
-                document.getElementById('status').innerHTML = 
-                    '❌ Camera error: ' + err.message + 
-                    '<br>Try accessing via HTTPS://localhost:5000';
-                document.getElementById('status').className = 'status error';
-            }
-        }
-
-        initCamera();
-        
-        function startRecognition() {
-            if (!recognitionActive) {
-                recognitionActive = true;
-                document.getElementById('status').innerHTML = '🔍 Recognition Active';
-                document.getElementById('status').className = 'status success';
-                recognitionInterval = setInterval(performRecognition, 2000); 
-            }
-        }
-
-        function stopRecognition() {
-            recognitionActive = false;
-            document.getElementById('status').innerHTML = '⏸️ Recognition Stopped';
-            document.getElementById('status').className = 'status warning';
-            if (recognitionInterval) {
-                clearInterval(recognitionInterval);
-            }
-        }
-
-        function performRecognition() {
-            if (!recognitionActive) return;
             
-            ctx.drawImage(video, 0, 0);
-            canvas.toBlob(blob => {
-                let reader = new FileReader();
-                reader.onload = () => {
-                    let base64 = reader.result.split(',')[1];
+            people_stats = defaultdict(lambda: {
+                'count': 0,
+                'confidences': [],
+                'qualities': [],
+                'processing_times': [],
+                'methods': [],
+                'first_seen': None,
+                'last_seen': None
+            })
+            
+            total_recognitions = 0
+            all_confidences = []
+            all_qualities = []
+            all_processing_times = []
+            method_counts = defaultdict(int)
+            hourly_distribution = defaultdict(int)
+            
+            for name, confidence, quality, proc_time, method, timestamp in daily_recognitions:
+                if name: 
+                    total_recognitions += 1
+                    stats = people_stats[name]
+                    stats['count'] += 1
+                    stats['confidences'].append(confidence)
+                    stats['qualities'].append(quality)
+                    stats['processing_times'].append(proc_time)
+                    stats['methods'].append(method)
                     
-                    fetch('/api/recognize_realtime', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ image: base64 })
-                    })
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                        }
-                        return response.json();
-                    })
-                    .then(data => displayResult(data))
-                    .catch(err => {
-                        console.error('Recognition error:', err);
-                        displayResult({
-                            recognized: false,
-                            name: null,
-                            confidence: 0,
-                            message: `Error: ${err.message}`,
-                            quality_score: 0,
-                            processing_time: 0,
-                            error: true
-                        });
-                    });
-                };
-                reader.readAsDataURL(blob);
-            }, 'image/jpeg', 0.8);
-        }
-
-        function registerPerson() {
-            let name = document.getElementById('personName').value.trim();
-            if (!name) {
-                alert('Please enter a name');
-                return;
-            }
-            
-            ctx.drawImage(video, 0, 0);
-            canvas.toBlob(blob => {
-                let reader = new FileReader();
-                reader.onload = () => {
-                    let base64 = reader.result.split(',')[1];
+                    if stats['first_seen'] is None:
+                        stats['first_seen'] = timestamp
+                    stats['last_seen'] = timestamp
                     
-                    fetch('/api/register', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            name: name, 
-                            images: [base64] 
-                        })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(`Successfully registered ${name}!`);
-                            document.getElementById('personName').value = '';
-                        } else {
-                            alert(`Registration failed: ${data.message}`);
-                        }
-                    })
-                    .catch(err => {
-                        console.error('Registration error:', err);
-                        alert(`Registration error: ${err.message}`);
-                    });
-                };
-                reader.readAsDataURL(blob);
-            }, 'image/jpeg', 0.8);
-        }
-
-        function displayResult(data) {
-            let resultsDiv = document.getElementById('results');
-            let resultClass = data.error ? 'error' : (data.recognized ? 'recognized' : 'unknown');
+                    all_confidences.append(confidence)
+                    all_qualities.append(quality)
+                    all_processing_times.append(proc_time)
+                    method_counts[method] += 1
+                    
+                    hour = datetime.fromisoformat(timestamp).hour
+                    hourly_distribution[hour] += 1
             
-            let confidence = data.confidence || 0;
-            let quality = data.quality_score || 0;
-            let processingTime = data.processing_time || 0;
+            unique_people = len(people_stats)
+            avg_confidence = statistics.mean(all_confidences) if all_confidences else 0
+            avg_quality = statistics.mean(all_qualities) if all_qualities else 0
+            avg_processing_time = statistics.mean(all_processing_times) if all_processing_times else 0
             
-            let message = data.error ? 
-                `❌ ${data.message}` :
-                (data.recognized ? 
-                    `✅ ${data.name} (${(confidence * 100).toFixed(1)}% confidence)` :
-                    `❓ ${data.message} (${(confidence * 100).toFixed(1)}% similarity)`);
+            top_person = max(people_stats.keys(), key=lambda x: people_stats[x]['count']) if people_stats else None
             
-            let modelStatus = data.model_loaded ? '🟢' : '🔴';
-            
-            let resultHtml = `
-                <div class="recognition-result ${resultClass}">
-                    <strong>${new Date().toLocaleTimeString()}</strong>: ${message}
-                    <br><small>Quality: ${(quality * 100).toFixed(1)}%, 
-                    Processing: ${(processingTime * 1000).toFixed(0)}ms, 
-                    Model: ${modelStatus}</small>
-                </div>
-            `;
-            
-            resultsDiv.innerHTML = resultHtml + resultsDiv.innerHTML;
-          
-            let results = resultsDiv.children;
-            while (results.length > 10) {
-                resultsDiv.removeChild(results[results.length - 1]);
-            }
-        }
-
-        setInterval(() => {
-            fetch('/api/health')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.recognition_stats) {
-                        let stats = data.recognition_stats;
-                        let rate = stats.total_requests > 0 ? 
-                            (stats.successful_recognitions / stats.total_requests * 100).toFixed(1) : 0;
-                        let errorRate = stats.total_requests > 0 ?
-                            (stats.errors / stats.total_requests * 100).toFixed(1) : 0;
-                        
-                        document.getElementById('recognitionRate').textContent = rate + '%';
-                        document.getElementById('avgTime').textContent = (stats.avg_processing_time * 1000).toFixed(0) + 'ms';
-                        document.getElementById('totalRequests').textContent = stats.total_requests;
-                        document.getElementById('errorRate').textContent = errorRate + '%';
-                        
-                        if (!recognitionActive) {
-                            let statusEl = document.getElementById('status');
-                            if (!data.model_loaded) {
-                                statusEl.innerHTML = '⚠️ Model not loaded - basic detection only';
-                                statusEl.className = 'status warning';
-                            }
-                        }
-                    }
+            people_analysis = []
+            for name, stats in people_stats.items():
+                people_analysis.append({
+                    'name': name,
+                    'recognition_count': stats['count'],
+                    'avg_confidence': statistics.mean(stats['confidences']),
+                    'confidence_std': statistics.stdev(stats['confidences']) if len(stats['confidences']) > 1 else 0,
+                    'avg_quality': statistics.mean(stats['qualities']),
+                    'avg_processing_time': statistics.mean(stats['processing_times']),
+                    'most_used_method': max(set(stats['methods']), key=stats['methods'].count),
+                    'first_seen': stats['first_seen'],
+                    'last_seen': stats['last_seen'],
+                    'confidence_level': self._get_confidence_level(statistics.mean(stats['confidences']))
                 })
-                .catch(err => console.error('Stats error:', err));
-        }, 3000);
-    </script>
-</body>
-</html>
-'''
+            
+            people_analysis.sort(key=lambda x: x['recognition_count'], reverse=True)
+            
+            performance_insights = []
+            
+            if avg_confidence > 0.8:
+                performance_insights.append("High confidence recognitions today")
+            elif avg_confidence < 0.6:
+                performance_insights.append("Lower than usual confidence levels")
+                
+            if avg_processing_time > 0.5:
+                performance_insights.append("Slower processing times detected")
+            elif avg_processing_time < 0.1:
+                performance_insights.append("Fast processing performance")
+                
+            if 'weighted_average' in method_counts and method_counts['weighted_average'] > total_recognitions * 0.5:
+                performance_insights.append(" Advanced averaging methods frequently used")
+                
+            report_data = {
+                'people_analysis': people_analysis,
+                'method_distribution': dict(method_counts),
+                'hourly_distribution': dict(hourly_distribution),
+                'performance_insights': performance_insights
+            }
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO daily_reports 
+                (report_date, total_recognitions, unique_people_count, avg_confidence, 
+                 avg_quality, avg_processing_time, top_recognized_person, report_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (date, total_recognitions, unique_people, avg_confidence, avg_quality,
+                  avg_processing_time, top_person, json.dumps(report_data)))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'date': str(date),
+                'summary': {
+                    'total_recognitions': total_recognitions,
+                    'unique_people': unique_people,
+                    'avg_confidence': round(avg_confidence, 3),
+                    'avg_quality': round(avg_quality, 3),
+                    'avg_processing_time': round(avg_processing_time * 1000, 1), 
+                    'top_recognized_person': top_person
+                },
+                'people_analysis': people_analysis[:10],  
+                'method_distribution': dict(method_counts),
+                'hourly_distribution': dict(hourly_distribution),
+                'performance_insights': performance_insights,
+                'confidence_distribution': {
+                    'very_high': sum(1 for c in all_confidences if c >= self.confidence_levels['very_high']),
+                    'high': sum(1 for c in all_confidences if self.confidence_levels['high'] <= c < self.confidence_levels['very_high']),
+                    'medium': sum(1 for c in all_confidences if self.confidence_levels['medium'] <= c < self.confidence_levels['high']),
+                    'low': sum(1 for c in all_confidences if self.confidence_levels['low'] <= c < self.confidence_levels['medium']),
+                    'very_low': sum(1 for c in all_confidences if c < self.confidence_levels['low'])
+                }
+            }
+            
+        except Exception as e:
+            logging.error(f"Error generating daily report: {e}")
+            return {
+                'date': str(date),
+                'error': str(e),
+                'summary': 'Error generating report'
+            }
+
+face_server = EnhancedFaceRecognitionServer()
+connected_clients = {}
 
 @app.route('/')
 def web_interface():
     """Web interface for testing"""
-    return render_template_string(WEB_INTERFACE)
+    return send_from_directory('.', 'face_server_index.html')
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Enhanced health check endpoint"""
+    """health check endpoint"""
     return jsonify({
         'status': 'healthy',
         'model_loaded': face_server.model_loaded,
         'people_count': len(face_server.face_encodings),
-        'camera_active': True,
+        'camera_active': face_server.camera_active,
+        'camera_mode': face_server.camera_mode,
+        'camera_error': face_server.camera_error,
+        'rpi_camera_available': RPI_CAMERA_AVAILABLE,
         'recognition_stats': face_server.recognition_stats,
-        'cache_size': len(face_server.recognition_cache)
+        'cache_size': len(face_server.recognition_cache),
+        'averaging_methods': face_server.averaging_methods,
+        'confidence_levels': face_server.confidence_levels
     })
 
 @app.route('/api/recognize_realtime', methods=['POST'])
 def recognize_realtime():
-    """Real-time recognition endpoint with enhanced error handling"""
+    """Real-time recognition endpoint with averaging"""
     try:
         data = request.json
         
@@ -797,7 +1693,7 @@ def recognize_realtime():
         if image is None:
             return jsonify({'error': 'Invalid image data - could not decode'}), 400
 
-        result = face_server.recognize_face_realtime(image)
+        result = face_server.recognize_face_with_averaging(image)
         result['timestamp'] = datetime.now().isoformat()
         
         return jsonify(result)
@@ -813,7 +1709,8 @@ def recognize_realtime():
             'message': f'Server error: {str(e)}',
             'quality_score': 0.0,
             'processing_time': 0.0,
-            'model_loaded': face_server.model_loaded
+            'model_loaded': face_server.model_loaded,
+            'method_used': 'error'
         }), 500
 
 @app.route('/api/recognize', methods=['POST'])
@@ -834,25 +1731,27 @@ def recognize_person():
         if image is None:
             return jsonify({'error': 'Invalid image file'}), 400
 
-        result = face_server.recognize_face_realtime(image)
+        result = face_server.recognize_face_with_averaging(image)
         result['timestamp'] = datetime.now().isoformat()
 
         return jsonify({
             'recognized': result['recognized'],
             'name': result['name'],
             'confidence': result['confidence'],
+            'confidence_level': result.get('confidence_level', 'unknown'),
             'message': result['message'],
             'timestamp': result['timestamp'],
-            'model_loaded': result.get('model_loaded', False)
+            'model_loaded': result.get('model_loaded', False),
+            'method_used': result.get('method_used', 'unknown')
         })
 
     except Exception as e:
         logging.error(f"File recognition error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/register', methods=['POST'])
-def register_person():
-    """Register new person with enhanced error handling"""
+@app.route('/api/register_enhanced', methods=['POST'])
+def register_person_enhanced():
+    """registration endpoint for 10-15 images"""
     try:
         data = request.json
         
@@ -868,10 +1767,16 @@ def register_person():
         if not name:
             return jsonify({'error': 'Name cannot be empty'}), 400
         
-        if not isinstance(images, list) or len(images) == 0:
-            return jsonify({'error': 'At least one image required'}), 400
+        if not isinstance(images, list):
+            return jsonify({'error': 'Images must be a list'}), 400
+            
+        if len(images) < 5:
+            return jsonify({'error': 'Minimum 5 images required for registration'}), 400
+            
+        if len(images) > 20:
+            return jsonify({'error': 'Maximum 20 images allowed'}), 400
  
-        result = face_server.add_person(name, images)
+        result = face_server.add_person_enhanced(name, images)
         
         if result['success']:
             return jsonify(result), 200
@@ -879,18 +1784,37 @@ def register_person():
             return jsonify(result), 400
             
     except Exception as e:
-        logging.error(f"Registration error: {e}")
+        logging.error(f"Enhanced registration error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/register', methods=['POST'])
+def register_person():
+    """Legacy registration endpoint - redirects to enhanced registration"""
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        if 'name' not in data or 'images' not in data:
+            return jsonify({'error': 'Name and images required'}), 400
+        
+        return register_person_enhanced()
+            
+    except Exception as e:
+        logging.error(f"Legacy registration error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/people', methods=['GET'])
 def list_people():
-    """List all registered people"""
+    """List all registered people with details"""
     try:
         conn = sqlite3.connect(face_server.db_path)
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT name, photo_count, created_at FROM people
+            SELECT name, photo_count, created_at, avg_quality, best_quality, registration_method
+            FROM people
             ORDER BY created_at DESC
         ''')
         
@@ -899,7 +1823,10 @@ def list_people():
             people.append({
                 'name': row[0],
                 'photo_count': row[1],
-                'created_at': row[2]
+                'created_at': row[2],
+                'avg_quality': round(row[3] or 0, 3),
+                'best_quality': round(row[4] or 0, 3),
+                'registration_method': row[5] or 'standard'
             })
         
         conn.close()
@@ -957,9 +1884,9 @@ def delete_person():
         logging.error(f"Delete person error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/analytics', methods=['GET'])
-def get_analytics():
-    """Get recognition analytics"""
+@app.route('/api/analytics_enhanced', methods=['GET'])
+def get_enhanced_analytics():
+    """Get comprehensive recognition analytics"""
     try:
         conn = sqlite3.connect(face_server.db_path)
         cursor = conn.cursor()
@@ -967,9 +1894,12 @@ def get_analytics():
         cursor.execute('''
             SELECT person_name, COUNT(*) as recognition_count, 
                    AVG(confidence) as avg_confidence, 
+                   AVG(quality_score) as avg_quality,
+                   AVG(processing_time) as avg_processing_time,
                    MAX(timestamp) as last_seen
             FROM recognition_logs 
             WHERE timestamp > datetime('now', '-24 hours')
+            AND person_name IS NOT NULL
             GROUP BY person_name
             ORDER BY recognition_count DESC
         ''')
@@ -979,45 +1909,289 @@ def get_analytics():
             recent_recognitions.append({
                 'name': row[0],
                 'recognition_count': row[1],
-                'avg_confidence': row[2],
-                'last_seen': row[3]
+                'avg_confidence': round(row[2], 3),
+                'confidence_level': face_server._get_confidence_level(row[2]),
+                'avg_quality': round(row[3], 3),
+                'avg_processing_time': round(row[4] * 1000, 1),
+                'last_seen': row[5]
             })
+        
+        cursor.execute('''
+            SELECT method_used, COUNT(*) as usage_count
+            FROM recognition_logs 
+            WHERE timestamp > datetime('now', '-24 hours')
+            GROUP BY method_used
+            ORDER BY usage_count DESC
+        ''')
+        
+        method_usage = {}
+        for row in cursor.fetchall():
+            method_usage[row[0]] = row[1]
+
+        cursor.execute('''
+            SELECT strftime('%H', timestamp) as hour, COUNT(*) as count
+            FROM recognition_logs 
+            WHERE timestamp > datetime('now', '-24 hours')
+            AND person_name IS NOT NULL
+            GROUP BY hour
+            ORDER BY hour
+        ''')
+        
+        hourly_distribution = {}
+        for row in cursor.fetchall():
+            hourly_distribution[int(row[0])] = row[1]
         
         conn.close()
         
         return jsonify({
             'recognition_stats': face_server.recognition_stats,
             'recent_recognitions': recent_recognitions,
+            'method_usage': method_usage,
+            'hourly_distribution': hourly_distribution,
             'cache_performance': {
                 'cache_size': len(face_server.recognition_cache),
                 'cache_hit_rate': (face_server.recognition_stats['cache_hits'] / 
                                  max(face_server.recognition_stats['total_requests'], 1)) * 100
-            }
+            },
+            'averaging_methods': face_server.averaging_methods,
+            'confidence_levels': face_server.confidence_levels
         })
         
     except Exception as e:
-        logging.error(f"Analytics error: {e}")
+        logging.error(f"Enhanced analytics error: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/daily_report', methods=['GET'])
+def get_daily_report():
+    """Get daily analysis report"""
+    try:
+        date_str = request.args.get('date')
+        if date_str:
+            try:
+                report_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        else:
+            report_date = datetime.now().date()
+        
+        report = face_server.generate_daily_report(report_date)
+        return jsonify(report)
+        
+    except Exception as e:
+        logging.error(f"Daily report error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/recognition_logs', methods=['GET'])
+def get_recognition_logs():
+    """Get recognition logs for a specific date"""
+    try:
+        date_str = request.args.get('date')
+        if date_str:
+            try:
+                report_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        else:
+            report_date = datetime.now().date()
+        
+        conn = sqlite3.connect(face_server.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT person_name, confidence, quality_score, processing_time, method_used, timestamp
+            FROM recognition_logs 
+            WHERE DATE(timestamp) = ?
+            ORDER BY timestamp DESC
+        ''', (report_date,))
+        
+        logs = []
+        total_confidence = 0
+        total_quality = 0
+        
+        for row in cursor.fetchall():
+            person_name, confidence, quality, proc_time, method, timestamp = row
+            logs.append({
+                'person_name': person_name,
+                'confidence': confidence,
+                'quality_score': quality,
+                'processing_time': proc_time,
+                'method_used': method,
+                'timestamp': timestamp
+            })
+            total_confidence += confidence
+            total_quality += quality
+        
+        conn.close()
+        
+        avg_confidence = total_confidence / len(logs) if logs else 0
+        avg_quality = total_quality / len(logs) if logs else 0
+        
+        return jsonify({
+            'logs': logs,
+            'total_logs': len(logs),
+            'avg_confidence': avg_confidence,
+            'avg_quality': avg_quality
+        })
+        
+    except Exception as e:
+        logging.error(f"Recognition logs error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/historical_data', methods=['GET'])
+def get_historical_data():
+    """Get historical performance data for the last 7 days"""
+    try:
+        date_str = request.args.get('date')
+        if date_str:
+            try:
+                base_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        else:
+            base_date = datetime.now().date()
+        
+        conn = sqlite3.connect(face_server.db_path)
+        cursor = conn.cursor()
+        
+        days = []
+        total_recognitions = 0
+        best_day = 0
+        best_day_date = None
+        
+        for i in range(7):
+            check_date = base_date - timedelta(days=i)
+            
+            cursor.execute('''
+                SELECT COUNT(*) as recognition_count
+                FROM recognition_logs 
+                WHERE DATE(timestamp) = ?
+            ''', (check_date,))
+            
+            count = cursor.fetchone()[0]
+            days.append({
+                'date': str(check_date),
+                'recognitions': count
+            })
+            
+            total_recognitions += count
+            if count > best_day:
+                best_day = count
+                best_day_date = check_date
+        
+        conn.close()
+        
+        avg_daily = total_recognitions / 7
+        trend = "Stable"
+        if len(days) >= 2:
+            recent_avg = sum(d['recognitions'] for d in days[:3]) / 3
+            older_avg = sum(d['recognitions'] for d in days[3:]) / 4 if len(days) > 3 else 0
+            if recent_avg > older_avg * 1.2:
+                trend = "Increasing"
+            elif recent_avg < older_avg * 0.8:
+                trend = "Decreasing"
+        
+        return jsonify({
+            'days': days,
+            'total_recognitions': total_recognitions,
+            'avg_daily': round(avg_daily, 1),
+            'best_day': best_day_date.strftime('%b %d') if best_day_date else "None",
+            'trend': trend,
+            'total_days': len([d for d in days if d['recognitions'] > 0])
+        })
+        
+    except Exception as e:
+        logging.error(f"Historical data error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/generate_test_data', methods=['POST'])
+def generate_test_data():
+    """Generate test recognition data for today"""
+    try:
+        conn = sqlite3.connect(face_server.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT name FROM people")
+        people = [row[0] for row in cursor.fetchall()]
+        
+        if not people:
+            return jsonify({
+                'success': False,
+                'error': 'No registered people found. Please register at least one person first.'
+            }), 400
+        
+        today = datetime.now().date()
+        test_data_count = 0
+        
+        import random
+        for i in range(random.randint(10, 20)):
+            person = random.choice(people)
+            confidence = random.uniform(0.6, 0.95)
+            quality = random.uniform(0.4, 0.8)
+            processing_time = random.uniform(0.1, 0.5)
+            method = random.choice(['standard', 'weighted_average', 'temporal', 'enhanced'])
+            
+            hour = random.randint(8, 20)
+            minute = random.randint(0, 59)
+            second = random.randint(0, 59)
+            timestamp = datetime.combine(today, datetime.min.time().replace(hour=hour, minute=minute, second=second))
+            
+            cursor.execute('''
+                INSERT INTO recognition_logs 
+                (person_name, confidence, quality_score, processing_time, method_used, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (person, confidence, quality, processing_time, method, timestamp))
+            
+            test_data_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Generated {test_data_count} test recognition records for today',
+            'records_created': test_data_count
+        })
+        
+    except Exception as e:
+        logging.error(f"Test data generation error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/test', methods=['GET'])
 def test_endpoint():
     """Test endpoint to check if server is working"""
     return jsonify({
-        'status': 'Server is working',
+        'status': ' Server is working',
         'model_loaded': face_server.model_loaded,
+        'features': {
+            'enhanced_registration': True,
+            'weighted_averaging': True,
+            'outlier_removal': True,
+            'temporal_smoothing': True,
+            'quality_analysis': True,
+            'daily_reports': True
+        },
         'timestamp': datetime.now().isoformat()
     })
 
-@app.route('/api/camera/start',methods=['POST'])
+@app.route('/api/camera/start', methods=['POST'])
 def start_camera():
-    """start camera endpoint - since camera is already started in web interface, just return response"""
+    """Start camera endpoint"""
     try:
-        return jsonify({
-            'success': True,
-            'message': 'Camera is already active',
-            'camera_active': True,
-            'timestamp': datetime.now().isoformat()
-        })
+        success = face_server.start_camera()
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Camera started successfully',
+                'camera_active': True,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            logging.error("Failed to start camera")
+            return jsonify({
+                'success': False,
+                'message': 'No available cameras found',
+                'camera_active': False
+            }), 500
     except Exception as e:
         logging.error(f"Camera start endpoint error: {e}")
         return jsonify({
@@ -1030,24 +2204,33 @@ def start_camera():
 def stop_camera():
     """Stop camera endpoint"""
     try:
+        success = face_server.stop_camera()
         return jsonify({
             'success': True,
-            'message': 'Camera stop requested',
+            'message': 'Camera stopped successfully',
             'camera_active': False,
             'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
         logging.error(f"Camera stop endpoint error: {e}")
         return jsonify({
-            'success': False,
-            'message': f'Camera error: {str(e)}'
-        }), 500
+            'success': True,
+            'message': 'Camera stop requested',
+            'camera_active': False,
+            'timestamp': datetime.now().isoformat()
+        })
+    
     
 @app.route('/api/camera/frame', methods=['GET'])
 def get_camera_frame():
     """Get current camera frame with face recognition"""
     try:
+        include_image = request.args.get('include_image', 'true').lower() == 'true'
+        image_quality = int(request.args.get('quality', '85'))
+        recognition_only = request.args.get('recognition_only', 'false').lower() == 'true'
+        
         if not face_server.camera_active:
+            logging.warning("Camera not active")
             return jsonify({
                 'error': 'Camera not active',
                 'image': '',
@@ -1057,40 +2240,63 @@ def get_camera_frame():
                 'timestamp': datetime.now().isoformat()
             }), 500
         
+        if face_server.camera_error:
+            logging.error(f"Camera error: {face_server.camera_error}")
+            return jsonify({
+                'error': face_server.camera_error,
+                'image': '',
+                'recognized': False,
+                'message': 'Camera error',
+                'confidence': 0.0,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
         frame = face_server.capture_frame()
         if frame is None:
-            return jsonify({
-                'error': 'Failed to capture frame',
-                'image': '',
-                'recognized': False,
-                'message': 'Frame capture failed',
-                'confidence': 0.0,
-                'timestamp': datetime.now().isoformat()
-            }), 500
+            logging.info("Attempting to restart camera...")
+            if face_server.start_camera():
+                frame = face_server.capture_frame()
+                
+            if frame is None:
+                return jsonify({
+                    'error': 'Failed to capture frame',
+                    'image': '',
+                    'recognized': False,
+                    'message': 'Frame capture failed',
+                    'confidence': 0.0,
+                    'timestamp': datetime.now().isoformat()
+                }), 500
+
+        processed_frame = face_server.preprocess_camera_frame(frame)
+        recognition_result = face_server.recognize_face_with_averaging(processed_frame)
         
-        frame_base64 = face_server.frame_to_base64(frame)
-        if frame_base64 is None:
-            return jsonify({
-                'error': 'Failed to encode frame',
-                'image': '',
-                'recognized': False,
-                'message': 'Frame encoding failed',
-                'confidence': 0.0,
-                'timestamp': datetime.now().isoformat()
-            }), 500
         
-        recognition_result = face_server.recognize_face_realtime(frame)
-        
-        return jsonify({
-            'image': frame_base64,
+        response_data = {
             'recognized': recognition_result.get('recognized', False),
             'message': recognition_result.get('message', 'Processing...'),
             'confidence': recognition_result.get('confidence', 0.0),
+            'confidence_level': recognition_result.get('confidence_level', 'unknown'),
             'quality_score': recognition_result.get('quality_score', 0.0),
             'processing_time': recognition_result.get('processing_time', 0.0),
+            'method_used': recognition_result.get('method_used', 'unknown'),
             'name': recognition_result.get('name', None),
             'timestamp': datetime.now().isoformat()
-        })
+        }
+
+        if include_image and not recognition_only:
+            frame_base64 = face_server.frame_to_base64_quality(frame, image_quality)
+            if frame_base64 is None:
+                return jsonify({
+                    'error': 'Failed to encode frame',
+                    **response_data
+                }), 500
+            response_data['image'] = frame_base64
+        elif include_image:
+            response_data['image'] = ''
+        else:
+            pass
+            
+        return jsonify(response_data)
         
     except Exception as e:
         logging.error(f"Frame endpoint error: {e}")
@@ -1103,67 +2309,284 @@ def get_camera_frame():
             'confidence': 0.0,
             'timestamp': datetime.now().isoformat()
         }), 500
-    
+
+def get_local_ip():
+    """Get local IP address"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except:
+        return "127.0.0.1"
+
 def cleanup_camera():
     """Cleanup camera resources"""
     if hasattr(face_server, 'camera') and face_server.camera:
-        face_server.camera.release()
+        face_server.stop_camera()
         logging.info("Camera resources cleaned up")
 
 atexit.register(cleanup_camera)
 
-if __name__ == '__main__':
-    print("="*60)
-    print("🧠 Enhanced Face Recognition Server - Debug Version")
-    print("="*60)
-    print("📊 Features:")
-    print("  ✅ Enhanced error handling and logging")
-    print("  ✅ Fallback face detection (OpenCV)")
-    print("  ✅ Better debugging information")
-    print("  ✅ Model loading status reporting")
-    print("  ✅ Graceful degradation when InsightFace fails")
-    print()
-    print("🔗 API Endpoints:")
-    print("  GET  /                       - Web interface")
-    print("  GET  /api/test               - Test server status")
-    print("  POST /api/recognize_realtime - For continuous recognition")
-    print("  POST /api/recognize          - Original recognition")
-    print("  POST /api/register           - Register new person")
-    print("  GET  /api/health             - Server health + stats")
-    print("  GET  /api/analytics          - Recognition analytics")
-    print("  GET  /api/people             - List registered people")
-    print("  DELETE /api/delete_person    - Delete person")
-    print()
-    print("🌐 Open http://localhost:5000 in your browser to test")
-    print()
+@app.route('/api/camera/health', methods=['GET'])
+def camera_health():
+    """Camera health check endpoint for Java client"""
+    try:
+        camera_available = face_server.camera_active or (face_server.camera_error is None)
+        
+        return jsonify({
+            'status': 'healthy',
+            'camera_available': camera_available,
+            'camera_mode': face_server.camera_mode or 'unknown',
+            'resolution': f"{face_server.camera_width}x{face_server.camera_height}",
+            'fps': face_server.fps,
+            'active_clients': len(connected_clients)
+        })
+    except Exception as e:
+        logging.error(f"Camera health check error: {e}")
+        return jsonify({
+            'status': 'error',
+            'camera_available': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/camera/connect', methods=['POST'])
+def connect_client():
+    """Connect a client to the camera stream"""
+    try:
+        data = request.json or {}
+        client_id = data.get('client_id', 'unknown')
+        logging.info(f"Connect request from client: {client_id}")
+        
+        if client_id in connected_clients:
+            logging.info(f"Client {client_id} already connected")
+            return jsonify({
+                'success': True,
+                'message': f'Client {client_id} already connected',
+                'stream_url': '/api/camera/frame',
+                'camera_mode': face_server.camera_mode or 'smart_glasses',
+                'resolution': f"{face_server.camera_width}x{face_server.camera_height}",
+                'fps': face_server.fps,
+                'camera_index': 0,
+                'optimized_for': 'smart_glasses'
+            })
+        
+        connected_clients[client_id] = {
+            'connected_at': time.time(),
+            'last_request': time.time()
+        }
+        
+        if not face_server.camera_active:
+            success = face_server.start_camera()
+            if not success:
+                del connected_clients[client_id]
+                return jsonify({
+                    'success': False,
+                    'message': 'Failed to start camera streaming - no camera available'
+                }), 500
+        
+        return jsonify({
+            'success': True,
+            'message': f'Client {client_id} connected successfully',
+            'stream_url': '/api/camera/frame',
+            'camera_mode': face_server.camera_mode or 'smart_glasses',
+            'resolution': f"{face_server.camera_width}x{face_server.camera_height}",
+            'fps': face_server.fps,
+            'camera_index': 0,
+            'optimized_for': 'smart_glasses'
+        })
+        
+    except Exception as e:
+        logging.error(f"Connect error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/camera/disconnect', methods=['POST'])
+def disconnect_client():
+    """Disconnect a client from the camera stream"""
+    try:
+        data = request.json or {}
+        client_id = data.get('client_id', 'unknown')
+        logging.info(f"Disconnect request from client: {client_id}")
+        
+        if client_id in connected_clients:
+            del connected_clients[client_id]
+        
+        if not connected_clients and face_server.camera_active:
+            face_server.stop_camera()
+            logging.info("No clients connected, stopping camera")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Client {client_id} disconnected'
+        })
+        
+    except Exception as e:
+        logging.error(f"Disconnect error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/', methods=['POST'])
+def register_face_java():
+    """Face registration endpoint for Java client"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'success': False, 'message': 'No JSON data provided'}), 400
+        
+        name = data.get('name', '').strip()
+        images = data.get('images', [])
+        
+        if not name:
+            return jsonify({'success': False, 'message': 'Name required'}), 400
+        
+        if not images:
+            return jsonify({'success': False, 'message': 'Images required'}), 400
+        
+        result = face_server.add_person_enhanced(name, images)
+        
+        return jsonify({
+            'success': result['success'],
+            'message': result['message']
+        })
+        
+    except Exception as e:
+        logging.error(f"Java registration error: {e}")
+        return jsonify({
+            'success': False, 
+            'message': f'Registration error: {str(e)}'
+        }), 500
     
-    print("📦 Checking dependencies...")
+@app.route('/api/camera/frame_add_friend', methods=['GET'])
+def get_camera_frame_add_friend():
+    """Get camera frame for add friend"""
+    try:
+        if not face_server.camera_active:
+            return jsonify({
+                'success': False, 
+                'error': 'Camera not streaming',
+                'debug': {
+                    'is_streaming': face_server.camera_active,
+                    'camera_mode': face_server.camera_mode,
+                    'connected_clients': len(connected_clients),
+                    'camera_error': face_server.camera_error
+                }
+            }), 400
+        
+        frame = face_server.capture_frame()
+        if frame is None:
+            return jsonify({
+                'success': False, 
+                'error': 'No frame available'
+            }), 404
+
+        frame_base64 = face_server.frame_to_base64(frame)
+        if frame_base64 is None:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to encode frame'
+            }), 500
+        
+        return jsonify({
+            'success': True,
+            'frame_data': {
+            'image': frame_base64,
+            'timestamp': time.time()
+        }
+    })
+        
+    except Exception as e:
+        logging.error(f"Java frame endpoint error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    
+
+
+if __name__ == '__main__':
+    print("="*80)
+
+    rpi_camera_available = False
+    if RPI_CAMERA_AVAILABLE:
+        try:
+            test_picam = Picamera2()
+            test_picam.close()
+            rpi_camera_available = True
+        except:
+            pass
+
+    usb_camera_available = False
+    for i in range(3):
+        test_cam = cv2.VideoCapture(i)
+        if test_cam.isOpened():
+            usb_camera_available = True
+            test_cam.release()
+            time.sleep(0.1)
+            break
+    
+    print(f"RPi Camera Status: {'Available' if rpi_camera_available else 'Not Available'}")
+    print(f"USB Camera Status: {'Available' if usb_camera_available else 'Not Available'}")
+    print(f"Priority: RPi Camera -> USB Camera")
+    
+    if not (rpi_camera_available or usb_camera_available):
+        print("WARNING: No cameras detected!")
+
+    local_ip = get_local_ip()
+    port = 5000
+    
+    print(f"\n App Configuration:")
+    print(f"   Server IP: {local_ip}")
+    print(f"   Server Port: {port}")
+    print(f"   Full URL: http://{local_ip}:{port}")
+    
+    print(f"\n API Endpoints:")
+    print(f"   Web Interface: GET /")
+    print(f"   Test Server: GET /api/test")
+    print(f"   Real-time Recognition: POST /api/recognize_realtime")
+    print(f"   File Recognition: POST /api/recognize")
+    print(f"   Registration: POST /api/register_enhanced")
+    print(f"   Legacy Registration: POST /api/register")
+    print(f"   Server Health: GET /api/health")
+    print(f"   Analytics: GET /api/analytics_enhanced")
+    print(f"   Daily Report: GET /api/daily_report?date=YYYY-MM-DD")
+    print(f"   List People: GET /api/people")
+    print(f"   Delete Person: DELETE /api/delete_person")
+    print(f"   Camera Start: POST /api/camera/start")
+    print(f"   Camera Stop: POST /api/camera/stop")
+    print(f"   Camera Frame: GET /api/camera/frame")
+    
+    print(f"\n Checking dependencies...")
     try:
         import insightface
-        print("  ✅ InsightFace available")
+        print("  InsightFace available")
     except ImportError:
-        print("  ❌ InsightFace not installed - pip install insightface")
-    
+        print("  InsightFace not installed - pip install insightface")
+
     try:
         from sklearn.metrics.pairwise import cosine_similarity
-        print("  ✅ scikit-learn available")
+        print("scikit-learn available")
     except ImportError:
-        print("  ❌ scikit-learn not installed - pip install scikit-learn")
-    
+        print("scikit-learn not installed - pip install scikit-learn")
+
     try:
         import cv2
-        print("  ✅ OpenCV available")
+        print("OpenCV available")
     except ImportError:
-        print("  ❌ OpenCV not installed - pip install opencv-python")
-        
-    print()
-    print("💡 If InsightFace fails to load, the server will use OpenCV fallback")
-    print("   (Face detection only - no recognition without InsightFace)")
-    print("="*60)
-    
-    app.run(
-        host='0.0.0.0',
-        port=5000,
-        debug=False,
-        threaded=True
-    )
+        print(" OpenCV not installed - pip install opencv-python")
+
+    print("\n" + "="*80)
+    print("Server starting... Press Ctrl+C to stop")
+    print("="*80)
+
+    if not os.path.exists('face_server_index.html'):
+        print("face_server_index.html not found!")
+
+    try:
+        app.run(
+            host='0.0.0.0',
+            port=port,
+            debug=False,
+            threaded=True
+        )
+    except KeyboardInterrupt:
+        print("\n\nShutting down face server...")
+        cleanup_camera()
+        print("Face server stopped and resources released.")

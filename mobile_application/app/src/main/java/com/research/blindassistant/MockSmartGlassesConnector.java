@@ -6,8 +6,10 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
+import android.widget.ImageView;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.ImageRequest;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 import org.json.JSONArray;
@@ -19,7 +21,7 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
 
     private static final String TAG = "MockSmartGlasses";
 
-    private static final String CAMERA_SERVER_URL = "http://10.187.202.95:5001";
+    private static final String CAMERA_SERVER_URL = "http://10.231.176.126:5000";
 
     private RequestQueue requestQueue;
     private Handler mainHandler;
@@ -175,7 +177,7 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
     }
 
     private void pollForFrame() {
-        String url = CAMERA_SERVER_URL + "/api/camera/frame";
+        String url = CAMERA_SERVER_URL + "/api/camera/frame_add_friend";
 
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.GET, url, null,
@@ -253,7 +255,7 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
     }
 
     private void registerPersonWithBase64Images(String name, String[] imagesBase64) {
-        String url = "http://10.187.202.95:5000/api/register";
+        String url = "http://10.231.176.126:5000";
 
         try {
             Log.d(TAG, "Preparing registration request for: " + name);
