@@ -1,0 +1,29 @@
+pip install flask
+pip install opencv-python
+pip install flask-cors
+pip install Pillow
+pip install onnxruntime
+pip install insightface
+
+
+***********************
+
+2025-08-13
+python3 -c "import picamera2, sys; print(picamera2.__file__, '\n', sys.path)"
+ln -s /usr/lib/python3/dist-packages/picamera2 \
+    /opt/research_project/venv/lib/python3.11/site-packages/picamera2
+
+ln -s /usr/lib/python3/dist-packages/libcamera \
+    /opt/research_project/venv/lib/python3.11/site-packages/libcamera
+
+    ln -s /usr/lib/python3/dist-packages/pykms \
+    /opt/research_project/venv/lib/python3.11/site-packages/pykms
+
+    ***********************
+
+2025-08-15
+python3 diagnostic_script.py
+
+rpicam-still -o test.jpg --width 1920 --height 1080
+
+pip install -r requirements.txt

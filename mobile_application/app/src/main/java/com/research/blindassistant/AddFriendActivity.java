@@ -1,5 +1,6 @@
 package com.research.blindassistant;
 
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.media.AudioManager;
@@ -13,20 +14,25 @@ import android.speech.tts.TextToSpeech;
 import android.util.Base64;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
-import android.widget.ImageView;
-import android.widget.ProgressBar;
-import android.widget.TextView;
+import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import com.android.volley.DefaultRetryPolicy;
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import static com.research.blindassistant.StringResources.AddFriend;
+
 public class AddFriendActivity extends AppCompatActivity implements TextToSpeech.OnInitListener, RecognitionListener,IntelligentCaptureManager.CaptureProgressCallback,SmartGlassesConnector.SmartGlassesCallback,FaceRecognitionService.FaceRecognitionCallback {
 
     private static final String TAG = "AddFriendActivity";
+    private static final String SERVER_URL = "http://10.231.176.126:5000";
     private TextView statusText, instructionsText, nameDisplayText,progressText;
     private Button btnStart,btnStartOver,btnCancel;
     private ImageView captureIndicator,qualityIndicator;
@@ -41,18 +47,23 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     private FaceRecognitionService faceRecognitionService;
     private ToneGenerator toneGenerator;
     private Handler mainHandler;
-
+    private RequestQueue requestQueue;
     private boolean isListening = false;
     private boolean isTtsReady = false;
     private String friendName = "";
     private CaptureState currentState = CaptureState.WAITING_FOR_NAME;
     private int speechRetryCount = 0;
     private static final int MAX_SPEECH_RETRIES = 3;
-
+    private boolean cameraStoppedByActivity = false;
     private static final int TONE_CAPTURE_SUCCESS = ToneGenerator.TONE_PROP_BEEP2;
     private static final int TONE_QUALITY_GOOD = ToneGenerator.TONE_DTMF_1;
     private static final int TONE_COMPLETE = ToneGenerator.TONE_CDMA_CONFIRM;
     private static final int TONE_ERROR = ToneGenerator.TONE_CDMA_ABBR_ALERT;
+
+    private long lastPreviewUpdate = 0;
+    private static final long PREVIEW_UPDATE_INTERVAL = 100;
+
+    private StatusManager statusManager;
 
     private enum CaptureState {
         WAITING_FOR_NAME,
@@ -69,11 +80,12 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_add_friend_enhanced);
-
+        requestQueue = Volley.newRequestQueue(this);
+        stopBackgroundCamera();
+        setupServices();
         initializeComponents();
         setupVoiceRecognition();
         setupButtons();
-        setupServices();
         addHapticFeedback();
 
         mainHandler = new Handler();
@@ -86,7 +98,53 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         }
     }
 
+    private void stopBackgroundCamera(){
+        Log.d(TAG,"stopping background camera");
+
+        String url = SERVER_URL + "/api/camera/stop";
+        JsonObjectRequest stopCameraRequest = new JsonObjectRequest(
+                Request.Method.POST, url,null,
+                response -> {
+                    Log.d(TAG,"Background camera stopped successfull");
+                    cameraStoppedByActivity = true;
+
+                    runOnUiThread(() -> {
+                        if(statusText != null){
+                            statusText.setText("Background camera stopped - Ready for face registration");
+                        }
+                    });
+                },
+                error ->{
+                    Log.w(TAG, "Background camera stop failed", error);
+                }
+        );
+        stopCameraRequest.setRetryPolicy(new DefaultRetryPolicy(3000,1,1f));
+        requestQueue.add(stopCameraRequest);
+    }
+
+    private void restartBackgroundCamera(){
+        if(!cameraStoppedByActivity){
+            Log.d(TAG, "Camera was not stopped by this activity, no need to restart");
+            return;
+        }
+        Log.d(TAG, "Restarting background camera after AddFriend activity");
+
+        String url = SERVER_URL + "/api/camera/start";
+        JsonObjectRequest startCameraRequest = new JsonObjectRequest(
+                Request.Method.POST,url,null,
+                response -> {
+                    Log.d(TAG, "Background camera restarted successfully");
+                },
+                error -> {
+                    Log.w(TAG, "Failed to restart background camera", error);
+                }
+        );
+
+        startCameraRequest.setRetryPolicy(new DefaultRetryPolicy(3000,1,1f));
+        requestQueue.add(startCameraRequest);
+    }
     private void setupServices(){
+        statusManager = new StatusManager(this);
         faceRecognitionService = new FaceRecognitionService(this);
         faceRecognitionService.setCallback(this);
 
@@ -104,7 +162,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         progressText = findViewById(R.id.progressText);
         btnCancel = findViewById(R.id.btnCancel);
         btnStartOver = findViewById(R.id.btnStartOver);
-        captureIndicator = findViewById(R.id.captureIndicator);
+        captureIndicator = findViewById(R.id.statusIndicator);
         qualityIndicator = findViewById(R.id.qualityIndicator);
         captureProgress = findViewById(R.id.captureProgress);
 
@@ -154,14 +212,15 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         }
     }
 
+    @SuppressLint("SetTextI18n")
     private void updateUIForState(CaptureState newState) {
         currentState = newState;
 
         switch (newState) {
             case WAITING_FOR_NAME:
-                statusText.setText("Waiting for name");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.WAITING_INPUT,
+                        "Waiting for name", "Say the person's name to begin");
                 instructionsText.setText("Say the person's name to begin registration");
-                captureIndicator.setImageResource(R.drawable.ic_person);
                 qualityIndicator.setVisibility(View.GONE);
                 captureProgress.setVisibility(View.GONE);
                 progressText.setVisibility(View.GONE);
@@ -169,21 +228,21 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                 break;
 
             case CHECKING_SERVER:
-                statusText.setText("Checking face recognition server");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CHECKING_SERVER,
+                        "Checking face recognition server", "Verifying face recognition system...");
                 instructionsText.setText("Please wait while I check the face recognition system...");
-                captureIndicator.setImageResource(R.drawable.ic_sync);
                 break;
 
             case CONNECTING_GLASSES:
-                statusText.setText("Connecting to smart glasses");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTING,
+                        "Connecting to smart glasses", "Establishing smart glasses connection...");
                 instructionsText.setText("Please wait while I connect to your smart glasses...");
-                captureIndicator.setImageResource(R.drawable.ic_bluetooth);
                 break;
 
             case READY_TO_CAPTURE:
-                statusText.setText("Ready to capture");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.READY_TO_CAPTURE,
+                        "Ready to capture", "Ask " + friendName + " to face the smart glasses");
                 instructionsText.setText("Ask " + friendName + " to face the smart glasses. I'll automatically take photos when ready.");
-                captureIndicator.setImageResource(R.drawable.ic_camera_ready);
                 qualityIndicator.setVisibility(View.VISIBLE);
                 captureProgress.setVisibility(View.VISIBLE);
                 progressText.setVisibility(View.VISIBLE);
@@ -192,26 +251,28 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                 break;
 
             case CAPTURING:
-                statusText.setText("Capturing face data");
-                captureIndicator.setImageResource(R.drawable.ic_camera_on);
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CAPTURING,
+                        "Capturing face data", "Taking photos automatically...");
+                instructionsText.setText("Stay still while I capture the best photos...");
                 break;
 
             case PROCESSING:
-                statusText.setText("Processing with AI model");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.PROCESSING,
+                        "Processing with AI model", "Saving " + friendName + "'s face data...");
                 instructionsText.setText("Please wait while the InsightFace AI processes and saves " + friendName + "'s face data...");
-                captureIndicator.setImageResource(R.drawable.ic_processing);
                 break;
 
             case COMPLETED:
-                statusText.setText("Registration completed!");
+                statusManager.updateStatus(StatusManager.ConnectionStatus.SUCCESS,
+                        "Registration completed!", friendName + " successfully registered");
                 instructionsText.setText(friendName + " has been successfully registered and will be recognized automatically.");
-                captureIndicator.setImageResource(R.drawable.ic_check_circle);
                 btnStartOver.setVisibility(View.VISIBLE);
                 break;
 
             case ERROR:
-                statusText.setText("Error occurred");
-                captureIndicator.setImageResource(R.drawable.ic_error);
+                statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                        "Error occurred", "Registration failed");
+                instructionsText.setText("An error occurred. Press 'Start Over' to try again.");
                 btnStartOver.setVisibility(View.VISIBLE);
                 break;
         }
@@ -254,14 +315,25 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         }
     }
 
+
     private void speak(String text) {
+        speak(text, null);
+    }
+
+    private void speak(String text, Locale locale) {
         if (ttsEngine != null && isTtsReady) {
+            if (locale != null && locale != ttsEngine.getLanguage()) {
+                ttsEngine.setLanguage(locale);
+            }
             ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_id");
             Log.d(TAG, "TTS: " + text);
         } else {
             Log.w(TAG, "TTS not ready, queuing message: " + text);
             mainHandler.postDelayed(() -> {
                 if (ttsEngine != null && isTtsReady) {
+                    if (locale != null && locale != ttsEngine.getLanguage()) {
+                        ttsEngine.setLanguage(locale);
+                    }
                     ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_id");
                 }
             }, 500);
@@ -310,7 +382,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
             isTtsReady = true;
             Log.d(TAG, "TTS initialized successfully");
 
-            speak("Face registration ready. First, tell me the person's name.");
+            speak(StringResources.getString(AddFriend.FACE_REGISTRATION_READY));
 
             mainHandler.postDelayed(this::startVoiceListening, 2000);
         } else {
@@ -347,10 +419,10 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                     nameDisplayText.setText("Name: " + friendName);
                     nameDisplayText.setVisibility(View.VISIBLE);
 
-                    speak("Got it! Name is " + friendName + ". Now checking face recognition server.");
+                    speak(String.format(StringResources.getString(AddFriend.NAME_CONFIRMATION), friendName));
                     checkFaceRecognitionServer();
                 } else {
-                    speak("Canceling registration");
+                    speak(StringResources.getString(AddFriend.CANCELING_REGISTRATION));
                     finishActivity();
                 }
                 break;
@@ -360,7 +432,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                 String lowerText = spokenText.toLowerCase();
                 if (lowerText.contains("stop") || lowerText.contains("cancel")) {
                     captureManager.stopCapture();
-                    speak("Stopping capture");
+                    speak(StringResources.getString(AddFriend.STOPPING_CAPTURE));
                 } else if (lowerText.contains("start over")) {
                     resetToInitialState();
                 } else {
@@ -465,6 +537,11 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     }
 
     @Override
+    public void onTechnicalFeedback(String technicalFeedback, FaceQualityAnalyzer.QualityMetrics metrics) {
+
+    }
+
+    @Override
     public void onSuccessfulCapture(int captureNumber, String message) {
         Log.d(TAG, "Successful capture #" + captureNumber + ": " + message);
         playTone(TONE_CAPTURE_SUCCESS);
@@ -557,22 +634,57 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
 
     @Override
     public void onConnectionStatusChanged(boolean connected, String message) {
-        if (connected) {
-            speak("Smart glasses connected successfully!");
-            startIntelligentCapture();
-        } else {
-            playTone(TONE_ERROR);
-            speak("Connection failed: " + message);
-            updateUIForState(CaptureState.ERROR);
-            instructionsText.setText("Smart glasses connection failed. Please check the connection and try again.");
-        }
+        runOnUiThread(()->{
+            LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+            TextView noPreviewText = (TextView) noPreviewMessage.getChildAt(0);
+            if (connected) {
+                noPreviewText.setText("Connected - Waiting for video feed...");
+            } else {
+                noPreviewText.setText("Smart glasses not connected");
+            }
+
+        });
+            if (connected) {
+                speak("Smart glasses connected successfully!");
+                startIntelligentCapture();
+            } else {
+                playTone(TONE_ERROR);
+                speak("Connection failed: " + message);
+                updateUIForState(CaptureState.ERROR);
+                instructionsText.setText("Smart glasses connection failed. Please check the connection and try again.");
+            }
+
     }
 
     @Override
     public void onFrameReceived(Bitmap frame, long timestamp, double confidence) {
         Log.d(TAG, "Frame received in AddFriendActivity: " + frame.getWidth() + "x" + frame.getHeight());
 
-        if (captureManager != null && captureManager.isCapturing()) {
+        if(System.currentTimeMillis() - lastPreviewUpdate > PREVIEW_UPDATE_INTERVAL) {
+            runOnUiThread(() -> {
+                ImageView liveFeedPreview = findViewById(R.id.liveFeedPreview);
+                LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+
+                if (noPreviewMessage.getVisibility() == View.VISIBLE) {
+                    noPreviewMessage.setVisibility(View.GONE);
+                }
+
+                if(liveFeedPreview.getWidth() > 0 && liveFeedPreview.getHeight() > 0){
+                    Bitmap scaledFrame = Bitmap.createScaledBitmap(frame,
+                            liveFeedPreview.getWidth(), liveFeedPreview.getHeight(), false);
+
+                    liveFeedPreview.setImageBitmap(scaledFrame);
+
+//                    if(scaledFrame != frame){
+//                    }
+                } else {
+                    liveFeedPreview.setImageBitmap(frame);
+                }
+            });
+            lastPreviewUpdate = System.currentTimeMillis();
+        }
+
+        if(captureManager !=null && captureManager.isCapturing()){
             Log.d(TAG, "Forwarding frame to capture manager - currently captured: " + captureManager.getCaptureCount());
             captureManager.processCandidateFrame(frame);
         }
@@ -581,6 +693,18 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     @Override
     public void onFeedStopped() {
         Log.d(TAG, "Smart glasses feed stopped");
+        runOnUiThread(()->{
+            ImageView liveFeedPreview = findViewById(R.id.liveFeedPreview);
+            LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+
+            liveFeedPreview.setImageResource(R.drawable.ic_camera_preview);
+            noPreviewMessage.setVisibility(View.VISIBLE);
+
+            TextView noPreviewTextView = (TextView) noPreviewMessage.getChildAt(1);
+            if (noPreviewTextView != null) {
+                ((TextView) noPreviewTextView).setText("Smart glasses disconnected");
+            }
+        });
     }
 
     @Override
@@ -729,7 +853,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     protected void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "Destroying activity");
-
+        restartBackgroundCamera();
         stopVoiceListening();
 
         if (ttsEngine != null) {
@@ -756,6 +880,10 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         if (toneGenerator != null) {
             toneGenerator.release();
         }
+
+        if(requestQueue != null){
+            requestQueue.stop();
+        }
     }
 
     @Override
@@ -770,5 +898,19 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         if (currentState == CaptureState.WAITING_FOR_NAME) {
             startVoiceListening();
         }
+    }
+
+    @Override
+    public void onBackPressed(){
+        Log.d(TAG, "Back button pressed, restarting background camera");
+        restartBackgroundCamera();
+        super.onBackPressed();
+    }
+
+    @Override
+    public void finish() {
+        Log.d(TAG, "Activity finishing, restarting background camera");
+        restartBackgroundCamera();
+        super.finish();
     }
 }
