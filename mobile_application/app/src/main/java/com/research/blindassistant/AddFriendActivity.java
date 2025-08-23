@@ -7,6 +7,7 @@ import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -61,10 +62,11 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     private static final int TONE_ERROR = ToneGenerator.TONE_CDMA_ABBR_ALERT;
 
     private long lastPreviewUpdate = 0;
-    private static final long PREVIEW_UPDATE_INTERVAL = 100;
+    private static final long PREVIEW_UPDATE_INTERVAL = 150;
 
     private StatusManager statusManager;
-
+    private Handler backgroundHandler;
+    private HandlerThread backgroundThread;
     private enum CaptureState {
         WAITING_FOR_NAME,
         CHECKING_SERVER,
@@ -89,6 +91,9 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         addHapticFeedback();
 
         mainHandler = new Handler();
+        backgroundThread = new HandlerThread("FrameProcessor");
+        backgroundThread.start();
+        backgroundHandler = new Handler(backgroundThread.getLooper());
         ttsEngine = new TextToSpeech(this, this);
 
         try {
@@ -510,30 +515,32 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     public void onRealTimeFeedback(String feedback, float qualityScore) {
         Log.d(TAG, String.format("Real-time feedback: score=%.2f, feedback='%s'", qualityScore, feedback));
         int qualityLevel = (int) (qualityScore * 5);
+        if (System.currentTimeMillis() - lastPreviewUpdate > 200) {
+            runOnUiThread(() -> {
+                switch (qualityLevel) {
+                    case 0:
+                    case 1:
+                        qualityIndicator.setImageResource(R.drawable.ic_quality_poor);
+                        break;
+                    case 2:
+                    case 3:
+                        qualityIndicator.setImageResource(R.drawable.ic_quality_medium);
+                        break;
+                    case 4:
+                    case 5:
+                        qualityIndicator.setImageResource(R.drawable.ic_quality_good);
+                        if (qualityScore > 0.8f) {
+                            playTone(TONE_QUALITY_GOOD);
+                        }
+                        break;
+                }
+            });
+        }
 
-        runOnUiThread(() -> {
-            switch (qualityLevel) {
-                case 0:
-                case 1:
-                    qualityIndicator.setImageResource(R.drawable.ic_quality_poor);
-                    break;
-                case 2:
-                case 3:
-                    qualityIndicator.setImageResource(R.drawable.ic_quality_medium);
-                    break;
-                case 4:
-                case 5:
-                    qualityIndicator.setImageResource(R.drawable.ic_quality_good);
-                    if (qualityScore > 0.8f) {
-                        playTone(TONE_QUALITY_GOOD);
-                    }
-                    break;
-            }
-        });
-
-        if (qualityScore < 0.5f && Math.random() < 0.3) {
+        if (qualityScore < 0.5f && Math.random() < 0.1) {
             speak(feedback);
         }
+
     }
 
     @Override
@@ -559,7 +566,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
             progressText.setText(currentCount + " / " + targetCount + " photos captured");
         });
 
-        if (Math.random() < 0.5) {
+        if (Math.random() < 0.2) {
             speak(progressMessage);
         }
     }
@@ -604,32 +611,40 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     private void processAndSaveCapturedFaces(List<IntelligentCaptureManager.CapturedFace> capturedFaces) {
         Log.d(TAG, "Processing " + capturedFaces.size() + " captured faces for saving");
 
-        try {
-            String[] imageBase64Array = new String[capturedFaces.size()];
+        backgroundHandler.post(() -> {
+            try {
+                String[] imageBase64Array = new String[capturedFaces.size()];
 
-            for (int i = 0; i < capturedFaces.size(); i++) {
-                Bitmap bitmap = capturedFaces.get(i).bitmap;
-                Log.d(TAG, "Processing face " + (i+1) + ": " + bitmap.getWidth() + "x" + bitmap.getHeight());
+                for (int i = 0; i < capturedFaces.size(); i++) {
+                    Bitmap bitmap = capturedFaces.get(i).bitmap;
 
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos);
-                byte[] imageBytes = baos.toByteArray();
-                Log.d(TAG, "Compressed face " + (i+1) + " to " + imageBytes.length + " bytes");
-                imageBase64Array[i] = Base64.encodeToString(imageBytes, Base64.DEFAULT);
-                Log.d(TAG, "Base64 encoded face " + (i+1) + " length: " + imageBase64Array[i].length());
+                    int quality = bitmap.getWidth() > 640 ? 75 : 85;
+
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos);
+                    byte[] imageBytes = baos.toByteArray();
+                    imageBase64Array[i] = Base64.encodeToString(imageBytes, Base64.NO_WRAP);
+
+                    try {
+                        baos.close();
+                    } catch (Exception e) {
+                        Log.w(TAG, "Error closing ByteArrayOutputStream", e);
+                    }
+                }
+
+                runOnUiThread(() -> {
+                    if (smartGlassesConnector != null) {
+                        smartGlassesConnector.sendRecognitionData(friendName, imageBase64Array);
+                    } else {
+                        onError("Smart glasses connection lost");
+                    }
+                });
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error processing captured faces", e);
+                runOnUiThread(() -> onError("Failed to process captured images"));
             }
-
-            Log.d(TAG, "Sending " + imageBase64Array.length + " images to smart glasses connector");
-            if (smartGlassesConnector != null) {
-                smartGlassesConnector.sendRecognitionData(friendName, imageBase64Array);
-            } else {
-                Log.e(TAG, "Smart glasses connector is null");
-                onError("Smart glasses connection lost");
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error processing captured faces", e);
-            onError("Failed to process captured images");
-        }
+        });
     }
 
     @Override
@@ -658,36 +673,43 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
 
     @Override
     public void onFrameReceived(Bitmap frame, long timestamp, double confidence) {
-        Log.d(TAG, "Frame received in AddFriendActivity: " + frame.getWidth() + "x" + frame.getHeight());
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastPreviewUpdate < PREVIEW_UPDATE_INTERVAL) {
+            if (captureManager != null && captureManager.isCapturing()) {
+                captureManager.processCandidateFrame(frame);
+            }
 
-        if(System.currentTimeMillis() - lastPreviewUpdate > PREVIEW_UPDATE_INTERVAL) {
+            return;
+        }
+
+        backgroundHandler.post(() -> {
+            ImageView liveFeedPreview = findViewById(R.id.liveFeedPreview);
+
+            Bitmap displayFrame = null;
+            if (liveFeedPreview.getWidth() > 0 && liveFeedPreview.getHeight() > 0) {
+                int displayWidth = liveFeedPreview.getWidth() / 2;
+                int displayHeight = liveFeedPreview.getHeight() / 2;
+                displayFrame = Bitmap.createScaledBitmap(frame, displayWidth, displayHeight, true);
+            }
+
+            final Bitmap finalDisplayFrame = displayFrame;
             runOnUiThread(() -> {
-                ImageView liveFeedPreview = findViewById(R.id.liveFeedPreview);
                 LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
-
                 if (noPreviewMessage.getVisibility() == View.VISIBLE) {
                     noPreviewMessage.setVisibility(View.GONE);
                 }
 
-                if(liveFeedPreview.getWidth() > 0 && liveFeedPreview.getHeight() > 0){
-                    Bitmap scaledFrame = Bitmap.createScaledBitmap(frame,
-                            liveFeedPreview.getWidth(), liveFeedPreview.getHeight(), false);
-
-                    liveFeedPreview.setImageBitmap(scaledFrame);
-
-//                    if(scaledFrame != frame){
-//                    }
-                } else {
-                    liveFeedPreview.setImageBitmap(frame);
+                if (finalDisplayFrame != null) {
+                    liveFeedPreview.setImageBitmap(finalDisplayFrame);
                 }
             });
-            lastPreviewUpdate = System.currentTimeMillis();
-        }
 
-        if(captureManager !=null && captureManager.isCapturing()){
-            Log.d(TAG, "Forwarding frame to capture manager - currently captured: " + captureManager.getCaptureCount());
-            captureManager.processCandidateFrame(frame);
-        }
+            if (captureManager != null && captureManager.isCapturing()) {
+                captureManager.processCandidateFrame(frame);
+            }
+        });
+
+        lastPreviewUpdate = currentTime;
     }
 
     @Override
@@ -856,6 +878,18 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         restartBackgroundCamera();
         stopVoiceListening();
 
+        if (backgroundHandler != null) {
+            backgroundHandler.removeCallbacksAndMessages(null);
+        }
+        if (backgroundThread != null) {
+            backgroundThread.quitSafely();
+            try {
+                backgroundThread.join(1000);
+            } catch (InterruptedException e) {
+                Log.w(TAG, "Background thread cleanup interrupted");
+            }
+        }
+
         if (ttsEngine != null) {
             ttsEngine.stop();
             ttsEngine.shutdown();
@@ -884,6 +918,8 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
         if(requestQueue != null){
             requestQueue.stop();
         }
+
+        super.onDestroy();
     }
 
     @Override

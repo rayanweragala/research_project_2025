@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 
+import android.os.Handler;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -350,8 +351,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void speak(String text, Locale locale) {
         if(ttsEngine != null){
-            if (locale != null && locale != ttsEngine.getLanguage()) {
-                ttsEngine.setLanguage(locale);
+            if (locale != null) {
+                int result = ttsEngine.setLanguage(locale);
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.w("MainActivity", "Language not supported, using default");
+                }
             }
             ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "BLIND_ASSISTANT_UTTERANCE");
         }
@@ -442,27 +446,38 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         float[] confidenceScores = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
 
         if(matches != null && !matches.isEmpty()){
-
             String recognizedText = matches.get(0);
-            Log.d("VoiceCommand", "Raw matches: " + matches.toString());
+            float confidence = 0.0f;
 
-            try {
-                String logMessage = new String(recognizedText.getBytes("UTF-8"), "UTF-8");
-                Log.d("VoiceCommand", "Recognized Sinhala: " + logMessage);
-            } catch (UnsupportedEncodingException e) {
-                Log.e("VoiceCommand", "Encoding error: " + e.getMessage());
+            // Use confidence score to filter results
+            if(confidenceScores != null && confidenceScores.length > 0) {
+                confidence = confidenceScores[0];
+                Log.d("VoiceCommand", "Confidence: " + confidence);
+
+                if(confidence < 0.5f) {
+                    Log.d("VoiceCommand", "Low confidence, ignoring: " + recognizedText);
+                    updateStatus("Speech unclear, try again");
+                    speak("Please speak more clearly", StringResources.getCurrentLocale());
+                    restartListening();
+                    return;
+                }
             }
 
-            updateStatus("recognized text: " + recognizedText);
+            Log.d("VoiceCommand", "Processing: " + recognizedText + " (confidence: " + confidence + ")");
+            updateStatus("Recognized: " + recognizedText);
             processVoiceCommand(recognizedText);
         }
 
+        restartListening();
+    }
+
+    private void restartListening() {
         if(isListening){
             new android.os.Handler().postDelayed(()->{
                 if(isListening){
                     speechRecognizer.startListening(speechRecognizerIntent);
                 }
-            },2000);
+            }, 500);
         }
     }
 
@@ -483,14 +498,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             Locale currentLocale = StringResources.getCurrentLocale();
             int result = ttsEngine.setLanguage(currentLocale);
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                updateStatus("TTS Language not supported");
-
                 ttsEngine.setLanguage(Locale.US);
-            } else {
-                new android.os.Handler().postDelayed(() -> {
-                    startListening();
-                }, 2000);
             }
+
+            speak(StringResources.getString(Main.ASSISTANT_READY), currentLocale);
+
+            new Handler().postDelayed(() -> startListening(), 3000);
         }
     }
 
@@ -541,12 +554,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if(speechRecognizer != null){
             updateSpeechRecognitionLanguage();
         }
-        if (ttsEngine != null && !isListening) {
-            new android.os.Handler().postDelayed(() -> {
-                startListening();
-            }, 1000);
-        }
-
         try {
             getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
                     .edit().putBoolean("ui_recognition_active", false).apply();

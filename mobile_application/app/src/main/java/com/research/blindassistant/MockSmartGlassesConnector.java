@@ -32,7 +32,11 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
     private boolean isStreaming = false;
     private String clientId;
 
-    private static final int FRAME_POLL_INTERVAL_MS = 200;
+    private static final int FRAME_POLL_INTERVAL_MS = 83;
+    private volatile boolean isRequestInProgress = false;
+    private long lastSuccessfulFrame = 0;
+    private int consecutiveErrors = 0;
+    private static final int MAX_CONSECUTIVE_ERRORS = 5;
     private Runnable framePollingRunnable;
 
     public MockSmartGlassesConnector(android.content.Context context) {
@@ -177,42 +181,59 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
     }
 
     private void pollForFrame() {
+        if (isRequestInProgress) {
+            return;
+        }
+
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            if (System.currentTimeMillis() - lastSuccessfulFrame < 2000) {
+                return;
+            }
+            consecutiveErrors = 0;
+        }
+
+        isRequestInProgress = true;
         String url = CAMERA_SERVER_URL + "/api/camera/frame_add_friend";
 
         JsonObjectRequest request = new JsonObjectRequest(
                 Request.Method.GET, url, null,
                 response -> {
+                    isRequestInProgress = false;
                     try {
                         boolean success = response.getBoolean("success");
-
                         if (success) {
+                            consecutiveErrors = 0;
+                            lastSuccessfulFrame = System.currentTimeMillis();
+
                             JSONObject frameData = response.getJSONObject("frame_data");
                             String imageBase64 = frameData.getString("image");
                             double timestamp = frameData.getDouble("timestamp");
 
-                            Bitmap frame = base64ToBitmap(imageBase64);
-
-                            if (frame != null && callback != null) {
-                                Log.d(TAG, "Frame received and forwarded: " + frame.getWidth() + "x" + frame.getHeight());
-                                callback.onFrameReceived(frame, (long)(timestamp * 1000), 1.0);
-                            } else {
-                                Log.w(TAG, "Frame is null or callback not set");
-                            }
+                            new Thread(() -> {
+                                Bitmap frame = base64ToBitmap(imageBase64);
+                                if (frame != null && callback != null) {
+                                    mainHandler.post(() -> {
+                                        callback.onFrameReceived(frame, (long)(timestamp * 1000), 1.0);
+                                    });
+                                }
+                            }).start();
                         }
-
                     } catch (JSONException e) {
+                        consecutiveErrors++;
                         Log.e(TAG, "Error parsing frame response", e);
                     }
                 },
                 error -> {
-                    if (Math.random() < 0.1) {
-                        Log.w(TAG, "Frame polling error (occasional logging)");
+                    isRequestInProgress = false;
+                    consecutiveErrors++;
+                    if (consecutiveErrors % 10 == 1) {
+                        Log.w(TAG, "Frame polling error count: " + consecutiveErrors);
                     }
                 }
         );
 
         request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
-                2000,
+                1000,
                 0,
                 1.0f
         ));
@@ -227,11 +248,16 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
         }
 
         isStreaming = false;
+        isRequestInProgress = false;
+        consecutiveErrors = 0;
 
         if (framePollingRunnable != null) {
             mainHandler.removeCallbacks(framePollingRunnable);
             framePollingRunnable = null;
         }
+
+        requestQueue.cancelAll(request ->
+                request.getUrl().contains("/api/camera/frame_add_friend"));
 
         if (callback != null) {
             callback.onFeedStopped();
@@ -351,8 +377,8 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
             );
 
             request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
-                    30000,
-                    1,
+                    15000,
+                    0,
                     1.0f
             ));
 
@@ -444,7 +470,13 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
     private Bitmap base64ToBitmap(String base64String) {
         try {
             byte[] decodedBytes = Base64.decode(base64String, Base64.DEFAULT);
-            return BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inPreferredConfig = Bitmap.Config.RGB_565;
+            options.inSampleSize = 1;
+
+            Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length, options);
+            decodedBytes = null;
+            return bitmap;
         } catch (Exception e) {
             Log.e(TAG, "Error decoding base64 to bitmap", e);
             return null;
