@@ -11,13 +11,13 @@ pip install insightface
 2025-08-13
 python3 -c "import picamera2, sys; print(picamera2.__file__, '\n', sys.path)"
 ln -s /usr/lib/python3/dist-packages/picamera2 \
-    /opt/research_project/venv/lib/python3.11/site-packages/picamera2
+    /opt/research_project/env/lib/python3.11/site-packages/picamera2
 
 ln -s /usr/lib/python3/dist-packages/libcamera \
-    /opt/research_project/venv/lib/python3.11/site-packages/libcamera
+    /opt/research_project/env/lib/python3.11/site-packages/libcamera
 
     ln -s /usr/lib/python3/dist-packages/pykms \
-    /opt/research_project/venv/lib/python3.11/site-packages/pykms
+    /opt/research_project/env/lib/python3.11/site-packages/pykms
 
     ***********************
 

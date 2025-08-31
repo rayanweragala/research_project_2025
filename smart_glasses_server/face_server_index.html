@@ -1294,6 +1294,7 @@ function generateTestData() {
         });
 }
 
+
 function displayDailyReport(report) {
     const reportContent = document.getElementById('reportContent');
     if (!reportContent) return;
@@ -1308,7 +1309,7 @@ function displayDailyReport(report) {
         return;
     }
     
-    if (!report.summary || report.summary.total_recognitions === 0) {
+    if (!report.summary || (report.summary.total_recognitions || 0) === 0) {
         reportContent.innerHTML = `
             <div class="empty-state">
                 <h3>No Activity Recorded</h3>
@@ -1543,26 +1544,32 @@ function displayHistoricalData(data) {
         </div>
     `;
     
-    const totalRecognitions = data.days.reduce((sum, day) => sum + day.total_recognitions, 0);
-    const avgConfidence = data.days.reduce((sum, day) => sum + day.avg_confidence, 0) / data.days.length;
-    const avgQuality = data.days.reduce((sum, day) => sum + day.avg_quality, 0) / data.days.length;
-    
+    const totalRecognitions = report.summary.total_recognitions || 0;
+    const uniquePeople = report.summary.unique_people || 0;
+    const avgConfidence = report.summary.avg_confidence || 0;
+    const avgQuality = report.summary.avg_quality || 0;
+
     html += `
-        <div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 15px;">
-            <h4 style="margin-bottom: 15px; color: #333;">Historical Summary (${data.days.length} days)</h4>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-                <div style="text-align: center;">
-                    <strong style="font-size: 1.2em; color: #333;">${totalRecognitions}</strong><br>
-                    <span style="color: #666;">Total Recognitions</span>
-                </div>
-                <div style="text-align: center;">
-                    <strong style="font-size: 1.2em; color: #4caf50;">${(avgConfidence * 100).toFixed(1)}%</strong><br>
-                    <span style="color: #666;">Avg Confidence</span>
-                </div>
-                <div style="text-align: center;">
-                    <strong style="font-size: 1.2em; color: #2196f3;">${(avgQuality * 100).toFixed(1)}%</strong><br>
-                    <span style="color: #666;">Avg Quality</span>
-                </div>
+        <div class="analytics-grid">
+            <div class="stat-card recognition-card">
+                <h4>Total Recognitions</h4>
+                <div class="stat-value">${totalRecognitions}</div>
+                <div class="stat-label">Face detections</div>
+            </div>
+            <div class="stat-card performance-card">
+                <h4>Unique People</h4>
+                <div class="stat-value">${uniquePeople}</div>
+                <div class="stat-label">Different faces</div>
+            </div>
+            <div class="stat-card quality-card">
+                <h4>Avg Confidence</h4>
+                <div class="stat-value">${(avgConfidence * 100).toFixed(1)}%</div>
+                <div class="stat-label">Recognition accuracy</div>
+            </div>
+            <div class="stat-card method-card">
+                <h4>Avg Quality</h4>
+                <div class="stat-value">${(avgQuality * 100).toFixed(1)}%</div>
+                <div class="stat-label">Image quality</div>
             </div>
         </div>
     `;

@@ -1,4 +1,15 @@
 # -*- coding: utf-8 -*-
+
+# ============================================================
+# DEPRECATED
+# ============================================================
+
+import warnings
+warnings.warn(
+    "This file is deprecated",
+    DeprecationWarning
+)
+
 from flask import Flask, request, jsonify, Response, send_from_directory
 import cv2
 import numpy as np

@@ -45,16 +45,27 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void updateSpeechRecognitionLanguage() {
+        if (speechRecognizerIntent == null) {
+            speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        }
+
         Locale currentLocale = StringResources.getCurrentLocale();
         speechRecognizerIntent.removeExtra(RecognizerIntent.EXTRA_LANGUAGE);
+        speechRecognizerIntent.removeExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE);
+
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
+
         if (currentLocale.equals(StringResources.LOCALE_SINHALA)) {
             speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK");
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "si-LK");
             speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
             speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_CONFIDENCE_SCORES, true);
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "si-LK");
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
         } else {
             speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US");
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-US");
         }
     }
 
@@ -200,22 +211,38 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if(!isListening){
             if (speechRecognizer == null) {
                 Log.e("MainActivity", "Speech recognizer is null, reinitializing...");
-                setupVoiceRecognition();
+                recreaeSpeechRecognizer();
                 if (speechRecognizer == null) {
                     updateStatus("Speech recognition not available");
                     speak("Speech recognition is not available", StringResources.getCurrentLocale());
                     return;
                 }
             }
+
+            if(ttsEngine == null && ttsEngine.isSpeaking()){
+                Log.d("MainActivity", "TTS is speaking, waiting before starting recognition");
+                new Handler().postDelayed(this::startListening, 1000);
+                return;
+            }
             
             try {
                 isListening = true;
                 updateStatus("Listening for commands...");
                 speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
-                updateSpeechRecognitionLanguage();
-                speechRecognizer.startListening(speechRecognizerIntent);
-                btnVoiceCommand.setText("Stop listening");
-                btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
+                new Handler().postDelayed(() -> {
+                    if (isListening && speechRecognizer != null) {
+                        try {
+                            updateSpeechRecognitionLanguage();
+                            speechRecognizer.startListening(speechRecognizerIntent);
+                            btnVoiceCommand.setText("Stop listening");
+                            btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
+                        } catch (Exception e) {
+                            Log.e("MainActivity", "Error in delayed start: " + e.getMessage());
+                            isListening = false;
+                            recreaeSpeechRecognizer();
+                        }
+                    }
+                }, 2000);
             } catch (Exception e) {
                 Log.e("MainActivity", "Error starting speech recognition: " + e.getMessage());
                 isListening = false;
@@ -350,14 +377,25 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void speak(String text, Locale locale) {
-        if(ttsEngine != null){
+        if (ttsEngine != null) {
+            if (isListening && speechRecognizer != null) {
+                try {
+                    speechRecognizer.stopListening();
+                } catch (Exception e) {
+                    Log.e("MainActivity", "Error stopping recognition for TTS: " + e.getMessage());
+                }
+            }
+
             if (locale != null) {
                 int result = ttsEngine.setLanguage(locale);
                 if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                     Log.w("MainActivity", "Language not supported, using default");
                 }
             }
-            ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "BLIND_ASSISTANT_UTTERANCE");
+
+            String utteranceId = "BLIND_ASSISTANT_" + System.currentTimeMillis();
+            Bundle params = new Bundle();
+            ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId);
         }
     }
 
@@ -388,15 +426,17 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     public void onError(int error) {
         String errorMessage;
         Log.e("MainActivity", "Speech recognition error: " + error);
-        
+        boolean shouldRecreateRecognizer = false;
         switch (error) {
             case SpeechRecognizer.ERROR_AUDIO:
                 errorMessage = StringResources.getString(Main.ERROR_AUDIO);
+                shouldRecreateRecognizer = true;
                 Log.e("MainActivity", "Audio recording error");
                 break;
             case SpeechRecognizer.ERROR_CLIENT:
                 errorMessage = StringResources.getString(Main.ERROR_CLIENT);
                 Log.e("MainActivity", "Client side error");
+                shouldRecreateRecognizer = true;
                 break;
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
                 errorMessage = StringResources.getString(Main.ERROR_INSUFFICIENT_PERMISSIONS);
@@ -413,6 +453,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             case SpeechRecognizer.ERROR_NO_MATCH:
                 errorMessage = StringResources.getString(Main.ERROR_NO_MATCH);
                 Log.d("MainActivity", "No speech match found");
+                restartListening();
                 break;
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
                 errorMessage = StringResources.getString(Main.ERROR_RECOGNIZER_BUSY);
@@ -425,6 +466,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
                 errorMessage = StringResources.getString(Main.ERROR_SPEECH_TIMEOUT);
                 Log.d("MainActivity", "Speech timeout");
+                restartListening();
                 break;
             default:
                 errorMessage = "Speech recognition error: " + error;
@@ -433,12 +475,28 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
 
         updateStatus(errorMessage);
-        speak(errorMessage);
+
+        if(error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT){
+            speak(errorMessage);
+        }
+
         isListening = false;
         btnVoiceCommand.setText("Voice Assistant");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
         }
+
+        if(shouldRecreateRecognizer){
+            new Handler().postDelayed(()->{
+                recreaeSpeechRecognizer();
+                if(speechRecognizer != null){
+                    startListening();
+                }
+            },2000);
+        }else {
+            new Handler().postDelayed(this::restartListening, 1000);
+        }
+
     }
 
     public void onResults(Bundle results){
@@ -449,7 +507,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             String recognizedText = matches.get(0);
             float confidence = 0.0f;
 
-            // Use confidence score to filter results
             if(confidenceScores != null && confidenceScores.length > 0) {
                 confidence = confidenceScores[0];
                 Log.d("VoiceCommand", "Confidence: " + confidence);
@@ -472,15 +529,40 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void restartListening() {
-        if(isListening){
-            new android.os.Handler().postDelayed(()->{
+        if(isListening && speechRecognizer != null){
+
+            new Handler().postDelayed(()->{
                 if(isListening){
-                    speechRecognizer.startListening(speechRecognizerIntent);
+                    try{
+                        updateSpeechRecognitionLanguage();
+                        speechRecognizer.startListening(speechRecognizerIntent);
+                    }catch (Exception e){
+                        Log.e("MainActivity", "Error restarting speech recognition: " + e.getMessage());
+                        recreaeSpeechRecognizer();
+                    }
                 }
-            }, 500);
+            },1000);
         }
     }
 
+    private void recreaeSpeechRecognizer() {
+        Log.d("MainActivity", "Recreating speech recognizer");
+        if(speechRecognizer != null){
+            try{
+                speechRecognizer.destroy();
+            }catch (Exception e){
+                Log.e("MainActivity", "Error destroying speech recognizer: " + e.getMessage());
+            }
+        }
+        try{
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            speechRecognizer.setRecognitionListener(this);
+            updateSpeechRecognitionLanguage();
+        }catch (Exception e){
+            Log.e("MainActivity", "Error recreating speech recognizer: " + e.getMessage());
+            speechRecognizer = null;
+        }
+    }
     @Override
     public void onPartialResults(Bundle partialResults){
         ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
@@ -503,7 +585,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
             speak(StringResources.getString(Main.ASSISTANT_READY), currentLocale);
 
-            new Handler().postDelayed(() -> startListening(), 3000);
         }
     }
 

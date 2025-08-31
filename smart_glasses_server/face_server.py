@@ -2428,7 +2428,7 @@ def disconnect_client():
 
 @app.route('/', methods=['POST'])
 def register_face_java():
-    """Face registration endpoint for Java client"""
+    """Face registration endpoint"""
     try:
         data = request.json
         if not data:
