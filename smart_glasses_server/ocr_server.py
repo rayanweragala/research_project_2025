@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 
 class SinhalaOCRServer:
     def __init__(self):
-        self.tflite_model_path = 'document_classifier_model_int8.tflite'
+        self.tflite_model_path = 'document_classifier_int8.tflite'
         self.document_classifier = None
         self.ocr_reader = None
         self.tts_engine = None
@@ -94,7 +94,9 @@ class SinhalaOCRServer:
                 
                 print(f"TFLite model loaded: {self.tflite_model_path}")
                 print(f"Input shape: {self.input_details[0]['shape']}")
+                print(f"Input dtype: {self.input_details[0]['dtype']}")
                 print(f"Output shape: {self.output_details[0]['shape']}")
+                print(f"Output dtype: {self.output_details[0]['dtype']}")
             else:
                 print(f"Warning: TFLite model not found at {self.tflite_model_path}")
                 
@@ -117,17 +119,39 @@ class SinhalaOCRServer:
             return "Unknown", 0.0
             
         try:
+            print(f"Image input shape: {image.shape}")
+            
             # Preprocess image for model
             input_shape = self.input_details[0]['shape']
             height, width = input_shape[1], input_shape[2]
             
-            # Resize and preprocess for TFLite INT8 model
+            print(f"Model expects: {input_shape}")
+            
+            # Resize image to model input size (224, 224)
             processed_image = cv2.resize(image, (width, height))
-            processed_image = (processed_image / 255.0 * 255).astype(np.int8)
+            print(f"After resize: {processed_image.shape}")
+            
+            # Convert BGR to RGB (OpenCV loads as BGR, model expects RGB)
+            processed_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB)
+            
+            # Normalize to [0,1] first
+            processed_image = processed_image.astype(np.float32) / 255.0
+            print(f"After normalization - min: {processed_image.min()}, max: {processed_image.max()}")
             
             # Add batch dimension
-            if len(input_shape) == 4:
-                processed_image = np.expand_dims(processed_image, axis=0)
+            processed_image = np.expand_dims(processed_image, axis=0)
+            print(f"After adding batch dim: {processed_image.shape}")
+            
+            # Quantize input if model expects int8
+            if self.input_details[0]['dtype'] == np.int8:
+                print("Quantizing input for int8 model")
+                input_scale, input_zero_point = self.input_details[0]['quantization']
+                print(f"Input quantization - scale: {input_scale}, zero_point: {input_zero_point}")
+                processed_image = processed_image / input_scale + input_zero_point
+                processed_image = processed_image.astype(np.int8)
+                print(f"After quantization - min: {processed_image.min()}, max: {processed_image.max()}")
+            else:
+                processed_image = processed_image.astype(np.float32)
                 
             # Run inference
             self.document_classifier.set_tensor(self.input_details[0]['index'], processed_image)
@@ -135,21 +159,38 @@ class SinhalaOCRServer:
             
             # Get prediction
             output_data = self.document_classifier.get_tensor(self.output_details[0]['index'])
+            print(f"Raw output shape: {output_data.shape}")
+            print(f"Raw output: {output_data}")
+            
+            # Dequantize output if int8
+            if self.output_details[0]['dtype'] == np.int8:
+                print("Dequantizing int8 output")
+                output_scale, output_zero_point = self.output_details[0]['quantization']
+                print(f"Output quantization - scale: {output_scale}, zero_point: {output_zero_point}")
+                output_data = output_scale * (output_data.astype(np.float32) - output_zero_point)
+                print(f"After dequantization: {output_data}")
             
             # Apply softmax to convert logits to probabilities
             probabilities = tf.nn.softmax(output_data).numpy().flatten()
+            print(f"Probabilities: {probabilities}")
             
-            # Define class labels based on your training
-            class_labels = ["Exam paper", "Forms", "Newspaper", "Notes", "Stories", "Words"]
+            # Define class labels (make sure these match your training classes exactly)
+            class_labels = ["exam", "form", "newspaper", "note", "story", "word"]
             
             predicted_class_idx = np.argmax(probabilities)
             confidence = float(probabilities[predicted_class_idx])
             predicted_class = class_labels[predicted_class_idx] if predicted_class_idx < len(class_labels) else "Unknown"
             
+            print(f"Predicted class index: {predicted_class_idx}")
+            print(f"Predicted class: {predicted_class}")
+            print(f"Confidence: {confidence}")
+            
             return predicted_class, confidence
             
         except Exception as e:
             print(f"Document classification error: {e}")
+            import traceback
+            traceback.print_exc()
             return "Unknown", 0.0
     
     def extract_sinhala_text(self, image):
@@ -161,8 +202,10 @@ class SinhalaOCRServer:
             # Convert BGR to RGB for EasyOCR
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
+            print("Starting OCR extraction...")
             # Perform OCR
             results = self.ocr_reader.readtext(rgb_image)
+            print(f"OCR found {len(results)} text blocks")
             
             # Process results
             extracted_text = ""
@@ -177,6 +220,7 @@ class SinhalaOCRServer:
                     'confidence': confidence
                 })
                 total_confidence += confidence
+                print(f"OCR text: '{text}' (confidence: {confidence:.2f})")
                 
             avg_confidence = total_confidence / len(results) if results else 0.0
             
@@ -184,6 +228,8 @@ class SinhalaOCRServer:
             
         except Exception as e:
             print(f"OCR extraction error: {e}")
+            import traceback
+            traceback.print_exc()
             return "", [], 0.0
     
     def text_to_speech(self, text):
@@ -234,22 +280,32 @@ class SinhalaOCRServer:
         start_time = time.time()
         
         try:
+            print("Starting document processing...")
+            
             # Decode base64 image
+            print("Decoding base64 image...")
             image_bytes = base64.b64decode(image_data)
             image_array = np.frombuffer(image_bytes, dtype=np.uint8)
             image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
             
             if image is None:
-                raise ValueError("Invalid image data")
+                raise ValueError("Invalid image data - could not decode image")
+            
+            print(f"Image decoded successfully. Shape: {image.shape}")
             
             # Calculate image quality
             quality_score = self.calculate_image_quality(image)
+            print(f"Image quality score: {quality_score}")
             
             # Classify document type
+            print("Classifying document...")
             document_type, classification_confidence = self.classify_document(image)
+            print(f"Classification complete: {document_type} ({classification_confidence:.2f})")
             
             # Extract text
+            print("Extracting text...")
             extracted_text, text_boxes, ocr_confidence = self.extract_sinhala_text(image)
+            print(f"Text extraction complete. Found {len(text_boxes)} text blocks")
             
             processing_time = time.time() - start_time
             
@@ -260,7 +316,7 @@ class SinhalaOCRServer:
             self.store_result(document_type, classification_confidence, extracted_text, 
                             processing_time, quality_score, len(image_bytes))
             
-            return {
+            result = {
                 'success': True,
                 'document_type': document_type,
                 'classification_confidence': classification_confidence,
@@ -273,9 +329,16 @@ class SinhalaOCRServer:
                 'num_text_blocks': len(text_boxes)
             }
             
+            print(f"Processing complete in {processing_time:.2f}s")
+            return result
+            
         except Exception as e:
             processing_time = time.time() - start_time
             self.processing_stats['errors'] += 1
+            
+            print(f"Processing error: {e}")
+            import traceback
+            traceback.print_exc()
             
             return {
                 'success': False,
@@ -397,6 +460,7 @@ def process_document():
         return jsonify(result)
         
     except Exception as e:
+        print(f"API process error: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
