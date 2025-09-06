@@ -14,7 +14,7 @@ import subprocess
 from datetime import datetime
 import sqlite3
 import io
-from PIL import Image
+from PIL import Image, ImageEnhance
 import easyocr
 import pyttsx3
 import tensorflow as tf
@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 
 class SinhalaOCRServer:
     def __init__(self):
-        self.tflite_model_path = 'document_classifier_int8.tflite'
+        self.keras_model_path = 'best_document_classifier_model.keras'
         self.document_classifier = None
         self.ocr_reader = None
         self.tts_engine = None
@@ -39,6 +39,9 @@ class SinhalaOCRServer:
             'document_types': {},
             'processing_times': []
         }
+        self.class_names = ['exam', 'form', 'newspaper', 'note', 'story', 'word']  # Update with your actual class names
+        self.image_size = (224, 224)  # Update if you used a different size
+        
         self.setup_database()
         self.init_models()
         
@@ -81,24 +84,18 @@ class SinhalaOCRServer:
             self.conn = None
             
     def init_models(self):
-        """Initialize TensorFlow Lite model and OCR reader"""
+        """Initialize Keras model and OCR reader"""
         try:
-            # Initialize TensorFlow Lite model
-            if os.path.exists(self.tflite_model_path):
-                self.document_classifier = tf.lite.Interpreter(model_path=self.tflite_model_path)
-                self.document_classifier.allocate_tensors()
+            # Initialize Keras model
+            if os.path.exists(self.keras_model_path):
+                print("Loading Keras model...")
+                self.document_classifier = tf.keras.models.load_model(self.keras_model_path)
+                print("✅ Keras model loaded successfully!")
                 
-                # Get input and output details
-                self.input_details = self.document_classifier.get_input_details()
-                self.output_details = self.document_classifier.get_output_details()
-                
-                print(f"TFLite model loaded: {self.tflite_model_path}")
-                print(f"Input shape: {self.input_details[0]['shape']}")
-                print(f"Input dtype: {self.input_details[0]['dtype']}")
-                print(f"Output shape: {self.output_details[0]['shape']}")
-                print(f"Output dtype: {self.output_details[0]['dtype']}")
+                # Display model summary
+                self.document_classifier.summary()
             else:
-                print(f"Warning: TFLite model not found at {self.tflite_model_path}")
+                print(f"Warning: Keras model not found at {self.keras_model_path}")
                 
             # Initialize EasyOCR with Sinhala and English support
             print("Initializing EasyOCR for Sinhala and English...")
@@ -113,73 +110,46 @@ class SinhalaOCRServer:
         except Exception as e:
             print(f"Model initialization error: {e}")
             
+    def preprocess_image(self, image_array):
+        """Preprocess image for the Keras model"""
+        # Resize to match model input
+        image = Image.fromarray(image_array).resize(self.image_size)
+        
+        # Convert to numpy array
+        image_array = np.array(image, dtype=np.float32)
+        
+        # Normalize to 0-1
+        image_array = image_array / 255.0
+        
+        # Add batch dimension
+        image_array = np.expand_dims(image_array, axis=0)
+        
+        return image_array
+            
     def classify_document(self, image):
-        """Classify document type using TFLite model"""
+        """Classify document type using Keras model"""
         if not self.document_classifier:
             return "Unknown", 0.0
             
         try:
             print(f"Image input shape: {image.shape}")
             
-            # Preprocess image for model
-            input_shape = self.input_details[0]['shape']
-            height, width = input_shape[1], input_shape[2]
-            
-            print(f"Model expects: {input_shape}")
-            
-            # Resize image to model input size (224, 224)
-            processed_image = cv2.resize(image, (width, height))
-            print(f"After resize: {processed_image.shape}")
-            
             # Convert BGR to RGB (OpenCV loads as BGR, model expects RGB)
-            processed_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB)
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
-            # Normalize to [0,1] first
-            processed_image = processed_image.astype(np.float32) / 255.0
-            print(f"After normalization - min: {processed_image.min()}, max: {processed_image.max()}")
+            # Preprocess image for model
+            processed_image = self.preprocess_image(rgb_image)
+            print(f"After preprocessing: {processed_image.shape}")
             
-            # Add batch dimension
-            processed_image = np.expand_dims(processed_image, axis=0)
-            print(f"After adding batch dim: {processed_image.shape}")
-            
-            # Quantize input if model expects int8
-            if self.input_details[0]['dtype'] == np.int8:
-                print("Quantizing input for int8 model")
-                input_scale, input_zero_point = self.input_details[0]['quantization']
-                print(f"Input quantization - scale: {input_scale}, zero_point: {input_zero_point}")
-                processed_image = processed_image / input_scale + input_zero_point
-                processed_image = processed_image.astype(np.int8)
-                print(f"After quantization - min: {processed_image.min()}, max: {processed_image.max()}")
-            else:
-                processed_image = processed_image.astype(np.float32)
-                
             # Run inference
-            self.document_classifier.set_tensor(self.input_details[0]['index'], processed_image)
-            self.document_classifier.invoke()
+            prediction = self.document_classifier.predict(processed_image)
+            print(f"Raw output shape: {prediction.shape}")
+            print(f"Raw output: {prediction}")
             
-            # Get prediction
-            output_data = self.document_classifier.get_tensor(self.output_details[0]['index'])
-            print(f"Raw output shape: {output_data.shape}")
-            print(f"Raw output: {output_data}")
-            
-            # Dequantize output if int8
-            if self.output_details[0]['dtype'] == np.int8:
-                print("Dequantizing int8 output")
-                output_scale, output_zero_point = self.output_details[0]['quantization']
-                print(f"Output quantization - scale: {output_scale}, zero_point: {output_zero_point}")
-                output_data = output_scale * (output_data.astype(np.float32) - output_zero_point)
-                print(f"After dequantization: {output_data}")
-            
-            # Apply softmax to convert logits to probabilities
-            probabilities = tf.nn.softmax(output_data).numpy().flatten()
-            print(f"Probabilities: {probabilities}")
-            
-            # Define class labels (make sure these match your training classes exactly)
-            class_labels = ["exam", "form", "newspaper", "note", "story", "word"]
-            
-            predicted_class_idx = np.argmax(probabilities)
-            confidence = float(probabilities[predicted_class_idx])
-            predicted_class = class_labels[predicted_class_idx] if predicted_class_idx < len(class_labels) else "Unknown"
+            # Get the predicted class
+            predicted_class_idx = np.argmax(prediction[0])
+            confidence = float(prediction[0][predicted_class_idx])
+            predicted_class = self.class_names[predicted_class_idx] if predicted_class_idx < len(self.class_names) else "Unknown"
             
             print(f"Predicted class index: {predicted_class_idx}")
             print(f"Predicted class: {predicted_class}")
@@ -537,11 +507,11 @@ def get_local_ip():
 
 if __name__ == '__main__':
     print("="*60)
-    print("SINHALA OCR SERVER")
+    print("SINHALA OCR SERVER WITH KERAS MODEL")
     print("="*60)
     
     # Check model availability
-    model_available = os.path.exists(ocr_server.tflite_model_path)
+    model_available = os.path.exists(ocr_server.keras_model_path)
     print(f"Document Classifier: {'Available' if model_available else 'Not Found'}")
     print(f"OCR Reader: {'Loaded' if ocr_server.ocr_reader else 'Failed'}")
     print(f"TTS Engine: {'Ready' if ocr_server.tts_engine else 'Failed'}")
