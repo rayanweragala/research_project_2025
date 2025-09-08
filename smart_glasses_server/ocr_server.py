@@ -11,13 +11,15 @@ from queue import Queue
 import socket
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 import io
 from PIL import Image, ImageEnhance
 import easyocr
 import pyttsx3
 import tensorflow as tf
+import random
+from collections import defaultdict
 
 from flask_cors import CORS
 
@@ -37,7 +39,10 @@ class SinhalaOCRServer:
             'errors': 0,
             'avg_processing_time': 0,
             'document_types': {},
-            'processing_times': []
+            'processing_times': [],
+            'document_identification_success': 0,  # New stat for document ID success rate
+            'quality_scores': [],  # Track quality scores
+            'hourly_distribution': defaultdict(int),  # Track hourly activity
         }
         self.class_names = ['exam', 'form', 'newspaper', 'note', 'story', 'word']  # Update with your actual class names
         self.image_size = (224, 224)  # Update if you used a different size
@@ -61,7 +66,10 @@ class SinhalaOCRServer:
                     extracted_text TEXT,
                     processing_time REAL,
                     image_quality REAL,
-                    file_size INTEGER
+                    file_size INTEGER,
+                    classification_confidence REAL,
+                    ocr_success BOOLEAN DEFAULT 1,
+                    identification_success BOOLEAN DEFAULT 1
                 )
             ''')
             
@@ -72,9 +80,27 @@ class SinhalaOCRServer:
                     action TEXT NOT NULL,
                     status TEXT NOT NULL,
                     details TEXT,
-                    processing_time REAL
+                    processing_time REAL,
+                    document_type TEXT,
+                    quality_score REAL,
+                    success BOOLEAN DEFAULT 1
                 )
             ''')
+            
+            # Add new columns if they don't exist
+            try:
+                cursor.execute('ALTER TABLE ocr_results ADD COLUMN classification_confidence REAL')
+                cursor.execute('ALTER TABLE ocr_results ADD COLUMN ocr_success BOOLEAN DEFAULT 1')
+                cursor.execute('ALTER TABLE ocr_results ADD COLUMN identification_success BOOLEAN DEFAULT 1')
+            except sqlite3.OperationalError:
+                pass  # Columns already exist
+                
+            try:
+                cursor.execute('ALTER TABLE processing_logs ADD COLUMN document_type TEXT')
+                cursor.execute('ALTER TABLE processing_logs ADD COLUMN quality_score REAL')
+                cursor.execute('ALTER TABLE processing_logs ADD COLUMN success BOOLEAN DEFAULT 1')
+            except sqlite3.OperationalError:
+                pass  # Columns already exist
             
             self.conn.commit()
             print("Database initialized successfully")
@@ -279,12 +305,22 @@ class SinhalaOCRServer:
             
             processing_time = time.time() - start_time
             
+            # Determine success rates
+            ocr_success = len(extracted_text) > 0
+            identification_success = document_type != "Unknown" and classification_confidence > 0.5
+            
             # Update statistics
-            self.update_stats(document_type, processing_time, len(extracted_text) > 0)
+            self.update_stats(document_type, processing_time, ocr_success, identification_success, quality_score)
             
             # Store in database
             self.store_result(document_type, classification_confidence, extracted_text, 
-                            processing_time, quality_score, len(image_bytes))
+                            processing_time, quality_score, len(image_bytes), ocr_confidence, 
+                            ocr_success, identification_success)
+            
+            # Log the processing
+            self.log_processing('process_document', 'success' if ocr_success else 'failed', 
+                              f'Processed {document_type}', processing_time, document_type, 
+                              quality_score, ocr_success)
             
             result = {
                 'success': True,
@@ -306,6 +342,10 @@ class SinhalaOCRServer:
             processing_time = time.time() - start_time
             self.processing_stats['errors'] += 1
             
+            # Log the error
+            self.log_processing('process_document', 'error', str(e), processing_time, 
+                              'Unknown', 0.0, False)
+            
             print(f"Processing error: {e}")
             import traceback
             traceback.print_exc()
@@ -316,12 +356,15 @@ class SinhalaOCRServer:
                 'processing_time': processing_time
             }
     
-    def update_stats(self, document_type, processing_time, success):
+    def update_stats(self, document_type, processing_time, ocr_success, identification_success, quality_score):
         """Update processing statistics"""
         self.processing_stats['total_documents'] += 1
         
-        if success:
+        if ocr_success:
             self.processing_stats['successful_ocr'] += 1
+            
+        if identification_success:
+            self.processing_stats['document_identification_success'] += 1
             
         if document_type in self.processing_stats['document_types']:
             self.processing_stats['document_types'][document_type] += 1
@@ -329,14 +372,23 @@ class SinhalaOCRServer:
             self.processing_stats['document_types'][document_type] = 1
             
         self.processing_stats['processing_times'].append(processing_time)
+        self.processing_stats['quality_scores'].append(quality_score)
+        
+        # Track hourly distribution
+        current_hour = datetime.now().hour
+        self.processing_stats['hourly_distribution'][current_hour] += 1
         
         # Keep only last 100 processing times for average calculation
         if len(self.processing_stats['processing_times']) > 100:
             self.processing_stats['processing_times'] = self.processing_stats['processing_times'][-100:]
             
+        if len(self.processing_stats['quality_scores']) > 100:
+            self.processing_stats['quality_scores'] = self.processing_stats['quality_scores'][-100:]
+            
         self.processing_stats['avg_processing_time'] = sum(self.processing_stats['processing_times']) / len(self.processing_stats['processing_times'])
     
-    def store_result(self, document_type, confidence, extracted_text, processing_time, quality_score, file_size):
+    def store_result(self, document_type, classification_confidence, extracted_text, processing_time, 
+                    quality_score, file_size, ocr_confidence=0.0, ocr_success=True, identification_success=True):
         """Store OCR result in database"""
         if not self.conn:
             return
@@ -346,20 +398,50 @@ class SinhalaOCRServer:
                 cursor = self.conn.cursor()
                 cursor.execute('''
                     INSERT INTO ocr_results 
-                    (timestamp, document_type, confidence, extracted_text, processing_time, image_quality, file_size)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (timestamp, document_type, confidence, extracted_text, processing_time, 
+                     image_quality, file_size, classification_confidence, ocr_success, identification_success)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     datetime.now().isoformat(),
                     document_type,
-                    confidence,
+                    ocr_confidence,
                     extracted_text,
                     processing_time,
                     quality_score,
-                    file_size
+                    file_size,
+                    classification_confidence,
+                    ocr_success,
+                    identification_success
                 ))
                 self.conn.commit()
         except Exception as e:
             print(f"Database storage error: {e}")
+    
+    def log_processing(self, action, status, details, processing_time, document_type='', quality_score=0.0, success=True):
+        """Log processing activity"""
+        if not self.conn:
+            return
+            
+        try:
+            with self.db_lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT INTO processing_logs 
+                    (timestamp, action, status, details, processing_time, document_type, quality_score, success)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    datetime.now().isoformat(),
+                    action,
+                    status,
+                    details,
+                    processing_time,
+                    document_type,
+                    quality_score,
+                    success
+                ))
+                self.conn.commit()
+        except Exception as e:
+            print(f"Logging error: {e}")
     
     def get_recent_results(self, limit=10):
         """Get recent OCR results"""
@@ -385,12 +467,281 @@ class SinhalaOCRServer:
                     'extracted_text': row[4],
                     'processing_time': row[5],
                     'image_quality': row[6],
-                    'file_size': row[7]
+                    'file_size': row[7],
+                    'classification_confidence': row[8] if len(row) > 8 else 0.0,
+                    'ocr_success': row[9] if len(row) > 9 else True,
+                    'identification_success': row[10] if len(row) > 10 else True
                 } for row in results]
                 
         except Exception as e:
             print(f"Database query error: {e}")
             return []
+    
+    def get_daily_report(self, date_str):
+        """Generate daily processing report"""
+        if not self.conn:
+            return {'error': 'Database not available'}
+            
+        try:
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            next_date = target_date + timedelta(days=1)
+            
+            with self.db_lock:
+                cursor = self.conn.cursor()
+                
+                # Get daily statistics
+                cursor.execute('''
+                    SELECT 
+                        COUNT(*) as total_documents,
+                        SUM(CASE WHEN ocr_success = 1 THEN 1 ELSE 0 END) as successful_ocr,
+                        SUM(CASE WHEN identification_success = 1 THEN 1 ELSE 0 END) as successful_identification,
+                        AVG(confidence) as avg_confidence,
+                        AVG(image_quality) as avg_quality,
+                        AVG(processing_time) as avg_processing_time,
+                        AVG(classification_confidence) as avg_classification_confidence
+                    FROM ocr_results 
+                    WHERE date(timestamp) = ?
+                ''', (target_date,))
+                
+                stats = cursor.fetchone()
+                
+                # Get document type distribution
+                cursor.execute('''
+                    SELECT document_type, COUNT(*) as count
+                    FROM ocr_results 
+                    WHERE date(timestamp) = ?
+                    GROUP BY document_type
+                    ORDER BY count DESC
+                ''', (target_date,))
+                
+                doc_types = {row[0]: row[1] for row in cursor.fetchall()}
+                
+                # Get hourly distribution
+                cursor.execute('''
+                    SELECT 
+                        strftime('%H', timestamp) as hour,
+                        COUNT(*) as count
+                    FROM ocr_results 
+                    WHERE date(timestamp) = ?
+                    GROUP BY strftime('%H', timestamp)
+                ''', (target_date,))
+                
+                hourly_dist = {int(row[0]): row[1] for row in cursor.fetchall()}
+                
+                # Generate insights
+                insights = self.generate_daily_insights(stats, doc_types, hourly_dist)
+                
+                return {
+                    'date': date_str,
+                    'summary': {
+                        'total_documents': stats[0] or 0,
+                        'successful_ocr': stats[1] or 0,
+                        'successful_identification': stats[2] or 0,
+                        'avg_confidence': stats[3] or 0,
+                        'avg_quality': stats[4] or 0,
+                        'avg_processing_time': stats[5] or 0,
+                        'avg_classification_confidence': stats[6] or 0,
+                        'ocr_success_rate': (stats[1] / stats[0]) if stats[0] > 0 else 0,
+                        'identification_success_rate': (stats[2] / stats[0]) if stats[0] > 0 else 0
+                    },
+                    'document_types': doc_types,
+                    'hourly_distribution': hourly_dist,
+                    'insights': insights
+                }
+                
+        except Exception as e:
+            print(f"Daily report error: {e}")
+            return {'error': str(e)}
+    
+    def generate_daily_insights(self, stats, doc_types, hourly_dist):
+        """Generate insights for daily report"""
+        insights = []
+        
+        total_docs = stats[0] or 0
+        successful_ocr = stats[1] or 0
+        successful_id = stats[2] or 0
+        
+        if total_docs > 0:
+            ocr_rate = (successful_ocr / total_docs) * 100
+            id_rate = (successful_id / total_docs) * 100
+            
+            insights.append(f"Processed {total_docs} documents with {ocr_rate:.1f}% OCR success rate")
+            insights.append(f"Document identification accuracy reached {id_rate:.1f}%")
+            
+            if stats[4]:  # avg_quality
+                insights.append(f"Average image quality was {stats[4]*100:.1f}%")
+            
+            if stats[5]:  # avg_processing_time
+                insights.append(f"Average processing time: {stats[5]*1000:.0f}ms per document")
+            
+            # Most common document type
+            if doc_types:
+                most_common = max(doc_types, key=doc_types.get)
+                insights.append(f"Most processed document type: '{most_common}' ({doc_types[most_common]} documents)")
+            
+            # Peak hour
+            if hourly_dist:
+                peak_hour = max(hourly_dist, key=hourly_dist.get)
+                insights.append(f"Peak processing hour: {peak_hour}:00 with {hourly_dist[peak_hour]} documents")
+        else:
+            insights.append("No documents were processed on this date")
+        
+        return insights
+    
+    def get_processing_logs(self, date_str, limit=50):
+        """Get processing logs for a specific date"""
+        if not self.conn:
+            return {'error': 'Database not available'}
+            
+        try:
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            
+            with self.db_lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    SELECT timestamp, action, status, details, processing_time, 
+                           document_type, quality_score, success
+                    FROM processing_logs 
+                    WHERE date(timestamp) = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ''', (target_date, limit))
+                
+                logs = [{
+                    'timestamp': row[0],
+                    'action': row[1],
+                    'status': row[2],
+                    'details': row[3],
+                    'processing_time': row[4],
+                    'document_type': row[5] if len(row) > 5 else '',
+                    'quality_score': row[6] if len(row) > 6 else 0.0,
+                    'success': row[7] if len(row) > 7 else True
+                } for row in cursor.fetchall()]
+                
+                return {
+                    'date': date_str,
+                    'logs': logs,
+                    'total_logs': len(logs)
+                }
+                
+        except Exception as e:
+            print(f"Processing logs error: {e}")
+            return {'error': str(e)}
+    
+    def get_historical_data(self, days=7):
+        """Get historical processing data"""
+        if not self.conn:
+            return {'error': 'Database not available'}
+            
+        try:
+            with self.db_lock:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    SELECT 
+                        date(timestamp) as date,
+                        COUNT(*) as total_documents,
+                        SUM(CASE WHEN ocr_success = 1 THEN 1 ELSE 0 END) as successful_ocr,
+                        SUM(CASE WHEN identification_success = 1 THEN 1 ELSE 0 END) as successful_identification,
+                        AVG(confidence) as avg_confidence,
+                        AVG(image_quality) as avg_quality,
+                        AVG(processing_time) as avg_processing_time
+                    FROM ocr_results 
+                    WHERE date(timestamp) >= date('now', '-{} days')
+                    GROUP BY date(timestamp)
+                    ORDER BY date DESC
+                    LIMIT ?
+                '''.format(days), (days,))
+                
+                data = [{
+                    'date': row[0],
+                    'total_documents': row[1],
+                    'successful_ocr': row[2],
+                    'successful_identification': row[3],
+                    'avg_confidence': row[4] or 0,
+                    'avg_quality': row[5] or 0,
+                    'avg_processing_time': row[6] or 0,
+                    'ocr_success_rate': (row[2] / row[1]) if row[1] > 0 else 0,
+                    'identification_success_rate': (row[3] / row[1]) if row[1] > 0 else 0
+                } for row in cursor.fetchall()]
+                
+                return {
+                    'days': data,
+                    'total_days': len(data)
+                }
+                
+        except Exception as e:
+            print(f"Historical data error: {e}")
+            return {'error': str(e)}
+    
+    def generate_test_data(self):
+        """Generate sample test data for demonstration"""
+        try:
+            current_time = datetime.now()
+            sample_types = ['exam', 'form', 'newspaper', 'note', 'story']
+            sample_texts = [
+                "මෙය පරීක්ෂණ ලේඛනයකි", 
+                "අයදුම්පත්රය සම්පූර්ණ කරන්න",
+                "අද දින පුවත්පත", 
+                "සටහන් ලිපිය",
+                "කතන්දර කථාව"
+            ]
+            
+            # Generate 10 sample records for today
+            for i in range(10):
+                doc_type = random.choice(sample_types)
+                sample_text = random.choice(sample_texts)
+                processing_time = random.uniform(1.0, 3.5)
+                quality_score = random.uniform(0.6, 0.95)
+                classification_conf = random.uniform(0.7, 0.98)
+                ocr_conf = random.uniform(0.75, 0.95)
+                
+                # Vary the timestamp within the day
+                timestamp = current_time - timedelta(hours=random.randint(0, 23), 
+                                                   minutes=random.randint(0, 59))
+                
+                with self.db_lock:
+                    cursor = self.conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO ocr_results 
+                        (timestamp, document_type, confidence, extracted_text, processing_time, 
+                         image_quality, file_size, classification_confidence, ocr_success, identification_success)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        timestamp.isoformat(),
+                        doc_type,
+                        ocr_conf,
+                        sample_text,
+                        processing_time,
+                        quality_score,
+                        random.randint(50000, 500000),  # file size
+                        classification_conf,
+                        True,
+                        True
+                    ))
+                    
+                    # Also add to processing logs
+                    cursor.execute('''
+                        INSERT INTO processing_logs 
+                        (timestamp, action, status, details, processing_time, document_type, quality_score, success)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        timestamp.isoformat(),
+                        'process_document',
+                        'success',
+                        f'Processed {doc_type} document',
+                        processing_time,
+                        doc_type,
+                        quality_score,
+                        True
+                    ))
+                    
+                    self.conn.commit()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Test data generation error: {e}")
+            return False
 
 # Initialize OCR server
 ocr_server = SinhalaOCRServer()
@@ -483,11 +834,192 @@ def get_results():
 def get_stats():
     """Get OCR processing statistics"""
     try:
+        stats = ocr_server.processing_stats.copy()
+        
+        # Calculate additional metrics
+        total_docs = stats['total_documents']
+        if total_docs > 0:
+            stats['ocr_success_rate'] = (stats['successful_ocr'] / total_docs) * 100
+            stats['identification_success_rate'] = (stats['document_identification_success'] / total_docs) * 100
+            stats['error_rate'] = (stats['errors'] / total_docs) * 100
+            
+            # Calculate average quality if available
+            if stats['quality_scores']:
+                stats['avg_quality'] = sum(stats['quality_scores']) / len(stats['quality_scores'])
+            else:
+                stats['avg_quality'] = 0.0
+        else:
+            stats['ocr_success_rate'] = 0
+            stats['identification_success_rate'] = 0
+            stats['error_rate'] = 0
+            stats['avg_quality'] = 0.0
+        
         return jsonify({
             'success': True,
-            'stats': ocr_server.processing_stats
+            'stats': stats
         })
         
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/ocr/daily_report', methods=['GET'])
+def get_daily_report():
+    """Get daily processing report"""
+    try:
+        date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+        report = ocr_server.get_daily_report(date_str)
+        
+        return jsonify(report)
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e)
+        }), 500
+
+@app.route('/api/ocr/processing_logs', methods=['GET'])
+def get_processing_logs():
+    """Get processing logs for a specific date"""
+    try:
+        date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+        limit = int(request.args.get('limit', 50))
+        
+        logs = ocr_server.get_processing_logs(date_str, limit)
+        
+        return jsonify(logs)
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e)
+        }), 500
+
+@app.route('/api/ocr/historical_data', methods=['GET'])
+def get_historical_data():
+    """Get historical processing data"""
+    try:
+        days = int(request.args.get('days', 7))
+        data = ocr_server.get_historical_data(days)
+        
+        return jsonify(data)
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e)
+        }), 500
+
+@app.route('/api/ocr/generate_test_data', methods=['POST'])
+def generate_test_data():
+    """Generate sample test data for demonstration"""
+    try:
+        success = ocr_server.generate_test_data()
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Test data generated successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to generate test data'
+            }), 500
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/ocr/enhanced_stats', methods=['GET'])
+def get_enhanced_stats():
+    """Get enhanced analytics with additional metrics"""
+    try:
+        if not ocr_server.conn:
+            return jsonify({'error': 'Database not available'}), 500
+            
+        with ocr_server.db_lock:
+            cursor = ocr_server.conn.cursor()
+            
+            # Get comprehensive statistics
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as total_documents,
+                    SUM(CASE WHEN ocr_success = 1 THEN 1 ELSE 0 END) as successful_ocr,
+                    SUM(CASE WHEN identification_success = 1 THEN 1 ELSE 0 END) as successful_identification,
+                    AVG(confidence) as avg_ocr_confidence,
+                    AVG(classification_confidence) as avg_classification_confidence,
+                    AVG(image_quality) as avg_quality,
+                    AVG(processing_time) as avg_processing_time,
+                    MIN(processing_time) as min_processing_time,
+                    MAX(processing_time) as max_processing_time
+                FROM ocr_results
+            ''')
+            
+            stats = cursor.fetchone()
+            
+            # Get document type distribution
+            cursor.execute('''
+                SELECT document_type, COUNT(*) as count
+                FROM ocr_results
+                GROUP BY document_type
+                ORDER BY count DESC
+            ''')
+            
+            doc_types = {row[0]: row[1] for row in cursor.fetchall()}
+            
+            # Get quality distribution
+            cursor.execute('''
+                SELECT 
+                    CASE 
+                        WHEN image_quality >= 0.9 THEN 'excellent'
+                        WHEN image_quality >= 0.8 THEN 'good'
+                        WHEN image_quality >= 0.6 THEN 'fair'
+                        ELSE 'poor'
+                    END as quality_range,
+                    COUNT(*) as count
+                FROM ocr_results
+                GROUP BY quality_range
+            ''')
+            
+            quality_dist = {row[0]: row[1] for row in cursor.fetchall()}
+            
+            # Get hourly distribution for today
+            cursor.execute('''
+                SELECT 
+                    strftime('%H', timestamp) as hour,
+                    COUNT(*) as count
+                FROM ocr_results 
+                WHERE date(timestamp) = date('now')
+                GROUP BY strftime('%H', timestamp)
+            ''')
+            
+            hourly_dist = {int(row[0]): row[1] for row in cursor.fetchall()}
+            
+            total_docs = stats[0] or 0
+            result = {
+                'total_documents': total_docs,
+                'successful_ocr': stats[1] or 0,
+                'successful_identification': stats[2] or 0,
+                'avg_ocr_confidence': stats[3] or 0,
+                'avg_classification_confidence': stats[4] or 0,
+                'avg_quality': stats[5] or 0,
+                'avg_processing_time': stats[6] or 0,
+                'min_processing_time': stats[7] or 0,
+                'max_processing_time': stats[8] or 0,
+                'ocr_success_rate': (stats[1] / total_docs * 100) if total_docs > 0 else 0,
+                'identification_success_rate': (stats[2] / total_docs * 100) if total_docs > 0 else 0,
+                'document_types': doc_types,
+                'quality_distribution': quality_dist,
+                'hourly_distribution': hourly_dist
+            }
+            
+            return jsonify({
+                'success': True,
+                'analytics': result
+            })
+            
     except Exception as e:
         return jsonify({
             'success': False,
@@ -507,7 +1039,7 @@ def get_local_ip():
 
 if __name__ == '__main__':
     print("="*60)
-    print("SINHALA OCR SERVER WITH KERAS MODEL")
+    print("SINHALA OCR SERVER WITH KERAS MODEL & ENHANCED REPORTING")
     print("="*60)
     
     # Check model availability
@@ -532,6 +1064,11 @@ if __name__ == '__main__':
     print(f"   Text to Speech: POST /api/ocr/speak")
     print(f"   Get Results: GET /api/ocr/results")
     print(f"   Get Statistics: GET /api/ocr/stats")
+    print(f"   Enhanced Analytics: GET /api/ocr/enhanced_stats")
+    print(f"   Daily Report: GET /api/ocr/daily_report?date=YYYY-MM-DD")
+    print(f"   Processing Logs: GET /api/ocr/processing_logs?date=YYYY-MM-DD")
+    print(f"   Historical Data: GET /api/ocr/historical_data?days=7")
+    print(f"   Generate Test Data: POST /api/ocr/generate_test_data")
     
     print(f"\nDependencies:")
     dependencies = [
@@ -548,6 +1085,15 @@ if __name__ == '__main__':
             print(f"   {name}: Available")
         except ImportError:
             print(f"   {name}: Missing - install with pip install {module}")
+    
+    print(f"\nNew Features:")
+    print(f"   ✓ Document identification success rate tracking")
+    print(f"   ✓ Enhanced daily reports with insights")
+    print(f"   ✓ Processing logs with detailed activity tracking")
+    print(f"   ✓ Historical performance analysis")
+    print(f"   ✓ Quality score analytics")
+    print(f"   ✓ Hourly activity distribution")
+    print(f"   ✓ Test data generation for demonstration")
     
     print("\n" + "="*60)
     print("Server starting... Press Ctrl+C to stop")
