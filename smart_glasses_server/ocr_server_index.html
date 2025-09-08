@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>Sinhala OCR Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
@@ -616,6 +617,14 @@
             margin: 25px 0;
             box-shadow: 0 15px 35px rgba(0,0,0,0.1);
             border: 1px solid rgba(255,255,255,0.2);
+            max-width: 600px; /* Constrain chart width */
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .chart-container canvas {
+            max-height: 400px; /* Constrain chart height */
+            width: 100%;
         }
 
         .insights-list {
@@ -639,6 +648,33 @@
         
         .insights-list li:last-child {
             border-bottom: none;
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+        
+        .status-success {
+            background-color: #e8f5e8;
+            color: #2ecc71;
+        }
+        
+        .status-failed {
+            background-color: #ffebee;
+            color: #e74c3c;
+        }
+        
+        .status-error {
+            background-color: #fff3e0;
+            color: #f39c12;
+        }
+        
+        .status-processing {
+            background-color: #e3f2fd;
+            color: #3498db;
         }
         
         @media (max-width: 768px) {
@@ -667,6 +703,10 @@
 
             .toast.show {
                 transform: translateY(0);
+            }
+
+            .chart-container {
+                max-width: 100%; /* Full width on smaller screens */
             }
         }
     </style>
@@ -798,7 +838,7 @@
                     <h2>Daily Processing Report</h2>
                     <div style="display: flex; gap: 15px; align-items: center;">
                         <input type="date" id="reportDate" class="date-picker" onchange="loadDailyReport()" />
-                        <button class="button process" onclick="generateReportData()" style="padding: 10px 18px; font-size: 0.95em;">
+                        <button class="button process" onclick="generateTestData()" style="padding: 10px 18px; font-size: 0.95em;">
                             Generate Test Data
                         </button>
                     </div>
@@ -813,7 +853,7 @@
             </div>
             
             <div class="report-section">
-                <h3 class="section-title">Historical Performance</h3>
+                <h3 class="section-title">Historical Performance (Last 7 Days)</h3>
                 <div id="historicalData"></div>
             </div>
         </div>
@@ -827,11 +867,25 @@
     </div>
 
     <script>
+        const BASE_URL = window.location.origin;
         let currentExtractedText = '';
         let currentDocumentData = null;
 
+        function escapeHTML(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
         function showToast(message, type = 'info', title = '', duration = 4000) {
             const toastContainer = document.getElementById('toastContainer');
+            
+            while (toastContainer.children.length >= 3) {
+                const oldestToast = toastContainer.firstChild;
+                oldestToast.classList.remove('show');
+                setTimeout(() => oldestToast.remove(), 400);
+            }
+
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
         
@@ -844,10 +898,10 @@
         
             toast.innerHTML = `
                 <div class="toast-header">
-                    <span>${titles[type]}</span>
+                    <span>${escapeHTML(titles[type])}</span>
                     <button class="toast-close" onclick="closeToast(this)">&times;</button>
                 </div>
-                <div class="toast-message">${message}</div>
+                <div class="toast-message">${escapeHTML(message)}</div>
             `;
         
             toastContainer.appendChild(toast);
@@ -898,14 +952,12 @@
             }
         }
 
-        // File upload handling
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const previewContainer = document.getElementById('previewContainer');
         const previewImage = document.getElementById('previewImage');
         const processBtn = document.getElementById('processBtn');
 
-        // Drag and drop functionality
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadArea.classList.add('dragover');
@@ -931,20 +983,17 @@
         });
 
         function handleFileSelect(file) {
-            // Validate file type
             const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/tiff', 'application/pdf'];
             if (!validTypes.includes(file.type)) {
                 showToast('Please select a valid image or PDF file', 'error', 'Invalid File Type');
                 return;
             }
 
-            // Validate file size (10MB limit)
             if (file.size > 10 * 1024 * 1024) {
                 showToast('File size must be less than 10MB', 'error', 'File Too Large');
                 return;
             }
 
-            // Show preview for images
             if (file.type.startsWith('image/')) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
@@ -956,11 +1005,10 @@
                 previewContainer.style.display = 'none';
             }
 
-            // Store file and enable process button
             currentDocumentData = file;
             processBtn.disabled = false;
             updateStatus('Document loaded. Ready to process.', 'success');
-            showToast(`${file.name} loaded successfully`, 'success', 'File Loaded');
+            showToast(`${escapeHTML(file.name)} loaded successfully`, 'success', 'File Loaded');
         }
 
         function processDocument() {
@@ -977,16 +1025,17 @@
                 document.getElementById('processingIndicator').style.display = 'block';
                 processBtn.disabled = true;
 
-                fetch('/api/ocr/process', {
+                fetch(`${BASE_URL}/api/ocr/process`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        image: base64Data
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: base64Data })
                 })
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     document.getElementById('processingIndicator').style.display = 'none';
                     processBtn.disabled = false;
@@ -996,15 +1045,15 @@
                         updateStatus('Document processed successfully!', 'success');
                         showToast('Document processed successfully', 'success', 'Processing Complete');
                     } else {
-                        updateStatus(`Processing failed: ${data.error}`, 'error');
-                        showToast(data.error, 'error', 'Processing Failed');
+                        updateStatus(`Processing failed: ${escapeHTML(data.error || 'Unknown error')}`, 'error');
+                        showToast(escapeHTML(data.error || 'Unknown error'), 'error', 'Processing Failed');
                     }
                 })
                 .catch(err => {
                     document.getElementById('processingIndicator').style.display = 'none';
                     processBtn.disabled = false;
                     updateStatus(`Connection error: ${err.message}`, 'error');
-                    showToast('Failed to connect to OCR server', 'error', 'Connection Error');
+                    showToast(`Failed to connect to OCR server: ${err.message}`, 'error', 'Connection Error');
                 });
             };
             reader.readAsDataURL(currentDocumentData);
@@ -1015,25 +1064,21 @@
             const extractedText = document.getElementById('extractedText');
             const speakBtn = document.getElementById('speakBtn');
 
-            // Update document information
-            document.getElementById('docType').textContent = data.document_type || 'Unknown';
+            document.getElementById('docType').textContent = escapeHTML(data.document_type || 'Unknown');
             document.getElementById('classificationConf').textContent = ((data.classification_confidence || 0) * 100).toFixed(1);
             document.getElementById('ocrConf').textContent = ((data.ocr_confidence || 0) * 100).toFixed(1);
             document.getElementById('qualityScore').textContent = ((data.quality_score || 0) * 100).toFixed(1);
             document.getElementById('procTime').textContent = ((data.processing_time || 0) * 1000).toFixed(0);
 
-            // Update confidence bar
             const confidenceBar = document.getElementById('confidenceBar');
             confidenceBar.style.width = `${(data.ocr_confidence || 0) * 100}%`;
 
             documentInfo.style.display = 'block';
 
-            // Update extracted text
             currentExtractedText = data.extracted_text || '';
-            extractedText.textContent = currentExtractedText || 'No text was extracted from the document.';
+            extractedText.textContent = escapeHTML(currentExtractedText || 'No text was extracted from the document.');
             extractedText.className = 'text-output' + (currentExtractedText.match(/[\u0D80-\u0DFF]/) ? ' sinhala' : '');
 
-            // Enable speak button if text was extracted
             speakBtn.disabled = !currentExtractedText;
         }
 
@@ -1045,28 +1090,29 @@
 
             updateStatus('Converting text to speech...', 'info');
             
-            fetch('/api/ocr/speak', {
+            fetch(`${BASE_URL}/api/ocr/speak`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    text: currentExtractedText
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: currentExtractedText })
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
                     updateStatus('Text-to-speech completed', 'success');
                     showToast('Text spoken successfully', 'success', 'TTS Complete');
                 } else {
                     updateStatus('Text-to-speech failed', 'error');
-                    showToast('Failed to speak text', 'error', 'TTS Failed');
+                    showToast(escapeHTML(data.error || 'Unknown error'), 'error', 'TTS Failed');
                 }
             })
             .catch(err => {
                 updateStatus(`TTS error: ${err.message}`, 'error');
-                showToast('Text-to-speech connection failed', 'error', 'TTS Error');
+                showToast(`Text-to-speech connection failed: ${err.message}`, 'error', 'TTS Error');
             });
         }
 
@@ -1088,20 +1134,27 @@
 
         function updateStatus(message, type) {
             const status = document.getElementById('status');
-            status.textContent = message;
+            status.textContent = escapeHTML(message);
             status.className = `status ${type}`;
         }
 
         function loadAnalytics() {
-            fetch('/api/ocr/stats')
-                .then(response => response.json())
+            fetch(`${BASE_URL}/api/ocr/stats`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
                         updateAnalyticsDisplay(data.stats);
+                    } else {
+                        showToast(escapeHTML(data.error || 'Failed to load analytics'), 'error', 'Analytics Error');
                     }
                 })
                 .catch(err => {
-                    showToast('Failed to load analytics', 'error', 'Analytics Error');
+                    showToast(`Failed to load analytics: ${err.message}`, 'error', 'Analytics Error');
                 });
         }
 
@@ -1136,26 +1189,35 @@
                 return;
             }
             
-            let html = '<div style="display: flex; flex-wrap: wrap; gap: 15px;">';
-            
-            Object.entries(docTypes).forEach(([type, count]) => {
-                const percentage = ((count / total) * 100).toFixed(1);
-                html += `
-                    <div class="document-type" style="flex: 1; min-width: 140px; text-align: center; padding: 15px; margin: 5px;">
-                        ${type}<br>
-                        <strong>${count} (${percentage}%)</strong>
-                    </div>
-                `;
+            chartDiv.innerHTML = '<canvas id="docTypeCanvas"></canvas>';
+            const ctx = document.getElementById('docTypeCanvas').getContext('2d');
+
+            new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(docTypes),
+                    datasets: [{
+                        data: Object.values(docTypes),
+                        backgroundColor: ['#34495e', '#2ecc71', '#3498db', '#9b59b6', '#e74c3c'],
+                        borderColor: '#ffffff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        title: { display: true, text: 'Document Type Distribution' }
+                    }
+                }
             });
-            
-            html += '</div>';
-            chartDiv.innerHTML = html;
         }
 
         function updatePerformanceChart(stats) {
             const chartDiv = document.getElementById('performanceChart');
-            
             const processingTimes = stats.processing_times || [];
+            
             if (processingTimes.length === 0) {
                 chartDiv.innerHTML = `
                     <div class="empty-state">
@@ -1166,56 +1228,94 @@
                 return;
             }
 
-            const avgTime = (stats.avg_processing_time || 0) * 1000;
-            const totalDocs = stats.total_documents || 0;
-            const errors = stats.errors || 0;
+            chartDiv.innerHTML = '<canvas id="performanceCanvas"></canvas>';
+            const ctx = document.getElementById('performanceCanvas').getContext('2d');
 
-            chartDiv.innerHTML = `
-                <div class="analytics-grid">
-                    <div class="stat-card">
-                        <h4>Average Processing</h4>
-                        <div class="stat-value" style="font-size: 2em;">${avgTime.toFixed(0)}ms</div>
-                    </div>
-                    <div class="stat-card">
-                        <h4>Error Rate</h4>
-                        <div class="stat-value" style="font-size: 2em;">${totalDocs > 0 ? ((errors / totalDocs) * 100).toFixed(1) : 0}%</div>
-                    </div>
-                    <div class="stat-card">
-                        <h4>Success Rate</h4>
-                        <div class="stat-value" style="font-size: 2em;">${totalDocs > 0 ? (((totalDocs - errors) / totalDocs) * 100).toFixed(1) : 0}%</div>
-                    </div>
-                </div>
-            `;
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Average Processing', 'Error Rate', 'Success Rate'],
+                    datasets: [{
+                        label: 'Performance Metrics',
+                        data: [
+                            (stats.avg_processing_time || 0) * 1000,
+                            stats.total_documents > 0 ? ((stats.errors || 0) / stats.total_documents * 100).toFixed(1) : 0,
+                            stats.total_documents > 0 ? (((stats.total_documents - (stats.errors || 0)) / stats.total_documents) * 100).toFixed(1) : 0
+                        ],
+                        backgroundColor: ['#34495e', '#e74c3c', '#2ecc71'],
+                        borderColor: '#ffffff',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: true, text: 'Processing Performance' }
+                    }
+                }
+            });
         }
 
         function updateQualityChart(stats) {
             const chartDiv = document.getElementById('qualityChart');
             
-            chartDiv.innerHTML = `
-                <div class="empty-state">
-                    <h3>Quality Analysis</h3>
-                    <p>Average processing time: <strong>${((stats.avg_processing_time || 0) * 1000).toFixed(0)}ms</strong></p>
-                    <p>Total documents processed: <strong>${stats.total_documents || 0}</strong></p>
-                    <p>Successful extractions: <strong>${stats.successful_ocr || 0}</strong></p>
-                </div>
-            `;
+            chartDiv.innerHTML = '<canvas id="qualityCanvas"></canvas>';
+            const ctx = document.getElementById('qualityCanvas').getContext('2d');
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Avg Quality Score', 'Avg Confidence'],
+                    datasets: [{
+                        label: 'Quality Metrics',
+                        data: [
+                            (stats.avg_quality || 0) * 100,
+                            (stats.avg_confidence || 0) * 100
+                        ],
+                        backgroundColor: ['#9b59b6', '#3498db'],
+                        borderColor: '#ffffff',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 100 }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: true, text: 'Quality Analysis' }
+                    }
+                }
+            });
         }
 
         function loadHistory() {
-            fetch('/api/ocr/results?limit=20')
-                .then(response => response.json())
+            fetch(`${BASE_URL}/api/ocr/results?limit=20`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
                         displayHistory(data.results);
                     } else {
-                        throw new Error(data.error);
+                        throw new Error(data.error || 'Unknown error');
                     }
                 })
                 .catch(err => {
                     document.getElementById('recentDocuments').innerHTML = `
                         <div class="empty-state">
                             <h3>Error Loading History</h3>
-                            <p>Failed to load document history: ${err.message}</p>
+                            <p>Failed to load document history: ${escapeHTML(err.message)}</p>
                         </div>
                     `;
                 });
@@ -1237,18 +1337,20 @@
             let html = '';
             results.forEach(result => {
                 const date = new Date(result.timestamp).toLocaleString();
-                const preview = (result.extracted_text || '').substring(0, 150);
+                const preview = escapeHTML((result.extracted_text || '').substring(0, 150));
+                const classificationConfidence = result.classification_confidence ? (result.classification_confidence * 100).toFixed(1) : 'N/A';
+                const quality = result.image_quality ? (result.image_quality * 100).toFixed(1) : 'N/A';
                 
                 html += `
                     <div class="document-card">
                         <div class="document-header">
                             <div>
-                                <div class="document-type">${result.document_type || 'Unknown'}</div>
+                                <div class="document-type">${escapeHTML(result.document_type || 'Unknown')}</div>
                                 <div class="document-time">${date}</div>
                             </div>
                             <div style="text-align: right; font-size: 0.9em; color: #666;">
-                                <div>Confidence: <strong>${((result.confidence || 0) * 100).toFixed(1)}%</strong></div>
-                                <div>Quality: <strong>${((result.image_quality || 0) * 100).toFixed(1)}%</strong></div>
+                                <div>Classification: <strong>${classificationConfidence}%</strong></div>
+                                <div>Quality: <strong>${quality}%</strong></div>
                             </div>
                         </div>
                         <div class="document-preview">${preview}</div>
@@ -1276,159 +1378,335 @@
                 reportContent.innerHTML = '<div style="text-align: center; padding: 40px;"><span class="loading-spinner"></span>Loading daily report...</div>';
             }
 
-            // Simulate report data since the OCR server doesn't have daily report endpoint
-            setTimeout(() => {
-                displayDailyReport(date);
-                loadProcessingLogs(date);
-                loadHistoricalData(date);
-            }, 1000);
+            fetch(`${BASE_URL}/api/ocr/daily_report?date=${date}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        reportContent.innerHTML = `
+                            <div class="empty-state">
+                                <h3>Error Loading Report</h3>
+                                <p>${escapeHTML(data.error)}</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    displayDailyReport(data);
+                })
+                .catch(err => {
+                    reportContent.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Error Loading Report</h3>
+                            <p>Failed to load daily report: ${escapeHTML(err.message)}</p>
+                        </div>
+                    `;
+                });
+
+            loadProcessingLogs(date);
+            loadHistoricalData();
         }
 
-        function displayDailyReport(date) {
+        function displayDailyReport(data) {
             const reportContent = document.getElementById('reportContent');
             if (!reportContent) return;
 
-            // Simulate report data
+            const summary = data.summary || {};
+            const docTypes = data.document_types || {};
+            const insights = data.insights || [];
+            
+            let docTypesHtml = '';
+            if (Object.keys(docTypes).length > 0) {
+                docTypesHtml = '<div style="margin: 20px 0;"><h4>Document Type Distribution:</h4><div style="display: flex; flex-wrap: wrap; gap: 10px;">';
+                for (const [type, count] of Object.entries(docTypes)) {
+                    docTypesHtml += `<span class="document-type">${escapeHTML(type)}: ${count}</span>`;
+                }
+                docTypesHtml += '</div></div>';
+            } else {
+                docTypesHtml = '<p>No document type data available.</p>';
+            }
+            
+            let insightsHtml = '';
+            if (insights.length > 0) {
+                insightsHtml = '<div class="chart-container"><h3 class="section-title">Insights</h3><ul class="insights-list">';
+                insights.forEach(insight => {
+                    insightsHtml += `<li>${escapeHTML(insight)}</li>`;
+                });
+                insightsHtml += '</ul></div>';
+            }
+
             reportContent.innerHTML = `
                 <div class="analytics-grid">
                     <div class="stat-card documents-card">
                         <h4>Documents Processed</h4>
-                        <div class="stat-value">12</div>
+                        <div class="stat-value">${summary.total_documents || 0}</div>
                         <div class="stat-label">Today's Processing</div>
                     </div>
                     <div class="stat-card success-card">
-                        <h4>Success Rate</h4>
-                        <div class="stat-value">91.7%</div>
-                        <div class="stat-label">OCR Success</div>
+                        <h4>OCR Success Rate</h4>
+                        <div class="stat-value">${summary.ocr_success_rate ? summary.ocr_success_rate.toFixed(1) : 0}%</div>
+                        <div class="stat-label">Text Extraction</div>
                     </div>
                     <div class="stat-card identification-card">
-                        <h4>Avg Quality</h4>
-                        <div class="stat-value">87.3%</div>
-                        <div class="stat-label">Image Quality</div>
+                        <h4>Identification Rate</h4>
+                        <div class="stat-value">${summary.identification_success_rate ? summary.identification_success_rate.toFixed(1) : 0}%</div>
+                        <div class="stat-label">Type Classification</div>
                     </div>
                     <div class="stat-card time-card">
                         <h4>Avg Time</h4>
-                        <div class="stat-value">2.4s</div>
+                        <div class="stat-value">${summary.avg_processing_time ? (summary.avg_processing_time * 1000).toFixed(0) : 0}ms</div>
                         <div class="stat-label">Processing Time</div>
                     </div>
                 </div>
                 
+                ${docTypesHtml}
+                
                 <div class="chart-container">
-                    <h3 class="section-title">Daily Processing Insights</h3>
-                    <ul class="insights-list">
-                        <li>Processing volume increased by 15% compared to yesterday</li>
-                        <li>Document type 'exam' had the highest success rate at 95%</li>
-                        <li>Average image quality improved to 87.3%</li>
-                        <li>Peak processing time was between 2-3 PM with 4 documents</li>
-                        <li>Sinhala text extraction accuracy reached 89.2%</li>
-                    </ul>
+                    <h3 class="section-title">Quality Metrics</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div>
+                            <h4>Average Quality Score</h4>
+                            <div class="stat-value" style="font-size: 2.5em;">${summary.avg_quality ? (summary.avg_quality * 100).toFixed(1) : 0}%</div>
+                        </div>
+                        <div>
+                            <h4>Average Confidence</h4>
+                            <div class="stat-value" style="font-size: 2.5em;">${summary.avg_confidence ? (summary.avg_confidence * 100).toFixed(1) : 0}%</div>
+                        </div>
+                    </div>
                 </div>
+                
+                ${insightsHtml}
             `;
         }
 
         function loadProcessingLogs(date) {
             const logsDiv = document.getElementById('processingLogs');
-            if (logsDiv) {
-                logsDiv.innerHTML = `
-                    <div style="max-height: 400px; overflow-y: auto; border: 2px solid #e0e0e0; border-radius: 15px; padding: 20px; background: #fafafa;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <thead>
-                                <tr style="background: linear-gradient(135deg, #f8f9fa, #e9ecef); font-weight: 700;">
-                                    <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Time</th>
-                                    <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Document Type</th>
-                                    <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Quality</th>
-                                    <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Processing</th>
-                                    <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr style="background: white;">
-                                    <td style="padding: 12px 15px;">14:32:15</td>
-                                    <td style="padding: 12px 15px;"><span class="document-type">exam</span></td>
-                                    <td style="padding: 12px 15px; color: #4caf50; font-weight: 700;">92.1%</td>
-                                    <td style="padding: 12px 15px;">2.1s</td>
-                                    <td style="padding: 12px 15px; color: #4caf50; font-weight: 600;">Success</td>
-                                </tr>
-                                <tr style="background: #f8f9fa;">
-                                    <td style="padding: 12px 15px;">14:28:43</td>
-                                    <td style="padding: 12px 15px;"><span class="document-type">form</span></td>
-                                    <td style="padding: 12px 15px; color: #4caf50; font-weight: 700;">85.7%</td>
-                                    <td style="padding: 12px 15px;">1.8s</td>
-                                    <td style="padding: 12px 15px; color: #4caf50; font-weight: 600;">Success</td>
-                                </tr>
-                                <tr style="background: white;">
-                                    <td style="padding: 12px 15px;">14:15:22</td>
-                                    <td style="padding: 12px 15px;"><span class="document-type">newspaper</span></td>
-                                    <td style="padding: 12px 15px; color: #f44336; font-weight: 700;">54.3%</td>
-                                    <td style="padding: 12px 15px;">3.2s</td>
-                                    <td style="padding: 12px 15px; color: #f44336; font-weight: 600;">Failed</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            }
-        }
-
-        function loadHistoricalData(date) {
-            const historicalDiv = document.getElementById('historicalData');
-            if (historicalDiv) {
-                historicalDiv.innerHTML = `
-                    <div class="chart-container">
-                        <h3 class="section-title">7-Day Performance Trend</h3>
-                        <div style="overflow-x: auto;">
-                            <table style="width: 100%; border-collapse: collapse;">
-                                <thead>
-                                    <tr style="background: linear-gradient(135deg, #f8f9fa, #e9ecef); font-weight: 700;">
-                                        <th style="padding: 15px; text-align: left;">Date</th>
-                                        <th style="padding: 15px; text-align: center;">Documents</th>
-                                        <th style="padding: 15px; text-align: center;">Success Rate</th>
-                                        <th style="padding: 15px; text-align: center;">Avg Quality</th>
-                                        <th style="padding: 15px; text-align: center;">Avg Time</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr style="background: white;">
-                                        <td style="padding: 12px 15px; font-weight: 600;">Today</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 700;">12</td>
-                                        <td style="padding: 12px 15px; text-align: center; color: #4caf50; font-weight: 700;">91.7%</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">87.3%</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">2.4s</td>
-                                    </tr>
-                                    <tr style="background: #f8f9fa;">
-                                        <td style="padding: 12px 15px; font-weight: 600;">Yesterday</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 700;">8</td>
-                                        <td style="padding: 12px 15px; text-align: center; color: #4caf50; font-weight: 700;">87.5%</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">84.2%</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">2.7s</td>
-                                    </tr>
-                                    <tr style="background: white;">
-                                        <td style="padding: 12px 15px; font-weight: 600;">2 days ago</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 700;">15</td>
-                                        <td style="padding: 12px 15px; text-align: center; color: #4caf50; font-weight: 700;">93.3%</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">89.1%</td>
-                                        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">2.1s</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-
-        function generateReportData() {
-            showToast('Generating sample report data...', 'info', 'Processing');
+            if (!logsDiv) return;
             
-            setTimeout(() => {
-                showToast('Sample report data generated successfully!', 'success', 'Data Generated');
-                loadDailyReport();
-            }, 1500);
+            logsDiv.innerHTML = '<div style="text-align: center; padding: 20px;"><span class="loading-spinner"></span>Loading processing logs...</div>';
+
+            fetch(`${BASE_URL}/api/ocr/processing_logs?date=${date}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        logsDiv.innerHTML = `
+                            <div class="empty-state">
+                                <h3>Error Loading Logs</h3>
+                                <p>${escapeHTML(data.error)}</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    displayProcessingLogs(data);
+                })
+                .catch(err => {
+                    logsDiv.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Error Loading Logs</h3>
+                            <p>Failed to load processing logs: ${escapeHTML(err.message)}</p>
+                        </div>
+                    `;
+                });
+        }
+
+        function displayProcessingLogs(data) {
+            const logsDiv = document.getElementById('processingLogs');
+            if (!logsDiv) return;
+
+            const logs = data.logs || [];
+
+            if (logs.length === 0) {
+                logsDiv.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No Logs Available</h3>
+                        <p>No processing logs found for the selected date.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let logsHtml = `
+                <div style="max-height: 400px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: linear-gradient(135deg, #f8f9fa, #e9ecef); font-weight: 700;">
+                                <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Time</th>
+                                <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Action</th>
+                                <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Document Type</th>
+                                <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Status</th>
+                                <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Processing Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            logs.forEach(log => {
+                const time = new Date(log.timestamp).toLocaleTimeString();
+                const statusClass = log.success ? 'status-success' : 'status-failed';
+                const statusText = escapeHTML(log.status || (log.success ? 'Success' : 'Failed'));
+                const action = escapeHTML(log.action || 'N/A');
+                const documentType = escapeHTML(log.document_type || 'N/A');
+                const processingTime = log.processing_time ? (log.processing_time * 1000).toFixed(0) + 'ms' : 'N/A';
+
+                logsHtml += `
+                    <tr style="background: white; border-bottom: 1px solid #f0f0f0;">
+                        <td style="padding: 12px 15px;">${time}</td>
+                        <td style="padding: 12px 15px;">${action}</td>
+                        <td style="padding: 12px 15px;">${documentType}</td>
+                        <td style="padding: 12px 15px;">
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </td>
+                        <td style="padding: 12px 15px;">${processingTime}</td>
+                    </tr>
+                `;
+            });
+
+            logsHtml += `
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top: 15px; font-style: italic; color: #666;">
+                    Showing ${logs.length} log entries
+                </div>
+            `;
+
+            logsDiv.innerHTML = logsHtml;
+        }
+
+        function loadHistoricalData() {
+            const historicalDiv = document.getElementById('historicalData');
+            if (!historicalDiv) return;
+            
+            historicalDiv.innerHTML = '<div style="text-align: center; padding: 40px;"><span class="loading-spinner"></span>Loading historical data...</div>';
+
+            fetch(`${BASE_URL}/api/ocr/historical_data?days=7`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        historicalDiv.innerHTML = `
+                            <div class="empty-state">
+                                <h3>Error Loading Historical Data</h3>
+                                <p>${escapeHTML(data.error)}</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    displayHistoricalData(data);
+                })
+                .catch(err => {
+                    historicalDiv.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Error Loading Historical Data</h3>
+                            <p>Failed to load historical data: ${escapeHTML(err.message)}</p>
+                        </div>
+                    `;
+                });
+        }
+
+        function displayHistoricalData(data) {
+            const historicalDiv = document.getElementById('historicalData');
+            if (!historicalDiv) return;
+            
+            const days = data.days || [];
+            
+            if (days.length === 0) {
+                historicalDiv.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No Historical Data</h3>
+                        <p>No historical data available for the last 7 days.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let historicalHtml = `
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: linear-gradient(135deg, #f8f9fa, #e9ecef); font-weight: 700;">
+                                <th style="padding: 15px; text-align: left;">Date</th>
+                                <th style="padding: 15px; text-align: center;">Documents</th>
+                                <th style="padding: 15px; text-align: center;">Success Rate</th>
+                                <th style="padding: 15px; text-align: center;">Avg Quality</th>
+                                <th style="padding: 15px; text-align: center;">Avg Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            days.forEach(day => {
+                historicalHtml += `
+                    <tr style="background: white; border-bottom: 1px solid #f0f0f0;">
+                        <td style="padding: 12px 15px; font-weight: 600;">${escapeHTML(day.date)}</td>
+                        <td style="padding: 12px 15px; text-align: center; font-weight: 700;">${day.total_documents || 0}</td>
+                        <td style="padding: 12px 15px; text-align: center; color: #4caf50; font-weight: 700;">${day.ocr_success_rate ? (day.ocr_success_rate * 100).toFixed(1) + '%' : 'N/A'}</td>
+                        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${day.avg_quality ? (day.avg_quality * 100).toFixed(1) + '%' : 'N/A'}</td>
+                        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${day.avg_processing_time ? (day.avg_processing_time * 1000).toFixed(0) + 'ms' : 'N/A'}</td>
+                    </tr>
+                `;
+            });
+            
+            historicalHtml += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            historicalDiv.innerHTML = historicalHtml;
+        }
+
+        function generateTestData() {
+            showToast('Generating test data...', 'info', 'Processing');
+            
+            fetch(`${BASE_URL}/api/ocr/generate_test_data`, {
+                method: 'POST'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    showToast('Test data generated successfully!', 'success', 'Data Generated');
+                    loadDailyReport();
+                    if (document.getElementById('analytics-tab').classList.contains('active')) {
+                        loadAnalytics();
+                    }
+                } else {
+                    showToast(`Failed to generate test data: ${escapeHTML(data.error || 'Unknown error')}`, 'error', 'Error');
+                }
+            })
+            .catch(err => {
+                showToast(`Failed to generate test data: ${err.message}`, 'error', 'Error');
+            });
         }
 
         function initializeDashboard() {
-            fetch('/api/ocr/health')
-                .then(response => response.json())
+            fetch(`${BASE_URL}/api/ocr/health`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     const statusEl = document.getElementById('status');
                     if (statusEl) {
@@ -1449,7 +1727,7 @@
                         statusEl.innerHTML = 'Cannot connect to OCR server';
                         statusEl.className = 'status error';
                     }
-                    showToast('Cannot connect to OCR server', 'error', 'Connection Failed');
+                    showToast(`Cannot connect to OCR server: ${err.message}`, 'error', 'Connection Failed');
                 });
 
             setDefaultReportDate();
@@ -1458,7 +1736,6 @@
         document.addEventListener('DOMContentLoaded', function() {
             initializeDashboard();
         });
-
     </script>
 </body>
 </html>
