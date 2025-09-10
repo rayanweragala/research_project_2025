@@ -276,10 +276,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         double faceMatchScore = calculateSimilarity(lowerCommand, "muhuna");
         double navMatchScore = calculateSimilarity(lowerCommand, "sanchalanaya");
         double settingsMatchScore = calculateSimilarity(lowerCommand, "sakesum");
+        double paperMatchScore = calculateSimilarity(lowerCommand, "puwathpatha");
 
         Log.d("VoiceCommand", "Face match score: " + faceMatchScore);
         Log.d("VoiceCommand", "Navigation match score: " + navMatchScore);
         Log.d("VoiceCommand", "Settings match score: " + settingsMatchScore);
+        Log.d("VoiceCommand", "Paper match score: " + paperMatchScore);
 
 
         if(lowerCommand.equals("face") || lowerCommand.contains("people") ||
@@ -298,6 +300,14 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 lowerCommand.contains("sanchalan") || lowerCommand.contains("direction")) {
             stopListening();
             speak(StringResources.getString(Main.OPENING_NAVIGATION), StringResources.getCurrentLocale());
+
+        } else if(lowerCommand.contains("paper") || lowerCommand.contains("news") ||
+                lowerCommand.contains("newspaper") || lowerCommand.contains("puwathpatha") ||
+                lowerCommand.contains("පුවත්පත") || lowerCommand.contains("puwath") ||
+                lowerCommand.contains("නිව්ස්") || lowerCommand.contains("news reading")) {
+            stopListening();
+            speak(StringResources.getString(Main.OPENING_PAPER), StringResources.getCurrentLocale());
+            // startActivity(new Intent(this, PaperReadingActivity.class)); // Uncomment when activity is ready
 
         } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting") ||
                 lowerCommand.contains("sakesum") || lowerCommand.contains("සැකසුම්") ||
@@ -321,7 +331,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             Log.d("VoiceCommand", "Command not recognized: " + command);
             speak("Command not recognized. You said: " + command, StringResources.getCurrentLocale());
 
-            speak("Try saying: face, navigation, settings, or stop", StringResources.getCurrentLocale());
+            speak("Try saying: face, navigation, paper, settings, or stop", StringResources.getCurrentLocale());
         }
     }
 
