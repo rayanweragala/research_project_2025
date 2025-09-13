@@ -708,6 +708,66 @@
             .chart-container {
                 max-width: 100%; /* Full width on smaller screens */
             }
+             /* Camera-specific styles */
+        .camera-container {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        #cameraPreview {
+            width: 100%;
+            max-width: 500px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            margin-bottom: 15px;
+        }
+        
+        .camera-controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
+        }
+        
+        .upload-mode-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 8px;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .mode-tab {
+            flex: 1;
+            padding: 12px 20px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            font-size: 1em;
+        }
+        
+        .mode-tab.active {
+            background: linear-gradient(135deg, #34495e, #2c3e50);
+            color: white;
+            box-shadow: 0 5px 15px rgba(52, 73, 94, 0.3);
+        }
+        
+        .mode-tab:not(.active):hover {
+            background: rgba(52, 73, 94, 0.1);
+            color: #34495e;
+        }
+        
+        .upload-mode {
+            display: none;
+        }
+        
+        .upload-mode.active {
+            display: block;
+        }
         }
     </style>
 </head>

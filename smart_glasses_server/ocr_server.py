@@ -20,6 +20,8 @@ import pyttsx3
 import tensorflow as tf
 import random
 from collections import defaultdict
+import pytesseract as pt
+import platform
 
 from flask_cors import CORS
 
@@ -47,7 +49,14 @@ class SinhalaOCRServer:
         self.class_names = ['exam', 'form', 'newspaper', 'note', 'story', 'word']  # Update with your actual class names
         self.image_size = (224, 224)  # Update if you used a different size
         
+        self.language_configs = [
+            'sin',  
+            'eng',  
+        ]
+        self.tesseract_available = False
+
         self.setup_database()
+        self.setup_tesseract()
         self.init_models()
         
     def setup_database(self):
@@ -109,6 +118,169 @@ class SinhalaOCRServer:
             print(f"Database setup error: {e}")
             self.conn = None
             
+    def setup_tesseract(self):
+        """Setup Tesseract OCR configuration"""
+        try:
+            # Auto-detect Tesseract path based on OS
+            system = platform.system()
+            
+            if system == "Windows":
+                possible_paths = [
+                    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                    r"C:\Users\%USERNAME%\AppData\Local\Tesseract-OCR\tesseract.exe"
+                ]
+                
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        pt.pytesseract.tesseract_cmd = path
+                        break
+                        
+            elif system == "Linux":
+                # Usually installed via package manager
+                pt.pytesseract.tesseract_cmd = 'tesseract'
+                
+            elif system == "Darwin":  # macOS
+                possible_paths = [
+                    '/usr/local/bin/tesseract',
+                    '/opt/homebrew/bin/tesseract'
+                ]
+                
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        pt.pytesseract.tesseract_cmd = path
+                        break
+            
+            # Test Tesseract installation
+            test_image = Image.new('RGB', (100, 50), color='white')
+            pt.image_to_string(test_image, timeout=5)
+            
+            print("✅ Tesseract OCR configured successfully")
+            self.tesseract_available = True
+            
+            # Check available languages
+            try:
+                langs = pt.get_languages()
+                sinhala_available = 'sin' in langs
+                print(f"Available Tesseract languages: {', '.join(langs[:10])}..." if len(langs) > 10 else f"Available languages: {', '.join(langs)}")
+                print(f"Sinhala support: {'Available' if sinhala_available else 'Not installed'}")
+                
+                if not sinhala_available:
+                    print("⚠️  Warning: Sinhala language pack not found. Install with:")
+                    if system == "Windows":
+                        print("   Download from: https://github.com/tesseract-ocr/tessdata")
+                    elif system == "Linux":
+                        print("   sudo apt-get install tesseract-ocr-sin")
+                    elif system == "Darwin":
+                        print("   brew install tesseract-lang")
+                        
+            except Exception as e:
+                print(f"Could not check Tesseract languages: {e}")
+                
+        except Exception as e:
+            print(f"❌ Tesseract setup error: {e}")
+            print("Please ensure Tesseract is installed:")
+            print("  Windows: https://github.com/UB-Mannheim/tesseract/wiki")
+            print("  Linux: sudo apt-get install tesseract-ocr tesseract-ocr-sin")
+            print("  macOS: brew install tesseract tesseract-lang")
+            self.tesseract_available = False
+    
+
+    def extract_sinhala_text_tesseract(self, image):
+        """Extract Sinhala and English text using Tesseract OCR"""
+        if not self.tesseract_available:
+            return "", [], 0.0
+            
+        try:
+            # Convert OpenCV image to PIL Image
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb_image)
+            
+            print("Starting Tesseract OCR extraction...")
+            
+            best_text = ""
+            best_confidence = 0.0
+            best_data = None
+            
+            # Try different language configurations
+            for lang_config in self.language_configs:
+                try:
+                    print(f"Trying language configuration: {lang_config}")
+                    
+                    # Extract text with confidence data
+                    data = pt.image_to_data(
+                        pil_image, 
+                        lang=lang_config, 
+                        timeout=15,
+                        output_type=pt.Output.DICT
+                    )
+                    
+                    # Filter out low confidence text
+                    valid_confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
+                    
+                    if valid_confidences:
+                        avg_confidence = sum(valid_confidences) / len(valid_confidences)
+                        
+                        # Extract text
+                        text_parts = []
+                        for i in range(len(data['text'])):
+                            if int(data['conf'][i]) > 30:  # Only include text with >30% confidence
+                                text = data['text'][i].strip()
+                                if text:
+                                    text_parts.append(text)
+                        
+                        extracted_text = ' '.join(text_parts)
+                        
+                        print(f"Language {lang_config}: Found {len(text_parts)} text blocks with avg confidence {avg_confidence:.2f}%")
+                        
+                        # Use the result with highest confidence
+                        if avg_confidence > best_confidence and extracted_text:
+                            best_text = extracted_text
+                            best_confidence = avg_confidence
+                            best_data = data
+                            
+                except Exception as lang_error:
+                    print(f"Error with language {lang_config}: {lang_error}")
+                    continue
+            
+            # Process the best result
+            text_boxes = []
+            if best_data:
+                for i in range(len(best_data['text'])):
+                    if int(best_data['conf'][i]) > 30:
+                        text = best_data['text'][i].strip()
+                        if text:
+                            # Create bounding box coordinates
+                            x = best_data['left'][i]
+                            y = best_data['top'][i]
+                            w = best_data['width'][i]
+                            h = best_data['height'][i]
+                            
+                            bbox = [
+                                [x, y],
+                                [x + w, y],
+                                [x + w, y + h],
+                                [x, y + h]
+                            ]
+                            
+                            text_boxes.append({
+                                'text': text,
+                                'bbox': bbox,
+                                'confidence': int(best_data['conf'][i]) / 100.0
+                            })
+                            
+                            print(f"Tesseract text: '{text}' (confidence: {best_data['conf'][i]}%)")
+            
+            print(f"Tesseract extraction complete. Total confidence: {best_confidence:.2f}%")
+            return best_text, text_boxes, best_confidence / 100.0
+            
+        except Exception as e:
+            print(f"Tesseract OCR extraction error: {e}")
+            import traceback
+            traceback.print_exc()
+            return "", [], 0.0
+    
+
     def init_models(self):
         """Initialize Keras model and OCR reader"""
         try:
@@ -123,15 +295,19 @@ class SinhalaOCRServer:
             else:
                 print(f"Warning: Keras model not found at {self.keras_model_path}")
                 
-            # Initialize EasyOCR with Sinhala and English support
-            print("Initializing EasyOCR for Sinhala and English...")
-            self.ocr_reader = easyocr.Reader(['si', 'en'], gpu=False)  # Set gpu=True if you have CUDA
-            print("OCR reader initialized successfully")
-            
             # Initialize Text-to-Speech engine
-            self.tts_engine = pyttsx3.init()
-            self.tts_engine.setProperty('rate', 150)  # Speed of speech
-            print("TTS engine initialized successfully")
+            try:
+                print("Initializing Text-to-Speech engine...")
+                self.tts_engine = pyttsx3.init()
+                self.tts_engine.setProperty('rate', 150)  # Speed of speech
+                print("✅ TTS engine initialized successfully")
+            except Exception as tts_error:
+                print(f"⚠️  TTS initialization failed: {tts_error}")
+                print("TTS functionality will be disabled")
+                self.tts_engine = None
+            
+        except Exception as e:
+            print(f"Model initialization error: {e}")
             
         except Exception as e:
             print(f"Model initialization error: {e}")
@@ -189,8 +365,8 @@ class SinhalaOCRServer:
             traceback.print_exc()
             return "Unknown", 0.0
     
-    def extract_sinhala_text(self, image):
-        """Extract Sinhala and English text using EasyOCR"""
+    def extract_sinhala_text_easyocr(self, image):
+        """Extract Sinhala and English text using EasyOCR (fallback method)"""
         if not self.ocr_reader:
             return "", [], 0.0
             
@@ -198,10 +374,10 @@ class SinhalaOCRServer:
             # Convert BGR to RGB for EasyOCR
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
-            print("Starting OCR extraction...")
+            print("Starting EasyOCR extraction (fallback)...")
             # Perform OCR
             results = self.ocr_reader.readtext(rgb_image)
-            print(f"OCR found {len(results)} text blocks")
+            print(f"EasyOCR found {len(results)} text blocks")
             
             # Process results
             extracted_text = ""
@@ -216,17 +392,46 @@ class SinhalaOCRServer:
                     'confidence': confidence
                 })
                 total_confidence += confidence
-                print(f"OCR text: '{text}' (confidence: {confidence:.2f})")
+                print(f"EasyOCR text: '{text}' (confidence: {confidence:.2f})")
                 
             avg_confidence = total_confidence / len(results) if results else 0.0
             
             return extracted_text.strip(), text_boxes, avg_confidence
             
         except Exception as e:
-            print(f"OCR extraction error: {e}")
+            print(f"EasyOCR extraction error: {e}")
             import traceback
             traceback.print_exc()
             return "", [], 0.0
+        
+    def extract_sinhala_text(self, image):
+        """Extract Sinhala and English text using best available method"""
+        print("Starting text extraction...")
+        
+        # Try Tesseract first (better for Sinhala)
+        if self.tesseract_available:
+            print("Using Tesseract OCR for text extraction...")
+            tesseract_text, tesseract_boxes, tesseract_conf = self.extract_sinhala_text_tesseract(image)
+            
+            # If Tesseract found reasonable text, use it
+            if tesseract_text and len(tesseract_text.strip()) > 5 and tesseract_conf > 0.3:
+                print(f"Tesseract successful: {len(tesseract_text)} characters, confidence: {tesseract_conf:.2f}")
+                return tesseract_text, tesseract_boxes, tesseract_conf
+            else:
+                print("Tesseract results insufficient, trying EasyOCR...")
+        
+        # Fallback to EasyOCR
+        if self.ocr_reader:
+            print("Using EasyOCR for text extraction...")
+            easyocr_text, easyocr_boxes, easyocr_conf = self.extract_sinhala_text_easyocr(image)
+            
+            if easyocr_text:
+                print(f"EasyOCR successful: {len(easyocr_text)} characters, confidence: {easyocr_conf:.2f}")
+                return easyocr_text, easyocr_boxes, easyocr_conf
+        
+        print("Both OCR methods failed or unavailable")
+        return "", [], 0.0
+            
     
     def text_to_speech(self, text):
         """Convert text to speech"""
@@ -757,7 +962,8 @@ def ocr_health():
     return jsonify({
         'status': 'healthy',
         'model_loaded': ocr_server.document_classifier is not None,
-        'ocr_ready': ocr_server.ocr_reader is not None,
+        'easyocr_ready': ocr_server.ocr_reader is not None,
+        'tesseract_ready': ocr_server.tesseract_available,
         'tts_ready': ocr_server.tts_engine is not None,
         'database_ready': ocr_server.conn is not None,
         'stats': ocr_server.processing_stats
@@ -1045,7 +1251,8 @@ if __name__ == '__main__':
     # Check model availability
     model_available = os.path.exists(ocr_server.keras_model_path)
     print(f"Document Classifier: {'Available' if model_available else 'Not Found'}")
-    print(f"OCR Reader: {'Loaded' if ocr_server.ocr_reader else 'Failed'}")
+    print(f"EasyOCR Reader: {'Loaded' if ocr_server.ocr_reader else 'Failed'}")
+    print(f"Tesseract OCR: {'Ready' if ocr_server.tesseract_available else 'Failed'}")
     print(f"TTS Engine: {'Ready' if ocr_server.tts_engine else 'Failed'}")
     print(f"Database: {'Connected' if ocr_server.conn else 'Failed'}")
     
