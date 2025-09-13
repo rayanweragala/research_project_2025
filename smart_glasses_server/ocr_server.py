@@ -15,13 +15,13 @@ from datetime import datetime, timedelta
 import sqlite3
 import io
 from PIL import Image, ImageEnhance
-import easyocr
 import pyttsx3
 import tensorflow as tf
 import random
 from collections import defaultdict
 import pytesseract as pt
 import platform
+import face_server
 
 from flask_cors import CORS
 
@@ -49,15 +49,146 @@ class SinhalaOCRServer:
         self.class_names = ['exam', 'form', 'newspaper', 'note', 'story', 'word']  # Update with your actual class names
         self.image_size = (224, 224)  # Update if you used a different size
         
+        self.picamera2 = None
+        self.camera_mode = None
+        self.camera_width = 1920
+        self.camera_height = 1080
+        self.fps = 30
+        self.rpi_camera_config = None
+        self.camera= None
+        self.camera_active = False
+        self.camera_lock = threading.Lock()
+        self.last_frame = None
+        self.stop_capture = False
+        self.frame_capture_thread = None
+        self.camera_error = None
+
         self.language_configs = [
             'sin',  
             'eng',  
         ]
         self.tesseract_available = False
 
+        self.camera_settings = {
+            'width': 640,
+            'height': 480,
+            'fps': 25,
+            'brightness': 0.0,
+            'contrast': 1.0,
+            'saturation': 1.0
+        }
+
         self.setup_database()
         self.setup_tesseract()
         self.init_models()
+    
+    def init_rpi_camera(self):
+        """Initialize Raspberry Pi camera with Picamera2"""
+        try:
+            if not RPI_CAMERA_AVAILABLE:
+                logging.warning("Picamera2 not available, falling back to USB")
+                return self.init_usb_camera()
+            
+            logging.info("Initializing Raspberry pi camera...")
+
+            self.picamera2 = Picamera2()
+
+            
+            config = self.picamera2.create_video_configuration(
+                sensor={"output_size": (1280, 720)}, 
+                main={"size": (1280, 720)},            
+                lores={"size": (320, 240)},            
+                buffer_count=4
+            )
+
+            self.picamera2.configure(config)
+            
+            self.picamera2.set_controls({
+                "FrameRate": 60.0,
+                "AeEnable": True,
+                "AwbEnable": True,
+                "Brightness": 0.0,
+                "Contrast": 1.0,
+                "Saturation": 1.0,
+                "Sharpness": 1.2,
+                "AeConstraintMode": 1,
+                "AeMeteringMode": 0
+        })
+
+            self.picamera2.start()
+            time.sleep(2)
+
+            for i in range(5):
+                frame = self.picamera2.capture_array()
+                if frame is not None and frame.size:
+                    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    mean_intensity = np.mean(bgr)
+                    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+                    sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+                    logging.info(f"Frame {i+1}: intensity={mean_intensity:.1f}, sharpness={sharpness:.1f}")
+                    if 20 < mean_intensity < 230 and sharpness > 5:
+                        self.camera_mode = 'rpi'
+                        self.camera_width, self.camera_height = 1280, 720
+                        logging.info("Raspberry Pi camera initialized successfully.")
+                        return True
+                time.sleep(0.5)
+
+            self.picamera2.stop()
+            self.picamera2.close()
+            self.picamera2 = None
+            logging.warning("Test frame failed; falling back to USB")
+            return self.init_usb_camera()
+                
+        except Exception as e:
+            logging.error(f"RPi camera initialization failed: {e}")
+            if self.picamera2:
+                try:
+                    self.picamera2.stop()
+                    self.picamera2.close()
+                    self.picamera2 = None
+                except:
+                    pass
+            return self.init_usb_camera()
+
+    def init_usb_camera(self):
+        """Initializing Opencv camera as fallback"""
+        try:
+            logging.info("Initializing USB camera")
+            backends_to_try = [cv2.CAP_V4L2,cv2.CAP_ANY]
+
+            for camera_id in [0,1,2]:
+                logging.info(f"Trying USB camera {camera_id}...")
+
+                for backend in backends_to_try:
+                    try:
+                        test_camera = cv2.VideoCapture(camera_id,backend)
+
+                        if test_camera.isOpened():
+                            test_camera.set(cv2.CAP_PROP_FRAME_WIDTH,640)
+                            test_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                            test_camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                            test_camera.set(cv2.CAP_PROP_FPS, 30)
+
+                            ret, frame = test_camera.read()
+                            test_camera.release()
+
+                            if ret and frame is not None and np.mean(frame) > 15:
+                                self.camera = cv2.VideoCapture(camera_id, backend)
+                                self.configure_camera()
+                                self.camera_mode = 'usb'
+                                logging.info(f"USB camera {camera_id} initialized successfully")
+                                return True
+                        else:
+                            test_camera.release()
+                    except Exception as e:
+                        logging.debug(f"USB camera {camera_id} backend {backend} failed: {e}")
+                        continue
+            logging.error("No working cameras found")
+            return False
+        except Exception as e:
+            logging.error(f"USB camera initialization error: {e}")
+            return False
+
         
     def setup_database(self):
         """Setup SQLite database for storing OCR results"""
@@ -117,7 +248,224 @@ class SinhalaOCRServer:
         except Exception as e:
             print(f"Database setup error: {e}")
             self.conn = None
+
+    def start_camera(self):
+        """ camera initialization with Rpi camera priority"""
+        try:
+            with self.camera_lock:
+                if self.camera_active:
+                    logging.info("Camera already active")
+                    return True
+        
+                self.camera_error = None
+
+                if self.init_rpi_camera():
+                    self.camera_active = True
+                    self.stop_capture = False
+
+                    self.frame_capture_thread = threading.Thread(
+                        target=self._continuous_capture,
+                        daemon=True
+                    )
+                    self.frame_capture_thread.start()
+                    time.sleep(0.5)
+
+                    logging.info("RPi camera started successfully")
+                    return True
             
+                if self.camera_mode == 'usb' and self.camera and self.camera.isOpened():
+                    if self._validate_camera():
+                        self.camera_active = True
+                        self.stop_capture = False
+                    
+                        self.frame_capture_thread = threading.Thread(
+                            target=self._continuous_capture,
+                            daemon=True
+                        )
+
+                        self.frame_capture_thread.start()
+                        time.sleep(0.5)
+
+                        logging.info("USB camera started successfully as fallback")
+                        return True
+            
+                self.camera_error = "No working cameras found"
+                logging.error(self.camera_error)
+                return False
+        
+        except Exception as e:
+            logging.error(f"Camera initialization error: {e}")
+            self.camera_error = f"Camera initialization failed: {str(e)}"
+            return False
+        
+    def _continuous_capture(self):
+        """Continuously capture frames in background thread"""
+        try:
+            while not self.stop_capture and self.camera_active:
+                frame = None
+                
+                if self.camera_mode == 'rpi' and self.picamera2:
+                    try:
+                        frame = self.picamera2.capture_array()
+                        if frame is not None:
+                            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    except Exception as e:
+                        logging.error(f"RPi capture error: {e}")
+                        break
+                        
+                elif self.camera_mode == 'usb' and self.camera and self.camera.isOpened():
+                    try:
+                        ret, frame = self.camera.read()
+                        if not ret or frame is None:
+                            logging.warning("USB camera read failed")
+                            break
+                    except Exception as e:
+                        logging.error(f"USB capture error: {e}")
+                        break
+                
+                if frame is not None:
+                    with self.camera_lock:
+                        self.last_frame = frame.copy()
+                
+                time.sleep(0.05)  # ~20 FPS
+                
+        except Exception as e:
+            logging.error(f"Continuous capture error: {e}")
+            self.camera_error = f"Capture thread error: {str(e)}"
+        finally:
+            logging.info("Capture thread ended")
+
+    def configure_camera(self):
+        """Configure camera with validation"""
+        try:
+            if not self.camera or not self.camera.isOpened():
+                return False  
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_settings['width'])
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_settings['height'])
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  
+            self.camera.set(cv2.CAP_PROP_FPS, self.camera_settings['fps'])
+
+            optional_settings = [
+                (cv2.CAP_PROP_BRIGHTNESS, self.camera_settings['brightness'] / 100.0),
+                (cv2.CAP_PROP_CONTRAST, self.camera_settings['contrast'] / 100.0),
+                (cv2.CAP_PROP_SATURATION, self.camera_settings['saturation'] / 100.0),
+                (cv2.CAP_PROP_AUTO_EXPOSURE, 0.25), 
+                (cv2.CAP_PROP_EXPOSURE, -6),
+            ]
+        
+            for prop, value in optional_settings:
+                try:
+                    self.camera.set(prop, value)
+                except:
+                    pass
+            
+            logging.info("Camera configured successfully")
+            return True
+        
+        except Exception as e:
+            logging.error(f"Error configuring camera: {e}")
+            return False
+
+    def _validate_camera(self):
+        """Validate camera produces good frames"""
+        try:
+            if not self.camera or not self.camera.isOpened():
+                return False
+            
+            valid_frames = 0
+            for i in range(10):
+                ret, frame = self.camera.read()
+
+                if ret and frame is not None and frame.size > 0:
+                    mean_intensity = np.mean(frame)
+                    if mean_intensity > 15 and mean_intensity < 240:
+                        valid_frames += 1
+                        logging.debug(f"Frame {i+1}: valid (mean intensity: {mean_intensity:.1f})")
+                    else:
+                        logging.warning(f"Frame {i+1}: Invalid intensity {mean_intensity:.1f}")
+                else:
+                    logging.warning(f"Frame {i+1}: Failed to capture")
+                
+                time.sleep(0.05)
+
+            success_rate = valid_frames / 10
+            logging.info(f"Camera validation: {valid_frames}/10 valid frames ({success_rate*100:.1f}%)")
+        
+            return success_rate >= 0.6
+        
+        except Exception as e:
+            logging.error(f"Camera validation error: {e}")
+            return False
+        
+    def stop_camera(self):
+        """Stop camera and cleanup"""
+        try:
+            with self.camera_lock:
+                self.stop_capture = True
+                self.camera_active = False
+
+                if self.picamera2:
+                    try:
+                        self.picamera2.stop()
+                        self.picamera2.close()
+                        self.picamera2 = None
+                        logging.info("RPi camera stopped")
+                    except Exception as e:
+                        logging.error(f"Error stopping RPi camera: {e}")
+
+                if self.camera:
+                    try:
+                        self.camera.release()
+                        self.camera = None
+                        logging.info("USB camera stopped")
+                    except Exception as e:
+                        logging.error(f"Error stopping USB camera: {e}")
+
+                self.last_frame = None
+                self.camera_mode = None
+             
+                if self.frame_capture_thread and self.frame_capture_thread.is_alive():
+                    self.frame_capture_thread.join(timeout=2.0)
+
+            logging.info("Camera stopped successfully")
+            return True
+        
+        except Exception as e:
+            logging.error(f"Error stopping camera: {e}")
+            return False
+        
+    def capture_frame(self):
+        """Get the latest captured frame"""
+        try:
+            with self.camera_lock:
+                if self.last_frame is not None:
+                    return self.last_frame.copy()
+                else:
+                    logging.warning("No frame available in buffer")
+                    return None
+        except Exception as e:
+            logging.error(f"Error capturing frame: {e}")
+            return None
+        
+    def frame_to_base64(self, frame):
+        """Convert frame to base64 string"""
+        try:
+            if frame is None:
+                return None
+            
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not ret:
+                logging.error("Failed to encode frame to JPEG")
+                return None
+            
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            return jpg_as_text
+        
+        except Exception as e:
+            logging.error(f"Error converting frame to base64: {e}")
+            return None
+
+
     def setup_tesseract(self):
         """Setup Tesseract OCR configuration"""
         try:
@@ -968,6 +1316,144 @@ def ocr_health():
         'database_ready': ocr_server.conn is not None,
         'stats': ocr_server.processing_stats
     })
+
+@app.route('/api/camera/start', methods=['POST'])
+def start_camera():
+    """Start camera endpoint"""
+    try:
+        success = ocr_server.start_camera()
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Camera started successfully',
+                'camera_active': True,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            logging.error("Failed to start camera")
+            return jsonify({
+                'success': False,
+                'message': 'No available cameras found',
+                'camera_active': False
+            }), 500
+    except Exception as e:
+        logging.error(f"Camera start endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Camera error: {str(e)}',
+            'camera_active': False
+        }), 500
+    
+@app.route('/api/camera/stop', methods=['POST'])
+def stop_camera():
+    """Stop camera endpoint"""
+    try:
+        success = ocr_server.stop_camera()
+        return jsonify({
+            'success': True,
+            'message': 'Camera stopped successfully',
+            'camera_active': False,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logging.error(f"Camera stop endpoint error: {e}")
+        return jsonify({
+            'success': True,
+            'message': 'Camera stop requested',
+            'camera_active': False,
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    
+@app.route('/api/camera/frame', methods=['GET'])
+def get_camera_frame():
+    """Get current camera frame with face recognition"""
+    try:
+        include_image = request.args.get('include_image', 'true').lower() == 'true'
+        image_quality = int(request.args.get('quality', '85'))
+        recognition_only = request.args.get('recognition_only', 'false').lower() == 'true'
+        
+        if not ocr_server.camera_active:
+            logging.warning("Camera not active")
+            return jsonify({
+                'error': 'Camera not active',
+                'image': '',
+                'recognized': False,
+                'message': 'Camera not available',
+                'confidence': 0.0,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        if ocr_server.camera_error:
+            logging.error(f"Camera error: {ocr_server.camera_error}")
+            return jsonify({
+                'error': ocr_server.camera_error,
+                'image': '',
+                'recognized': False,
+                'message': 'Camera error',
+                'confidence': 0.0,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        frame = ocr_server.capture_frame()
+        if frame is None:
+            logging.info("Attempting to restart camera...")
+            if ocr_server.start_camera():
+                frame = ocr_server.capture_frame()
+                
+            if frame is None:
+                return jsonify({
+                    'error': 'Failed to capture frame',
+                    'image': '',
+                    'recognized': False,
+                    'message': 'Frame capture failed',
+                    'confidence': 0.0,
+                    'timestamp': datetime.now().isoformat()
+                }), 500
+
+        processed_frame = ocr_server.preprocess_camera_frame(frame)
+        recognition_result = ocr_server.recognize_face_with_averaging(processed_frame)
+        
+        
+        response_data = {
+            'recognized': recognition_result.get('recognized', False),
+            'message': recognition_result.get('message', 'Processing...'),
+            'confidence': recognition_result.get('confidence', 0.0),
+            'confidence_level': recognition_result.get('confidence_level', 'unknown'),
+            'quality_score': recognition_result.get('quality_score', 0.0),
+            'processing_time': recognition_result.get('processing_time', 0.0),
+            'method_used': recognition_result.get('method_used', 'unknown'),
+            'name': recognition_result.get('name', None),
+            'timestamp': datetime.now().isoformat()
+        }
+
+        if include_image and not recognition_only:
+            frame_base64 = ocr_server.frame_to_base64_quality(frame, image_quality)
+            if frame_base64 is None:
+                return jsonify({
+                    'error': 'Failed to encode frame',
+                    **response_data
+                }), 500
+            response_data['image'] = frame_base64
+        elif include_image:
+            response_data['image'] = ''
+        else:
+            pass
+            
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logging.error(f"Frame endpoint error: {e}")
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': f'Frame capture error: {str(e)}',
+            'image': '',
+            'recognized': False,
+            'message': 'Server error',
+            'confidence': 0.0,
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
 
 @app.route('/api/ocr/process', methods=['POST'])
 def process_document():

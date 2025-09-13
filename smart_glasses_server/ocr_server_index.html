@@ -49,7 +49,7 @@
         
         .dashboard-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 25px;
             margin-bottom: 25px;
         }
@@ -768,7 +768,46 @@
         .upload-mode.active {
             display: block;
         }
-        }
+
+        .camera-section {
+    background: white;
+    border-radius: 20px;
+    padding: 25px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+.camera-container {
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8f9fa;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+
+#cameraPreview {
+    max-width: 100%;
+    max-height: 400px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+}
+
+.camera-controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.camera-controls .button {
+    flex: 1;
+    min-width: 120px;
+    margin: 5px 0;
+}
+
+
+}
     </style>
 </head>
 <body>
@@ -803,7 +842,6 @@
                         <img id="previewImage" class="preview-image" />
                     </div>
                 </div>
-                
                 <div class="controls-section">
                     <h3 class="section-title">Processing Controls</h3>
                     
@@ -826,6 +864,28 @@
                         <div class="loading-spinner"></div>
                         Processing document...
                     </div>
+                </div>
+                <div class="camera-section">
+        <h3 class="section-title">Camera Feed</h3>
+        <div class="camera-container" id="cameraContainer">
+            <img id="cameraPreview" alt="Camera feed" style="display: none;" />
+            <div class="empty-state" id="cameraPlaceholder">
+                <h3>Camera Not Active</h3>
+                <p>Start camera to see live feed</p>
+            </div>
+        </div>
+        
+        <div class="camera-controls">
+            <button class="button process" id="startCameraBtn" onclick="startCamera()">
+                Start Camera
+            </button>
+            <button class="button clear" id="stopCameraBtn" onclick="stopCamera()" disabled>
+                Stop Camera
+            </button>
+            <button class="button speak" id="captureBtn" onclick="captureFromCamera()" disabled>
+                Capture Frame
+            </button>
+        </div>
                 </div>
             </div>
             
@@ -1759,6 +1819,157 @@
             });
         }
 
+        let cameraInterval = null;
+let cameraActive = false;
+
+function startCamera() {
+    const startBtn = document.getElementById('startCameraBtn');
+    const stopBtn = document.getElementById('stopCameraBtn');
+    const captureBtn = document.getElementById('captureBtn');
+    
+    startBtn.disabled = true;
+    startBtn.textContent = 'Starting...';
+    
+    fetch(`${BASE_URL}/api/camera/start`, {
+        method: 'POST'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            cameraActive = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            captureBtn.disabled = false;
+            startBtn.textContent = 'Start Camera';
+            
+            showToast('Camera started successfully', 'success', 'Camera Active');
+            startCameraFeed();
+        } else {
+            throw new Error(data.message || 'Failed to start camera');
+        }
+    })
+    .catch(err => {
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Camera';
+        showToast(`Failed to start camera: ${err.message}`, 'error', 'Camera Error');
+    });
+}
+
+function stopCamera() {
+    const startBtn = document.getElementById('startCameraBtn');
+    const stopBtn = document.getElementById('stopCameraBtn');
+    const captureBtn = document.getElementById('captureBtn');
+    
+    cameraActive = false;
+    if (cameraInterval) {
+        clearInterval(cameraInterval);
+        cameraInterval = null;
+    }
+    
+    fetch(`${BASE_URL}/api/camera/stop`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        captureBtn.disabled = true;
+        
+        // Hide camera preview and show placeholder
+        document.getElementById('cameraPreview').style.display = 'none';
+        document.getElementById('cameraPlaceholder').style.display = 'block';
+        
+        showToast('Camera stopped', 'info', 'Camera Inactive');
+    })
+    .catch(err => {
+        showToast(`Error stopping camera: ${err.message}`, 'warning', 'Camera Warning');
+    });
+}
+
+function startCameraFeed() {
+    const preview = document.getElementById('cameraPreview');
+    const placeholder = document.getElementById('cameraPlaceholder');
+    
+    cameraInterval = setInterval(() => {
+        if (!cameraActive) {
+            clearInterval(cameraInterval);
+            return;
+        }
+        
+        fetch(`${BASE_URL}/api/camera/frame?include_image=true&image_quality=75`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.image) {
+                    preview.src = `data:image/jpeg;base64,${data.image}`;
+                    preview.style.display = 'block';
+                    placeholder.style.display = 'none';
+                } else if (data.error) {
+                    console.warn('Camera frame error:', data.error);
+                }
+            })
+            .catch(err => {
+                console.warn('Camera feed error:', err);
+            });
+    }, 200); // Update every 200ms (5 FPS)
+}
+
+function captureFromCamera() {
+    fetch(`${BASE_URL}/api/camera/frame?include_image=true&quality=85`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.image) {
+                // Convert camera frame to file-like object for processing
+                const img = document.getElementById('cameraPreview');
+                if (img.src) {
+                    // Create a canvas to get the image data
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // Convert to blob and process
+                    canvas.toBlob((blob) => {
+                        currentDocumentData = new File([blob], 'camera-capture.jpg', { type: 'image/jpeg' });
+                        
+                        // Show preview
+                        const previewImg = document.getElementById('previewImage');
+                        const previewContainer = document.getElementById('previewContainer');
+                        previewImg.src = img.src;
+                        previewContainer.style.display = 'block';
+                        
+                        // Enable process button
+                        document.getElementById('processBtn').disabled = false;
+                        updateStatus('Camera frame captured. Ready to process.', 'success');
+                        showToast('Frame captured successfully', 'success', 'Capture Complete');
+                    }, 'image/jpeg', 0.85);
+                }
+            } else {
+                showToast('Failed to capture frame', 'error', 'Capture Failed');
+            }
+        })
+        .catch(err => {
+            showToast(`Capture error: ${err.message}`, 'error', 'Capture Error');
+        });
+}
+
+
         function initializeDashboard() {
             fetch(`${BASE_URL}/api/ocr/health`)
                 .then(response => {
@@ -1795,6 +2006,12 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             initializeDashboard();
+        });
+
+        window.addEventListener('beforeunload', function() {
+            if (cameraActive) {
+                stopCamera();
+            }
         });
     </script>
 </body>
