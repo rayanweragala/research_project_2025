@@ -1,9 +1,16 @@
-import RPi.GPIO as GPIO
+#!/usr/bin/env python3
+"""
+Ultrasonic Distance Sensor Web Server for Raspberry Pi 5
+Provides REST API for distance measurements with HC-SR04 sensor
+Modified to use lgpio and 4-second measurement intervals
+"""
+
+import lgpio
 import time
 import json
 import threading
 from datetime import datetime, timedelta
-from flask import Flask, jsonify, request, render_template_string
+from flask import Flask, jsonify, request, render_template_string, send_from_directory
 from flask_cors import CORS
 import statistics
 from collections import deque, defaultdict
@@ -16,11 +23,12 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# GPIO pin configuration for HC-SR04
-TRIG_PIN = 18  # Trigger pin
-ECHO_PIN = 24  # Echo pin
+# GPIO pin configuration for HC-SR04 on Pi 5
+TRIG_PIN = 18  # Trigger pin (changed from 23)
+ECHO_PIN = 19  # Echo pin (changed from 24)
 
 # Global variables
+gpio_handle = None
 sensor_active = False
 measurement_thread = None
 current_distance = 0.0
@@ -72,44 +80,68 @@ class DistanceMeasurement:
         }
 
 def setup_gpio():
-    """Initialize GPIO pins for ultrasonic sensor"""
+    """Initialize GPIO pins for ultrasonic sensor on Pi 5"""
+    global gpio_handle
+    
     try:
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(TRIG_PIN, GPIO.OUT)
-        GPIO.setup(ECHO_PIN, GPIO.IN)
-        GPIO.output(TRIG_PIN, False)
+        # Open GPIO chip 4 (Pi 5)
+        gpio_handle = lgpio.gpiochip_open(4)
+        
+        # Set pin modes
+        lgpio.gpio_claim_output(gpio_handle, TRIG_PIN)
+        lgpio.gpio_claim_input(gpio_handle, ECHO_PIN)
+        
+        # Set initial state
+        lgpio.gpio_write(gpio_handle, TRIG_PIN, 0)
         time.sleep(0.1)  # Allow sensor to settle
+        
         logger.info(f"GPIO initialized - TRIG: {TRIG_PIN}, ECHO: {ECHO_PIN}")
         return True
     except Exception as e:
         logger.error(f"GPIO setup failed: {e}")
+        if gpio_handle:
+            lgpio.gpiochip_close(gpio_handle)
+            gpio_handle = None
         return False
 
 def measure_distance():
     """
-    Measure distance using HC-SR04 ultrasonic sensor
+    Measure distance using HC-SR04 ultrasonic sensor with Pi 5 lgpio
     Returns distance in centimeters
     """
+    global gpio_handle
+    
+    if gpio_handle is None:
+        return None
+    
     try:
-        # Send trigger pulse
-        GPIO.output(TRIG_PIN, True)
-        time.sleep(0.00001)  # 10 microsecond pulse
-        GPIO.output(TRIG_PIN, False)
-       
-        # Wait for echo response
+        # Ensure trigger is low
+        lgpio.gpio_write(gpio_handle, TRIG_PIN, 0)
+        time.sleep(0.002)  # 2ms settle time
+        
+        # Send 10us trigger pulse
+        lgpio.gpio_write(gpio_handle, TRIG_PIN, 1)
+        time.sleep(0.00001)  # 10 microseconds
+        lgpio.gpio_write(gpio_handle, TRIG_PIN, 0)
+        
+        # Wait for echo start with timeout
+        start_wait = time.time()
+        timeout = start_wait + 0.03  # 30ms timeout
+        
+        while lgpio.gpio_read(gpio_handle, ECHO_PIN) == 0:
+            if time.time() > timeout:
+                return None  # No echo start
+        
         pulse_start = time.time()
+        
+        # Wait for echo end with timeout
+        timeout = pulse_start + 0.025  # 25ms max (for ~400cm)
+        while lgpio.gpio_read(gpio_handle, ECHO_PIN) == 1:
+            if time.time() > timeout:
+                return None  # Echo too long
+        
         pulse_end = time.time()
-       
-        # Wait for echo to go high
-        timeout = time.time() + 0.1  # 100ms timeout
-        while GPIO.input(ECHO_PIN) == 0 and time.time() < timeout:
-            pulse_start = time.time()
-       
-        # Wait for echo to go low
-        timeout = time.time() + 0.1  # 100ms timeout
-        while GPIO.input(ECHO_PIN) == 1 and time.time() < timeout:
-            pulse_end = time.time()
-       
+        
         # Calculate distance
         pulse_duration = pulse_end - pulse_start
         distance = pulse_duration * 17150  # Sound speed = 34300 cm/s, divide by 2
@@ -132,25 +164,30 @@ def smooth_measurements(measurements, window_size=5):
     recent = list(measurements)[-window_size:]
     # Remove outliers using IQR method
     if len(recent) >= 3:
-        q1 = statistics.quantiles(recent, n=4)[0]
-        q3 = statistics.quantiles(recent, n=4)[2]
-        iqr = q3 - q1
-        lower_bound = q1 - 1.5 * iqr
-        upper_bound = q3 + 1.5 * iqr
-       
-        filtered = [x for x in recent if lower_bound <= x <= upper_bound]
-        if filtered:
-            stats_data['outliers_removed'] += len(recent) - len(filtered)
-            return statistics.mean(filtered)
+        try:
+            q1 = statistics.quantiles(recent, n=4)[0]
+            q3 = statistics.quantiles(recent, n=4)[2]
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+           
+            filtered = [x for x in recent if lower_bound <= x <= upper_bound]
+            if filtered:
+                stats_data['outliers_removed'] += len(recent) - len(filtered)
+                return statistics.mean(filtered)
+        except statistics.StatisticsError:
+            pass
    
     return statistics.mean(recent)
 
 def continuous_measurement():
-    """Continuous measurement loop running in separate thread"""
+    """Continuous measurement loop running in separate thread with 4-second intervals"""
     global current_distance, sensor_active
    
     measurement_times = deque(maxlen=100)
     raw_distances = deque(maxlen=20)
+   
+    logger.info("Starting continuous measurement with 4-second intervals...")
    
     while sensor_active:
         try:
@@ -176,8 +213,11 @@ def continuous_measurement():
                 # Calculate quality score based on consistency
                 quality_score = 1.0
                 if len(readings) > 1:
-                    variance = statistics.variance(readings)
-                    quality_score = max(0.1, 1.0 - (variance / 100))  # Lower variance = higher quality
+                    try:
+                        variance = statistics.variance(readings)
+                        quality_score = max(0.1, 1.0 - (variance / 100))  # Lower variance = higher quality
+                    except statistics.StatisticsError:
+                        quality_score = 0.8
                
                 # Store measurement
                 measurement = DistanceMeasurement(
@@ -196,15 +236,15 @@ def continuous_measurement():
                     stats_data['measurement_rate'] = (len(measurement_times) - 1) / time_span
                
                 stats_data['smoothed_readings'] += 1
+                
+                logger.info(f"Distance: {smoothed_distance:.2f} cm (Quality: {quality_score:.2f})")
            
-            # Control measurement frequency (10 Hz)
-            elapsed = time.time() - start_time
-            sleep_time = max(0, 0.1 - elapsed)
-            time.sleep(sleep_time)
+            # 4-second interval between measurements (changed from 2.0)
+            time.sleep(4.0)
            
         except Exception as e:
             logger.error(f"Measurement loop error: {e}")
-            time.sleep(0.1)
+            time.sleep(4.0)
 
 def update_statistics(distance):
     """Update running statistics"""
@@ -227,10 +267,13 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'sensor_active': sensor_active,
-        'gpio_initialized': True,
+        'gpio_initialized': gpio_handle is not None,
         'current_distance': current_distance,
         'total_measurements': stats_data['total_measurements'],
         'measurement_rate': round(stats_data['measurement_rate'], 2),
+        'pi_model': 'Raspberry Pi 5',
+        'gpio_library': 'lgpio',
+        'measurement_interval': '4 seconds',
         'features': {
             'real_time_measurement': True,
             'noise_filtering': True,
@@ -255,7 +298,7 @@ def start_sensor():
             measurement_thread = threading.Thread(target=continuous_measurement, daemon=True)
             measurement_thread.start()
            
-            logger.info("Distance sensor started")
+            logger.info("Distance sensor started (Pi 5 with 4-second intervals)")
             return jsonify({'success': True, 'message': 'Distance sensor started successfully'})
         else:
             return jsonify({'success': False, 'message': 'Sensor already active'})
@@ -267,11 +310,13 @@ def start_sensor():
 @app.route('/api/sensor/stop', methods=['POST'])
 def stop_sensor():
     """Stop distance measurements"""
-    global sensor_active
+    global sensor_active, gpio_handle
    
     try:
         sensor_active = False
-        GPIO.cleanup()
+        if gpio_handle:
+            lgpio.gpiochip_close(gpio_handle)
+            gpio_handle = None
         logger.info("Distance sensor stopped")
         return jsonify({'success': True, 'message': 'Distance sensor stopped'})
        
@@ -472,7 +517,7 @@ def generate_test_data():
                 distance = random.uniform(120, 300)  # Far
            
             quality = random.uniform(0.7, 1.0)
-            timestamp = base_time + timedelta(minutes=i*2)
+            timestamp = base_time + timedelta(minutes=i*4)  # Changed to 4-minute intervals
            
             measurement = DistanceMeasurement(
                 distance=round(distance, 2),
@@ -497,16 +542,44 @@ def generate_test_data():
 
 @app.route('/')
 def dashboard():
-    """Serve the main dashboard"""
-    # You would return your HTML template here
-    return "Distance Sensor Dashboard - Use /api endpoints for data"
+    """Serve the main dashboard HTML"""
+    return send_from_directory('.', 'ultrasonic_sensor.html')
+
+@app.route('/ultrasonic_sensor.html')
+def dashboard_html():
+    """Alternative route for the dashboard HTML"""
+    return send_from_directory('.', 'ultrasonic_sensor.html')
+
+@app.route('/api/info')
+def api_info():
+    """API information endpoint"""
+    return jsonify({
+        'message': 'Pi 5 Ultrasonic Sensor API (4-second intervals)',
+        'status': 'ready',
+        'gpio_pins': f'Trig: {TRIG_PIN}, Echo: {ECHO_PIN}',
+        'measurement_interval': '4 seconds',
+        'pi_model': 'Raspberry Pi 5',
+        'gpio_library': 'lgpio',
+        'endpoints': {
+            'health': '/api/health',
+            'start': 'POST /api/sensor/start',
+            'stop': 'POST /api/sensor/stop',
+            'current': '/api/distance/current',
+            'analytics': '/api/analytics',
+            'daily_report': '/api/daily_report?date=YYYY-MM-DD',
+            'measurement_logs': '/api/measurement_logs?date=YYYY-MM-DD',
+            'generate_test_data': 'POST /api/generate_test_data'
+        }
+    })
 
 if __name__ == '__main__':
     try:
-        logger.info("Starting Ultrasonic Distance Sensor Server...")
-        app.run(host='0.0.0.0', port=5000, debug=False)
+        logger.info("Starting Pi 5 Ultrasonic Distance Sensor Server...")
+        logger.info("Measurement interval: 4 seconds")
+        logger.info(f"GPIO pins - Trig: {TRIG_PIN}, Echo: {ECHO_PIN}")
+        app.run(host='0.0.0.0', port=5001, debug=False)
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     finally:
-        if sensor_active:
-            GPIO.cleanup()
+        if sensor_active and gpio_handle:
+            lgpio.gpiochip_close(gpio_handle)
