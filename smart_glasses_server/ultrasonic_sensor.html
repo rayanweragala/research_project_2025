@@ -154,15 +154,6 @@
             left: 100%;
         }
         
-        .start { 
-            background: linear-gradient(135deg, #4CAF50, #45a049); 
-            color: white; 
-        }
-        .start:hover { 
-            transform: translateY(-3px); 
-            box-shadow: 0 8px 25px rgba(76, 175, 80, 0.4); 
-        }
-        
         .stop { 
             background: linear-gradient(135deg, #f44336, #da190b); 
             color: white; 
@@ -174,7 +165,7 @@
         
         .analytics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 25px;
             margin: 25px 0;
         }
@@ -580,7 +571,7 @@
             }
             
             .analytics-grid {
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                grid-template-columns: repeat(auto-fit, minWidth(250px, 1fr));
             }
             
             .container {
@@ -624,7 +615,7 @@
                 <div class="distance-display">
                     <h3 class="section-title">📏 Current Distance</h3>
                     <div class="distance-reading" id="distanceReading">-- cm</div>
-                    <div class="distance-zone" id="distanceZone">Initializing...</div>
+                    <div class="distance-zone" id="distanceZone">Connecting...</div>
                     <div id="qualityDisplay" style="margin-top: 20px; font-size: 1.1em; font-weight: 600; color: #666;">
                         Quality: <span id="qualityScore">--</span>%
                     </div>
@@ -635,11 +626,10 @@
                 
                 <div class="controls-section">
                     <h3 class="section-title">🎮 Controls</h3>
-                    <button class="button start" onclick="startSensor()">📡 Start Sensor</button>
                     <button class="button stop" onclick="stopSensor()">⏹️ Stop Sensor</button>
                     
                     <h3 class="section-title" style="margin-top: 25px;">📡 System Status</h3>
-                    <div id="status" class="status">Ready to start</div>
+                    <div id="status" class="status">Connecting to sensor...</div>
                     
                     <h3 class="section-title" style="margin-top: 25px;">🔍 Current Reading</h3>
                     <div id="currentReading"></div>
@@ -664,11 +654,6 @@
                     <div class="stat-value" id="totalMeasurements">0</div>
                     <div class="stat-label">Sensor Readings</div>
                 </div>
-                <div class="stat-card quality-card">
-                    <h4>Measurement Rate</h4>
-                    <div class="stat-value" id="measurementRate">0 Hz</div>
-                    <div class="stat-label">Frequency</div>
-                </div>
                 <div class="stat-card range-card">
                     <h4>Distance Range</h4>
                     <div class="stat-value" id="distanceRange">0 cm</div>
@@ -691,11 +676,8 @@
             <div class="report-section">
                 <div class="report-header">
                     <h2>📋 Daily Analysis Report</h2>
-                    <div style="display: flex; gap: 15px; align-items: center;">
+                    <div>
                         <input type="date" id="reportDate" class="date-picker" onchange="loadDailyReport()" />
-                        <button class="button start" onclick="generateTestData()" style="padding: 10px 18px; font-size: 0.95em;">
-                            🧪 Generate Test Data
-                        </button>
                     </div>
                 </div>
                 
@@ -789,36 +771,6 @@
                     setDefaultReportDate();
                     loadDailyReport();
                     break;
-            }
-        }
-
-        function startSensor() {
-            if (!sensorActive) {
-                sensorActive = true;
-                document.getElementById('status').innerHTML = '<span class="loading-spinner"></span>Starting sensor...';
-                document.getElementById('status').className = 'status warning';
-                
-                fetch('/api/sensor/start', { method: 'POST' })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            document.getElementById('status').innerHTML = '🔍 Sensor Active';
-                            document.getElementById('status').className = 'status success';
-                            measurementInterval = setInterval(getCurrentDistance, 500);
-                            showToast('Distance sensor started successfully', 'success', 'Sensor Started');
-                        } else {
-                            document.getElementById('status').innerHTML = '❌ ' + data.message;
-                            document.getElementById('status').className = 'status error';
-                            sensorActive = false;
-                            showToast(data.message, 'error', 'Start Failed');
-                        }
-                    })
-                    .catch(err => {
-                        document.getElementById('status').innerHTML = '❌ Connection error';
-                        document.getElementById('status').className = 'status error';
-                        sensorActive = false;
-                        showToast('Failed to connect to sensor server', 'error', 'Connection Error');
-                    });
             }
         }
 
@@ -978,7 +930,7 @@
                     console.error('Analytics error:', err);
                     showToast('Failed to load analytics data', 'error', 'Analytics Error');
                     
-                    const analyticsElements = ['avgDistance', 'totalMeasurements', 'measurementRate', 'distanceRange'];
+                    const analyticsElements = ['avgDistance', 'totalMeasurements', 'distanceRange'];
                     analyticsElements.forEach(elementId => {
                         const element = document.getElementById(elementId);
                         if (element) element.textContent = '0';
@@ -992,12 +944,10 @@
                 
                 const avgDistanceEl = document.getElementById('avgDistance');
                 const totalMeasurementsEl = document.getElementById('totalMeasurements');
-                const measurementRateEl = document.getElementById('measurementRate');
                 const distanceRangeEl = document.getElementById('distanceRange');
                 
                 if (avgDistanceEl) avgDistanceEl.textContent = stats.avg_distance.toFixed(1) + ' cm';
                 if (totalMeasurementsEl) totalMeasurementsEl.textContent = stats.total_measurements;
-                if (measurementRateEl) measurementRateEl.textContent = stats.measurement_rate.toFixed(1) + ' Hz';
                 
                 if (distanceRangeEl) {
                     if (stats.min_distance === Infinity) {
@@ -1144,24 +1094,6 @@
                 });
         }
 
-        function generateTestData() {
-            showToast('Generating test data...', 'info', 'Processing');
-            
-            fetch('/api/generate_test_data', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast('Test data generated successfully! Refreshing reports...', 'success', 'Data Generated');
-                        setTimeout(() => loadDailyReport(), 1000);
-                    } else {
-                        showToast(`Failed to generate test data: ${data.error}`, 'error', 'Generation Failed');
-                    }
-                })
-                .catch(err => {
-                    showToast(`Error generating test data: ${err.message}`, 'error', 'Generation Error');
-                });
-        }
-
         function displayDailyReport(report) {
             const reportContent = document.getElementById('reportContent');
             if (!reportContent) return;
@@ -1182,7 +1114,7 @@
                         <h3>📅 No Activity Recorded</h3>
                         <p><strong>Date:</strong> ${report.date || document.getElementById('reportDate')?.value}</p>
                         <p>No distance measurements were performed on this date.</p>
-                        <p>Try using the "Generate Test Data" button to create sample data for testing.</p>
+                        <p>Start the sensor to begin collecting data.</p>
                     </div>
                 `;
                 return;
@@ -1287,7 +1219,7 @@
                     <div class="empty-state">
                         <h3>📝 No Measurement Logs</h3>
                         <p>No distance measurement logs found for this date.</p>
-                        <p>Try using the "Generate Test Data" button to create sample data.</p>
+                        <p>Start the sensor to begin collecting data.</p>
                     </div>
                 `;
                 return;
@@ -1357,6 +1289,7 @@
         }
 
         function initializeDashboard() {
+            // Auto-start the sensor when the dashboard loads
             fetch('/api/health')
                 .then(response => {
                     if (!response.ok) {
@@ -1372,11 +1305,10 @@
                             statusEl.className = 'status success';
                             sensorActive = true;
                             measurementInterval = setInterval(getCurrentDistance, 500);
-                            showToast('Distance sensor is already running', 'info', 'Sensor Active');
+                            showToast('Distance sensor is already running', 'success', 'Sensor Active');
                         } else {
-                            statusEl.innerHTML = '✅ System ready';
-                            statusEl.className = 'status success';
-                            showToast('Distance sensor system initialized successfully', 'success', 'System Ready');
+                            // Auto-start the sensor
+                            autoStartSensor();
                         }
                     }
                     
@@ -1395,6 +1327,36 @@
             setDefaultReportDate();
         }
 
+        function autoStartSensor() {
+            if (!sensorActive) {
+                sensorActive = true;
+                document.getElementById('status').innerHTML = '<span class="loading-spinner"></span>Starting sensor...';
+                document.getElementById('status').className = 'status warning';
+                
+                fetch('/api/sensor/start', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            document.getElementById('status').innerHTML = '🔍 Sensor Active';
+                            document.getElementById('status').className = 'status success';
+                            measurementInterval = setInterval(getCurrentDistance, 500);
+                            showToast('Distance sensor started automatically', 'success', 'Sensor Started');
+                        } else {
+                            document.getElementById('status').innerHTML = '❌ ' + data.message;
+                            document.getElementById('status').className = 'status error';
+                            sensorActive = false;
+                            showToast(data.message, 'error', 'Auto-start Failed');
+                        }
+                    })
+                    .catch(err => {
+                        document.getElementById('status').innerHTML = '❌ Connection error';
+                        document.getElementById('status').className = 'status error';
+                        sensorActive = false;
+                        showToast('Failed to auto-start sensor server', 'error', 'Connection Error');
+                    });
+            }
+        }
+
         function startPeriodicUpdates() {
             setInterval(() => {
                 fetch('/api/health')
@@ -1410,8 +1372,7 @@
                             if (data.current_distance !== undefined) {
                                 const elements = {
                                     avgDistance: data.current_distance.toFixed(1) + ' cm',
-                                    totalMeasurements: data.total_measurements,
-                                    measurementRate: data.measurement_rate + ' Hz'
+                                    totalMeasurements: data.total_measurements
                                 };
                                 
                                 Object.entries(elements).forEach(([id, value]) => {
