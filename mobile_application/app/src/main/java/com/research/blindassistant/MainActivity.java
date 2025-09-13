@@ -224,10 +224,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 new Handler().postDelayed(this::startListening, 1000);
                 return;
             }
-            
+
             try {
                 isListening = true;
-                updateStatus("Listening for commands...");
+                updateStatus("Voice assistant active");
                 speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
                 new Handler().postDelayed(() -> {
                     if (isListening && speechRecognizer != null) {
@@ -236,6 +236,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                             speechRecognizer.startListening(speechRecognizerIntent);
                             btnVoiceCommand.setText("Stop listening");
                             btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
+                            updateStatus("Ready for voice command");
                         } catch (Exception e) {
                             Log.e("MainActivity", "Error in delayed start: " + e.getMessage());
                             isListening = false;
@@ -411,12 +412,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     @Override
     public void onReadyForSpeech(Bundle params) {
-        updateStatus("Ready for speech...");
+        updateStatus("Ready for voice input");
     }
 
     @Override
     public void onBeginningOfSpeech(){
-        updateStatus("Listening...");
+        updateStatus("Voice detected");
     }
 
     @Override
@@ -429,7 +430,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     @Override
     public void onEndOfSpeech() {
-        updateStatus("Processing speech...");
+        updateStatus("Processing...");
     }
 
     @Override
@@ -531,7 +532,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             }
 
             Log.d("VoiceCommand", "Processing: " + recognizedText + " (confidence: " + confidence + ")");
-            updateStatus("Recognized: " + recognizedText);
+            updateStatus("Processing command...");
             processVoiceCommand(recognizedText);
         }
 
@@ -573,12 +574,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             speechRecognizer = null;
         }
     }
+
     @Override
     public void onPartialResults(Bundle partialResults){
-        ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-        if(matches != null && !matches.isEmpty()){
-            updateStatus("Hearing: " + matches.get(0));
-        }
+        // Real-time voice-to-text display removed for privacy
+        // Voice recognition continues to work in background without showing partial text
     }
 
     @Override
