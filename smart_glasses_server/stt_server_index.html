@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech-to-Text Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="75" cy="75" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.05)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+            opacity: 0.3;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .header .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+        
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+        
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .card h3 {
+            color: #4f46e5;
+            font-size: 1.4em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card h3::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+        
+        .transcription-section {
+            flex: 1;
+        }
+        
+        .audio-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .control-group {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 12px;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+        
+        .control-group:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+        
+        .control-group h4 {
+            color: #334155;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            width: 100%;
+        }
+        
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+        
+        .file-input-label {
+            display: block;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        
+        .file-input-label:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .text-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            background: white;
+        }
+        
+        .text-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+        }
+        
+        .button:hover {
+            transform: translateY(-1px);
+        }
+        
+        .button.primary {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+        
+        .button.primary:hover {
+            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
+        }
+        
+        .button.secondary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+        }
+        
+        .button.secondary:hover {
+            box-shadow: 0 5px 15px rgba(59, 130, 246, 0.4);
+        }
+        
+        .button.danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+        
+        .button.danger:hover {
+            box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4);
+        }
+        
+        .button.recording {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 107, 107, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0); }
+        }
+        
+        .transcription-output {
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            min-height: 120px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .accuracy-section {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .accuracy-inputs {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .accuracy-results {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .metric-value {
+            font-size: 2.2em;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        
+        .metric-value.excellent { color: #10b981; }
+        .metric-value.good { color: #3b82f6; }
+        .metric-value.fair { color: #f59e0b; }
+        .metric-value.poor { color: #ef4444; }
+        
+        .metric-label {
+            color: #6b7280;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+        
+        .status-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            border-left: 4px solid #10b981;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f0f9ff;
+            border-radius: 8px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .status-dot.online { background: #10b981; }
+        .status-dot.offline { background: #ef4444; }
+        .status-dot.warning { background: #f59e0b; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-item {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #4f46e5;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #6b7280;
+            font-size: 0.85em;
+        }
+        
+        .word-alignment {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .word-pair {
+            display: inline-block;
+            margin: 3px;
+            padding: 6px 10px;
+            border-radius: 5px;
+            font-size: 13px;
+            font-family: monospace;
+        }
+        
+        .word-pair.correct {
+            background: #dcfce7;
+            border: 1px solid #bbf7d0;
+            color: #166534;
+        }
+        
+        .word-pair.substitution {
+            background: #fed7d7;
+            border: 1px solid #feb2b2;
+            color: #c53030;
+        }
+        
+        .word-pair.deletion {
+            background: #fef3c7;
+            border: 1px solid #fde68a;
+            color: #d97706;
+        }
+        
+        .word-pair.insertion {
+            background: #e0e7ff;
+            border: 1px solid #c7d2fe;
+            color: #3730a3;
+        }
+        
+        .audio-info {
+            background: #f0f9ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .audio-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .audio-info-item {
+            text-align: center;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+        }
+        
+        .audio-info-value {
+            font-weight: 600;
+            color: #4f46e5;
+            font-size: 1.1em;
+        }
+        
+        .audio-info-label {
+            color: #6b7280;
+            font-size: 0.8em;
+            margin-top: 5px;
+        }
+        
+        .log-section {
+            background: #1f2937;
+            color: #f9fafb;
+            border-radius: 12px;
+            padding: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        
+        .log-entry.info {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 3px solid #3b82f6;
+        }
+        
+        .log-entry.success {
+            background: rgba(16, 185, 129, 0.1);
+            border-left: 3px solid #10b981;
+        }
+        
+        .log-entry.error {
+            background: rgba(239, 68, 68, 0.1);
+            border-left: 3px solid #ef4444;
+        }
+        
+        .log-timestamp {
+            color: #9ca3af;
+            font-size: 11px;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .audio-controls {
+                grid-template-columns: 1fr;
+            }
+            
+            .accuracy-results {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        @media (max-width: 640px) {
+            .container {
+                margin: 10px;
+                border-radius: 15px;
+            }
+            
+            .main-content {
+                padding: 20px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+        
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff40;
+            border-radius: 50%;
+            border-top: 2px solid #ffffff;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .connection-info {
+            background: #f0f9ff;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        
+        .connection-info h4 {
+            color: #1e40af;
+            margin-bottom: 10px;
+        }
+        
+        .server-url {
+            font-family: 'Courier New', monospace;
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #d1d5db;
+            word-break: break-all;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 Speech-to-Text Server</h1>
+            <div class="subtitle">Advanced STT with Real-time Accuracy Analysis</div>
+        </div>
+        
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="card transcription-section">
+                    <h3>🎯 Audio Transcription</h3>
+                    
+                    <div class="audio-controls">
+                        <div class="control-group">
+                            <h4>📁 File Upload</h4>
+                            <div class="file-input-wrapper">
+                                <input type="file" id="audioFile" accept="audio/*">
+                                <label for="audioFile" class="file-input-label">Choose Audio File</label>
+                            </div>
+                            <button class="button primary" onclick="transcribeFile()" style="margin-top: 10px;">
+                                <span class="spinner" id="fileSpinner" style="display: none;"></span>
+                                Transcribe File
+                            </button>
+                        </div>
+                        
+                        <div class="control-group">
+                            <h4>📂 File Path</h4>
+                            <input type="text" class="text-input" id="filePath" placeholder="Enter audio file path...">
+                            <button class="button secondary" onclick="transcribePath()" style="margin-top: 10px;">
+                                <span class="spinner" id="pathSpinner" style="display: none;"></span>
+                                Transcribe Path
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <h4>🎙️ Microphone Recording</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <button class="button primary" id="startRecordBtn" onclick="startRecording()">
+                                ▶️ Start Recording
+                            </button>
+                            <button class="button danger" id="stopRecordBtn" onclick="stopRecording()" disabled>
+                                ⏹️ Stop Recording
+                            </button>
+                        </div>
+                        <div id="recordingStatus" style="margin-top: 10px; text-align: center; font-weight: 500;"></div>
+                    </div>
+                    
+                    <div id="audioInfo" class="audio-info" style="display: none;">
+                        <h4>📊 Audio Information</h4>
+                        <div class="audio-info-grid">
+                            <div class="audio-info-item">
+                                <div class="audio-info-value" id="audioDuration">-</div>
+                                <div class="audio-info-label">Duration (s)</div>
+                            </div>
+                            <div class="audio-info-item">
+                                <div class="audio-info-value" id="audioSampleRate">-</div>
+                                <div class="audio-info-label">Sample Rate</div>
+                            </div>
+                            <div class="audio-info-item">
+                                <div class="audio-info-value" id="audioChannels">-</div>
+                                <div class="audio-info-label">Channels</div>
+                            </div>
+                            <div class="audio-info-item">
+                                <div class="audio-info-value" id="processingTime">-</div>
+                                <div class="audio-info-label">Process Time (s)</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin-top: 20px; margin-bottom: 10px;">📝 Transcription Result</h4>
+                    <div class="transcription-output" id="transcriptionOutput">No transcription yet. Upload a file, enter a path, or record audio to begin.</div>
+                </div>
+                
+                <div class="card accuracy-section">
+                    <h3>🎯 Accuracy Analysis</h3>
+                    
+                    <div class="accuracy-inputs">
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Reference Text (Ground Truth):</label>
+                            <textarea class="text-input" id="referenceText" rows="3" placeholder="Enter the correct transcription here..."></textarea>
+                        </div>
+                        
+                        <button class="button secondary" onclick="calculateAccuracy()">
+                            <span class="spinner" id="accuracySpinner" style="display: none;"></span>
+                            🔍 Calculate Accuracy
+                        </button>
+                    </div>
+                    
+                    <div id="accuracyResults" style="display: none;">
+                        <div class="accuracy-results">
+                            <div class="metric-card">
+                                <div class="metric-value" id="wordAccuracy">-</div>
+                                <div class="metric-label">Word Accuracy</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="charAccuracy">-</div>
+                                <div class="metric-label">Character Accuracy</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="wer">-</div>
+                                <div class="metric-label">Word Error Rate</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="wordCount">-</div>
+                                <div class="metric-label">Word Count</div>
+                            </div>
+                        </div>
+                        
+                        <div class="word-alignment" id="wordAlignment">
+                            <h4 style="margin-bottom: 10px;">Word Alignment Analysis:</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="right-panel">
+                <div class="card status-panel">
+                    <h3>⚡ Server Status</h3>
+                    
+                    <div class="status-indicator" id="serverStatus">
+                        <div class="status-dot offline"></div>
+                        <span>Checking server connection...</span>
+                    </div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="totalRequests">0</div>
+                            <div class="stat-label">Total Requests</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="successRate">0%</div>
+                            <div class="stat-label">Success Rate</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="avgAccuracy">0%</div>
+                            <div class="stat-label">Avg Accuracy</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="avgProcessingTime">0ms</div>
+                            <div class="stat-label">Avg Process Time</div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 20px;">
+                        <button class="button secondary" onclick="refreshStatus()">🔄 Refresh Status</button>
+                        <button class="button danger" onclick="resetStats()" style="margin-top: 10px;">📊 Reset Statistics</button>
+                    </div>
+                    
+                    <div class="connection-info">
+                        <h4>🌐 Server Information</h4>
+                        <div class="server-url" id="serverUrl">Loading...</div>
+                        <div style="margin-top: 10px; font-size: 13px; color: #6b7280;">
+                            STT Model: <span id="sttModelStatus">Checking...</span><br>
+                            Microphone: <span id="microphoneStatus">Checking...</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>📋 System Log</h3>
+                    <div class="log-section" id="systemLog">
+                        <div class="log-entry info">
+                            <span class="log-timestamp">[Starting...]</span> STT Server Interface Initialized
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isRecording = false;
+        let serverUrl = window.location.origin;
+        let lastTranscription = '';
+        
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            addLog('STT Server interface loaded', 'info');
+            document.getElementById('serverUrl').textContent = serverUrl;
+            refreshStatus();
+            
+            // Auto-refresh status every 10 seconds
+            setInterval(refreshStatus, 10000);
+        });
+        
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('systemLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> ${message}`;
+            
+            logContainer.insertBefore(logEntry, logContainer.firstChild);
+            
+            // Keep only last 20 entries
+            while (logContainer.children.length > 20) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+        
+        function showSpinner(spinnerId, show = true) {
+            const spinner = document.getElementById(spinnerId);
+            if (spinner) {
+                spinner.style.display = show ? 'inline-block' : 'none';
+            }
+        }
+        
+        async function refreshStatus() {
+            try {
+                const response = await fetch('/stt/health');
+                const data = await response.json();
+                
+                updateStatusUI(data);
+                addLog('Status refreshed successfully', 'success');
+                
+            } catch (error) {
+                addLog(`Failed to refresh status: ${error.message}`, 'error');
+                updateStatusUI({ status: 'error' });
+            }
+        }
+        
+        function updateStatusUI(data) {
+            const statusIndicator = document.getElementById('serverStatus');
+            const sttModelStatus = document.getElementById('sttModelStatus');
+            const microphoneStatus = document.getElementById('microphoneStatus');
+            
+            if (data.status === 'healthy') {
+                statusIndicator.innerHTML = '<div class="status-dot online"></div><span>Server Online & Healthy</span>';
+                sttModelStatus.textContent = data.stt_model_available ? 'Available ✅' : 'Not Available ❌';
+                microphoneStatus.textContent = data.microphone_available ? 'Available ✅' : 'Not Available ❌';
+            } else {
+                statusIndicator.innerHTML = '<div class="status-dot offline"></div><span>Server Offline or Error</span>';
+                sttModelStatus.textContent = 'Unknown';
+                microphoneStatus.textContent = 'Unknown';
+            }
+            
+            if (data.stats) {
+                document.getElementById('totalRequests').textContent = data.stats.total_requests || 0;
+                document.getElementById('successRate').textContent = 
+                    data.stats.total_requests > 0 
+                        ? Math.round((data.stats.successful_transcriptions / data.stats.total_requests) * 100) + '%'
+                        : '0%';
+                document.getElementById('avgAccuracy').textContent = 
+                    Math.round(data.average_accuracy || 0) + '%';
+                document.getElementById('avgProcessingTime').textContent = 
+                    Math.round((data.stats.avg_processing_time || 0) * 1000) + 'ms';
+            }
+        }
+        
+        async function transcribeFile() {
+            const fileInput = document.getElementById('audioFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                addLog('Please select an audio file first', 'error');
+                return;
+            }
+            
+            showSpinner('fileSpinner', true);
+            addLog(`Starting transcription of file: ${file.name}`, 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('audio_file', file);
+                
+                const response = await fetch('/stt/transcribe_file', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    lastTranscription = data.transcription;
+                    document.getElementById('transcriptionOutput').textContent = data.transcription;
+                    
+                    if (data.audio_info) {
+                        updateAudioInfo(data.audio_info, data.processing_time);
+                    }
+                    
+                    addLog(`File transcription completed successfully`, 'success');
+                } else {
+                    addLog(`Transcription failed: ${data.error}`, 'error');
+                    document.getElementById('transcriptionOutput').textContent = `Error: ${data.error}`;
+                }
+                
+            } catch (error) {
+                addLog(`Transcription error: ${error.message}`, 'error');
+                document.getElementById('transcriptionOutput').textContent = `Error: ${error.message}`;
+            } finally {
+                showSpinner('fileSpinner', false);
+            }
+        }
+        
+        async function transcribePath() {
+            const filePath = document.getElementById('filePath').value.trim();
+            
+            if (!filePath) {
+                addLog('Please enter a file path', 'error');
+                return;
+            }
+            
+            showSpinner('pathSpinner', true);
+            addLog(`Starting transcription of path: ${filePath}`, 'info');
+            
+            try {
+                const response = await fetch('/stt/transcribe_path', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    lastTranscription = data.transcription;
+                    document.getElementById('transcriptionOutput').textContent = data.transcription;
+                    
+                    if (data.audio_info) {
+                        updateAudioInfo(data.audio_info, data.processing_time);
+                    }
+                    
+                    addLog(`Path transcription completed successfully`, 'success');
+                } else {
+                    addLog(`Transcription failed: ${data.error}`, 'error');
+                    document.getElementById('transcriptionOutput').textContent = `Error: ${data.error}`;
+                }
+                
+            } catch (error) {
+                addLog(`Transcription error: ${error.message}`, 'error');
+                document.getElementById('transcriptionOutput').textContent = `Error: ${error.message}`;
+            } finally {
+                showSpinner('pathSpinner', false);
+            }
+        }
+        
+        async function startRecording() {
+            try {
+                const response = await fetch('/stt/start_recording', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isRecording = true;
+                    document.getElementById('startRecordBtn').disabled = true;
+                    document.getElementById('stopRecordBtn').disabled = false;
+                    document.getElementById('startRecordBtn').className = 'button recording';
+                    document.getElementById('recordingStatus').innerHTML = '🔴 Recording... Click Stop when finished';
+                    
+                    addLog('Recording started', 'success');
+                } else {
+                    addLog(`Failed to start recording: ${data.error}`, 'error');
+                }
+                
+            } catch (error) {
+                addLog(`Recording start error: ${error.message}`, 'error');
+            }
+        }
+        
+        async function stopRecording() {
+            try {
+                addLog('Stopping recording and processing...', 'info');
+                document.getElementById('recordingStatus').innerHTML = '⏳ Processing audio...';
+                
+                const response = await fetch('/stt/stop_recording', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    lastTranscription = data.transcription;
+                    document.getElementById('transcriptionOutput').textContent = data.transcription;
+                    
+                    if (data.audio_info) {
+                        updateAudioInfo(data.audio_info, data.processing_time);
+                    }
+                    
+                    addLog(`Recording transcription completed`, 'success');
+                    document.getElementById('recordingStatus').innerHTML = '✅ Recording completed';
+                } else {
+                    addLog(`Recording transcription failed: ${data.error}`, 'error');
+                    document.getElementById('transcriptionOutput').textContent = `Error: ${data.error}`;
+                    document.getElementById('recordingStatus').innerHTML = '❌ Recording failed';
+                }
+                
+            } catch (error) {
+                addLog(`Recording stop error: ${error.message}`, 'error');
+                document.getElementById('recordingStatus').innerHTML = '❌ Recording failed';
+            } finally {
+                isRecording = false;
+                document.getElementById('startRecordBtn').disabled = false;
+                document.getElementById('stopRecordBtn').disabled = true;
+                document.getElementById('startRecordBtn').className = 'button primary';
+                
+                setTimeout(() => {
+                    document.getElementById('recordingStatus').innerHTML = '';
+                }, 3000);
+            }
+        }
+        
+        function updateAudioInfo(audioInfo, processingTime) {
+            document.getElementById('audioDuration').textContent = audioInfo.duration ? audioInfo.duration.toFixed(2) : '-';
+            document.getElementById('audioSampleRate').textContent = audioInfo.sample_rate || '-';
+            document.getElementById('audioChannels').textContent = audioInfo.channels || '-';
+            document.getElementById('processingTime').textContent = processingTime ? processingTime.toFixed(3) : '-';
+            
+            document.getElementById('audioInfo').style.display = 'block';
+        }
+        
+        async function calculateAccuracy() {
+            const referenceText = document.getElementById('referenceText').value.trim();
+            
+            if (!referenceText) {
+                addLog('Please enter reference text first', 'error');
+                return;
+            }
+            
+            if (!lastTranscription) {
+                addLog('No transcription available. Please transcribe audio first', 'error');
+                return;
+            }
+            
+            showSpinner('accuracySpinner', true);
+            addLog('Calculating accuracy metrics...', 'info');
+            
+            try {
+                const response = await fetch('/stt/calculate_accuracy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        reference_text: referenceText,
+                        transcribed_text: lastTranscription
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateAccuracyResults(data.accuracy_metrics);
+                    addLog('Accuracy calculation completed', 'success');
+                } else {
+                    addLog(`Accuracy calculation failed: ${data.error}`, 'error');
+                }
+                
+            } catch (error) {
+                addLog(`Accuracy calculation error: ${error.message}`, 'error');
+            } finally {
+                showSpinner('accuracySpinner', false);
+            }
+        }
+        
+        function updateAccuracyResults(metrics) {
+            const wordAccuracy = Math.round(metrics.word_metrics.word_accuracy * 10) / 10;
+            const charAccuracy = Math.round(metrics.character_metrics.char_accuracy * 10) / 10;
+            const wer = Math.round(metrics.word_metrics.wer * 10) / 10;
+            const wordCount = metrics.word_metrics.reference_word_count;
+            
+            // Update metric values
+            document.getElementById('wordAccuracy').textContent = wordAccuracy + '%';
+            document.getElementById('charAccuracy').textContent = charAccuracy + '%';
+            document.getElementById('wer').textContent = wer + '%';
+            document.getElementById('wordCount').textContent = wordCount;
+            
+            // Apply color coding based on accuracy
+            function getAccuracyClass(accuracy) {
+                if (accuracy >= 95) return 'excellent';
+                if (accuracy >= 85) return 'good';
+                if (accuracy >= 70) return 'fair';
+                return 'poor';
+            }
+            
+            document.getElementById('wordAccuracy').className = `metric-value ${getAccuracyClass(wordAccuracy)}`;
+            document.getElementById('charAccuracy').className = `metric-value ${getAccuracyClass(charAccuracy)}`;
+            
+            // Update word alignment
+            updateWordAlignment(metrics.alignment);
+            
+            document.getElementById('accuracyResults').style.display = 'block';
+        }
+        
+        function updateWordAlignment(alignment) {
+            const alignmentContainer = document.getElementById('wordAlignment');
+            const alignmentHtml = alignment.map(item => {
+                const refWord = item.reference || '[DEL]';
+                const hypWord = item.hypothesis || '[INS]';
+                const status = item.status;
+                
+                if (status === 'correct') {
+                    return `<span class="word-pair correct" title="Correct match">${refWord}</span>`;
+                } else if (status === 'substitution') {
+                    return `<span class="word-pair substitution" title="Substitution: '${refWord}' → '${hypWord}'">${refWord}→${hypWord}</span>`;
+                } else if (status === 'deletion') {
+                    return `<span class="word-pair deletion" title="Deletion: '${refWord}' missing">${refWord}[DEL]</span>`;
+                } else if (status === 'insertion') {
+                    return `<span class="word-pair insertion" title="Insertion: '${hypWord}' added">[INS]${hypWord}</span>`;
+                }
+                return '';
+            }).join(' ');
+            
+            alignmentContainer.innerHTML = `
+                <h4 style="margin-bottom: 10px;">Word Alignment Analysis:</h4>
+                <div style="margin-bottom: 10px; font-size: 12px;">
+                    <span class="word-pair correct">Correct</span>
+                    <span class="word-pair substitution">Substitution</span>
+                    <span class="word-pair deletion">Deletion</span>
+                    <span class="word-pair insertion">Insertion</span>
+                </div>
+                <div>${alignmentHtml}</div>
+            `;
+        }
+        
+        async function resetStats() {
+            if (!confirm('Are you sure you want to reset all statistics?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/stt/reset_stats', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addLog('Statistics reset successfully', 'success');
+                    refreshStatus();
+                } else {
+                    addLog(`Failed to reset statistics: ${data.error}`, 'error');
+                }
+                
+            } catch (error) {
+                addLog(`Statistics reset error: ${error.message}`, 'error');
+            }
+        }
+        
+        // File input change handler
+        document.getElementById('audioFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                addLog(`Selected file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`, 'info');
+            }
+        });
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                switch(e.key) {
+                    case 'r':
+                        e.preventDefault();
+                        if (isRecording) {
+                            stopRecording();
+                        } else {
+                            startRecording();
+                        }
+                        break;
+                    case 't':
+                        e.preventDefault();
+                        if (document.getElementById('audioFile').files[0]) {
+                            transcribeFile();
+                        }
+                        break;
+                    case 'a':
+                        e.preventDefault();
+                        calculateAccuracy();
+                        break;
+                }
+            }
+        });
+        
+        // Add keyboard shortcut hints
+        addLog('Keyboard shortcuts: Ctrl+R (Record), Ctrl+T (Transcribe), Ctrl+A (Accuracy)', 'info');
+    </script>
+</body>
+
+</html>
