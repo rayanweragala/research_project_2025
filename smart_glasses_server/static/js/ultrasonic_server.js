@@ -488,7 +488,7 @@ function displayDailyReport(report) {
   if (report.insights && report.insights.length > 0) {
     html += `
             <div class="chart-container">
-                <h3 class="section-title">🔍 Daily Insights</h3>
+                <h3 class="section-title">Daily Insights</h3>
                 <ul class="insights-list">
                     ${report.insights
                       .map((insight) => `<li>${insight}</li>`)
@@ -501,7 +501,7 @@ function displayDailyReport(report) {
   if (report.zone_distribution) {
     html += `
             <div class="chart-container">
-                <h3 class="section-title">📊 Zone Distribution</h3>
+                <h3 class="section-title">Zone Distribution</h3>
                 <div style="display: flex; gap: 15px; flex-wrap: wrap;">
         `;
 
@@ -527,7 +527,7 @@ function displayDailyReport(report) {
   if (report.hourly_activity) {
     html += `
             <div class="chart-container">
-                <h3 class="section-title">⏰ Hourly Activity</h3>
+                <h3 class="section-title"> Hourly Activity</h3>
                 <div style="display: flex; align-items: end; gap: 4px; height: 180px; padding: 20px 0;">
         `;
 
@@ -633,7 +633,7 @@ function displayMeasurementLogs(data) {
             </table>
         </div>
         <div style="margin-top: 20px; padding: 15px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 10px; font-size: 1em; color: #495057;">
-            <strong>📊 Summary:</strong> ${data.logs.length} total logs • 
+            <strong>Summary:</strong> ${data.logs.length} total logs • 
             Avg distance: <span style="font-weight: 700; color: #4caf50;">${
               data.avg_distance
             } cm</span> • 

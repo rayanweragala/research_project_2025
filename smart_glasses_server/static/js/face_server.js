@@ -520,11 +520,10 @@ function updateMethodChart(methodData) {
 
   if (total === 0) {
     chartDiv.innerHTML = `
-    <div class="empty-state">
+      <div class="empty-state">
         <h3>No Method Data Available</h3>
         <p>Method usage statistics will appear here once recognition activities begin.</p>
-    </div>
-`;
+      </div>`;
     return;
   }
 
@@ -532,14 +531,67 @@ function updateMethodChart(methodData) {
 
   Object.entries(methodData).forEach(([method, count]) => {
     const percentage = ((count / total) * 100).toFixed(1);
+    const displayMethod = formatMethod(method);
+    const methodClass = method.includes("enhanced")
+      ? "enhanced"
+      : method.includes("standard")
+      ? "standard"
+      : method.split("_")[0];
+
     html += `
-    <div class="method-badge method-${
-      method.split("_")[0]
-    }" style="flex: 1; min-width: 140px; text-align: center; padding: 15px;">
-        ${formatMethod(method)}<br>
+      <div class="method-badge method-${methodClass}" 
+           style="flex: 1; min-width: 140px; text-align: center; padding: 15px;">
+        ${displayMethod}<br>
         <strong>${count} (${percentage}%)</strong>
-    </div>
-`;
+      </div>`;
+  });
+
+  html += "</div>";
+  chartDiv.innerHTML = html;
+}
+
+function updateConfidenceChart(recognitions) {
+  const chartDiv = document.getElementById("confidenceChart");
+
+  if (!recognitions || recognitions.length === 0) {
+    chartDiv.innerHTML = `
+      <div class="empty-state">
+        <h3>No Confidence Data Available</h3>
+        <p>Confidence level distribution will be displayed here after recognition activities.</p>
+      </div>`;
+    return;
+  }
+
+  const levels = { very_high: 0, high: 0, medium: 0, low: 0, very_low: 0 };
+
+  recognitions.forEach((rec) => {
+    if (rec.confidence_level && levels.hasOwnProperty(rec.confidence_level)) {
+      levels[rec.confidence_level] += rec.recognition_count || 1;
+    }
+  });
+
+  const total = Object.values(levels).reduce((a, b) => a + b, 0);
+
+  if (total === 0) {
+    chartDiv.innerHTML = `
+      <div class="empty-state">
+        <h3>No Confidence Data</h3>
+        <p>No valid confidence levels found in recognition data.</p>
+      </div>`;
+    return;
+  }
+
+  let html = '<div style="display: flex; flex-wrap: wrap; gap: 15px;">';
+
+  Object.entries(levels).forEach(([level, count]) => {
+    const percentage = ((count / total) * 100).toFixed(1);
+    html += `
+      <div class="confidence-level conf-${level}" 
+           style="flex: 1; min-width: 120px; text-align: center; padding: 18px;">
+        <strong>${count}</strong><br>
+        ${formatConfidenceLevel(level)}<br>
+        <small>(${percentage}%)</small>
+      </div>`;
   });
 
   html += "</div>";
@@ -760,8 +812,7 @@ function displayDailyReport(report) {
     <div class="empty-state">
         <h3>Report Error</h3>
         <p>${report.error}</p>
-    </div>
-`;
+    </div>`;
     return;
   }
 
@@ -769,15 +820,19 @@ function displayDailyReport(report) {
     reportContent.innerHTML = `
     <div class="empty-state">
         <h3>No Activity Recorded</h3>
-        <p><strong>Date:</strong> ${
-          report.date || document.getElementById("reportDate")?.value
-        }</p>
+        <p><strong>Date:</strong> ${report.date || document.getElementById("reportDate")?.value}</p>
         <p>No face recognitions were performed on this date.</p>
         <p>Try using the "Generate Test Data" button to create sample data for testing.</p>
-    </div>
-`;
+    </div>`;
     return;
   }
+
+  let avgConfidence = report.summary.avg_confidence || 0;
+  if (avgConfidence > 1) {
+    avgConfidence = avgConfidence / 100;
+  }
+
+  let avgQuality = report.summary.avg_quality || 0;
 
   let html = `
 <div class="analytics-grid">
@@ -793,66 +848,53 @@ function displayDailyReport(report) {
     </div>
     <div class="stat-card quality-card">
         <h4>Avg Confidence</h4>
-        <div class="stat-value">${(report.summary.avg_confidence * 100).toFixed(
-          1
-        )}%</div>
+        <div class="stat-value">${(avgConfidence * 100).toFixed(1)}%</div>
         <div class="stat-label">Recognition accuracy</div>
     </div>
     <div class="stat-card method-card">
         <h4>Avg Quality</h4>
-        <div class="stat-value">${(report.summary.avg_quality * 100).toFixed(
-          1
-        )}%</div>
+        <div class="stat-value">${(avgQuality * 100).toFixed(1)}%</div>
         <div class="stat-label">Image quality</div>
     </div>
-</div>
-`;
+</div>`;
 
   if (report.performance_insights && report.performance_insights.length > 0) {
     html += `
     <div class="chart-container">
         <h3 class="section-title">Performance Insights</h3>
         <ul class="insights-list">
-            ${report.performance_insights
-              .map((insight) => `<li>${insight}</li>`)
-              .join("")}
+            ${report.performance_insights.map((insight) => `<li>${insight}</li>`).join("")}
         </ul>
-    </div>
-`;
+    </div>`;
   }
 
   if (report.people_analysis && report.people_analysis.length > 0) {
     html += `
     <div class="chart-container">
         <h3 class="section-title">Most Active Subjects</h3>
-        <div class="people-list">
-`;
+        <div class="people-list">`;
 
     report.people_analysis.slice(0, 6).forEach((person) => {
+      let personConfidence = person.avg_confidence || 0;
+      if (personConfidence > 1) {
+        personConfidence = personConfidence / 100;
+      }
+
       html += `
         <div class="person-card">
             <div class="person-name">${person.name}</div>
             <div class="person-stats">
-                <div><strong>Recognitions:</strong> ${
-                  person.recognition_count
-                }</div>
-                <div><strong>Avg Confidence:</strong> ${(
-                  person.avg_confidence * 100
-                ).toFixed(1)}%</div>
-                <div><strong>Avg Quality:</strong> ${(
-                  person.avg_quality * 100
-                ).toFixed(1)}%</div>
-                <div><strong>Method:</strong> ${formatMethod(
-                  person.most_used_method
-                )}</div>
+                <div><strong>Recognitions:</strong> ${person.recognition_count}</div>
+                <div><strong>Avg Confidence:</strong> ${(personConfidence * 100).toFixed(1)}%</div>
+                <div><strong>Avg Quality:</strong> ${(person.avg_quality * 100).toFixed(1)}%</div>
+                <div><strong>Method:</strong> ${formatMethod(person.most_used_method)}</div>
             </div>
             <div style="margin-top: 15px;">
                 <span class="confidence-level conf-${person.confidence_level}">
                     ${formatConfidenceLevel(person.confidence_level)}
                 </span>
             </div>
-        </div>
-    `;
+        </div>`;
     });
 
     html += "</div></div>";
@@ -862,14 +904,10 @@ function displayDailyReport(report) {
     html += `
     <div class="chart-container">
         <h3 class="section-title">Confidence Distribution</h3>
-        <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-`;
+        <div style="display: flex; gap: 15px; flex-wrap: wrap;">`;
 
     Object.entries(report.confidence_distribution).forEach(([level, count]) => {
-      const total = Object.values(report.confidence_distribution).reduce(
-        (a, b) => a + b,
-        0
-      );
+      const total = Object.values(report.confidence_distribution).reduce((a, b) => a + b, 0);
       const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
 
       html += `
@@ -877,8 +915,7 @@ function displayDailyReport(report) {
             <strong>${count}</strong><br>
             ${formatConfidenceLevel(level)}<br>
             <small>(${percentage}%)</small>
-        </div>
-    `;
+        </div>`;
     });
 
     html += "</div></div>";
@@ -897,8 +934,7 @@ function displayRecognitionLogs(data) {
         <h3>No Recognition Logs</h3>
         <p>No face recognition logs found for this date.</p>
         <p>Try using the "Generate Test Data" button to create sample data.</p>
-    </div>
-`;
+    </div>`;
     return;
   }
 
@@ -915,52 +951,42 @@ function displayRecognitionLogs(data) {
                 <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6; border-radius: 0 8px 0 0;">Processing</th>
             </tr>
         </thead>
-        <tbody>
-`;
+        <tbody>`;
 
   data.logs.forEach((log, index) => {
     const time = new Date(log.timestamp).toLocaleTimeString();
-    const confidenceColor =
-      log.confidence > 0.8
-        ? "#4caf50"
-        : log.confidence > 0.6
-        ? "#8bc34a"
-        : log.confidence > 0.4
-        ? "#ffc107"
-        : "#f44336";
-
-    const rowBg =
-      index % 2 === 0 ? "background: white;" : "background: #f8f9fa;";
+    
+    let logConfidence = log.confidence || 0;
+    if (logConfidence > 1) {
+      logConfidence = logConfidence / 100;
+    }
+    
+    const confidenceColor = logConfidence > 0.8 ? "#4caf50" : logConfidence > 0.6 ? "#8bc34a" : logConfidence > 0.4 ? "#ffc107" : "#f44336";
+    const rowBg = index % 2 === 0 ? "background: white;" : "background: #f8f9fa;";
 
     html += `
     <tr style="${rowBg} border-bottom: 1px solid #e9ecef; transition: all 0.3s ease;" 
         onmouseover="this.style.background='#e3f2fd'" 
-        onmouseout="this.style.background='${
-          index % 2 === 0 ? "white" : "#f8f9fa"
-        }'">
+        onmouseout="this.style.background='${index % 2 === 0 ? "white" : "#f8f9fa"}'">
         <td style="padding: 12px 15px; font-weight: 500;">${time}</td>
-        <td style="padding: 12px 15px; font-weight: 700; color: #333;">${
-          log.person_name || "Unknown"
-        }</td>
+        <td style="padding: 12px 15px; font-weight: 700; color: #333;">${log.person_name || "Unknown"}</td>
         <td style="padding: 12px 15px;">
-            <span style="color: ${confidenceColor}; font-weight: 700;">${(
-      log.confidence * 100
-    ).toFixed(1)}%</span>
+            <span style="color: ${confidenceColor}; font-weight: 700;">${(logConfidence * 100).toFixed(1)}%</span>
         </td>
-        <td style="padding: 12px 15px; font-weight: 600;">${(
-          log.quality_score * 100
-        ).toFixed(1)}%</td>
+        <td style="padding: 12px 15px; font-weight: 600;">${(log.quality_score * 100).toFixed(1)}%</td>
         <td style="padding: 12px 15px;">
-            <span class="method-badge method-${
-              log.method_used.split("_")[0]
-            }">${formatMethod(log.method_used)}</span>
+            <span class="method-badge method-${log.method_used.split("_")[0]}">${formatMethod(log.method_used)}</span>
         </td>
-        <td style="padding: 12px 15px; font-weight: 500;">${(
-          log.processing_time * 1000
-        ).toFixed(0)}ms</td>
-    </tr>
-`;
+        <td style="padding: 12px 15px; font-weight: 500;">${(log.processing_time * 1000).toFixed(0)}ms</td>
+    </tr>`;
   });
+
+  let avgConfidence = data.avg_confidence || 0;
+  if (avgConfidence > 1) {
+    avgConfidence = avgConfidence / 100;
+  }
+
+  let avgQuality = data.avg_quality || 0;
 
   html += `
         </tbody>
@@ -968,14 +994,9 @@ function displayRecognitionLogs(data) {
 </div>
 <div style="margin-top: 20px; padding: 15px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 10px; font-size: 1em; color: #495057;">
     <strong>Summary:</strong> ${data.logs.length} total logs • 
-    Avg confidence: <span style="font-weight: 700; color: #4caf50;">${(
-      data.avg_confidence * 100
-    ).toFixed(1)}%</span> • 
-    Avg quality: <span style="font-weight: 700; color: #2196f3;">${(
-      data.avg_quality * 100
-    ).toFixed(1)}%</span>
-</div>
-`;
+    Avg confidence: <span style="font-weight: 700; color: #4caf50;">${(avgConfidence * 100).toFixed(1)}%</span> • 
+    Avg quality: <span style="font-weight: 700; color: #2196f3;">${(avgQuality * 100).toFixed(1)}%</span>
+</div>`;
 
   logsDiv.innerHTML = html;
 }
@@ -990,8 +1011,7 @@ function displayHistoricalData(data) {
         <h3>No Historical Data</h3>
         <p>Historical performance data will appear here once you have multiple days of recognition activity.</p>
         <p>Continue using the system to build up historical trends and insights.</p>
-    </div>
-`;
+    </div>`;
     return;
   }
 
@@ -1009,83 +1029,38 @@ function displayHistoricalData(data) {
                     <th style="padding: 15px; text-align: center; border-bottom: 3px solid #dee2e6;">Avg Quality</th>
                 </tr>
             </thead>
-            <tbody>
-`;
+            <tbody>`;
 
   data.days.forEach((day, index) => {
     const date = new Date(day.date).toLocaleDateString();
-    const rowBg =
-      index % 2 === 0 ? "background: white;" : "background: #f8f9fa;";
-    const confidenceColor =
-      day.avg_confidence > 0.8
-        ? "#4caf50"
-        : day.avg_confidence > 0.6
-        ? "#8bc34a"
-        : day.avg_confidence > 0.4
-        ? "#ffc107"
-        : "#f44336";
+    const rowBg = index % 2 === 0 ? "background: white;" : "background: #f8f9fa;";
+    
+    let dayConfidence = day.avg_confidence || 0;
+    if (dayConfidence > 1) {
+      dayConfidence = dayConfidence / 100;
+    }
+    
+    const confidenceColor = dayConfidence > 0.8 ? "#4caf50" : dayConfidence > 0.6 ? "#8bc34a" : dayConfidence > 0.4 ? "#ffc107" : "#f44336";
 
     html += `
     <tr style="${rowBg} border-bottom: 1px solid #e9ecef; transition: all 0.3s ease;"
         onmouseover="this.style.background='#e3f2fd'" 
-        onmouseout="this.style.background='${
-          index % 2 === 0 ? "white" : "#f8f9fa"
-        }'">
+        onmouseout="this.style.background='${index % 2 === 0 ? "white" : "#f8f9fa"}'">
         <td style="padding: 12px 15px; font-weight: 600;">${date}</td>
-        <td style="padding: 12px 15px; text-align: center; font-weight: 700; color: #333;">${
-          day.total_recognitions
-        }</td>
-        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${
-          day.unique_people
-        }</td>
+        <td style="padding: 12px 15px; text-align: center; font-weight: 700; color: #333;">${day.total_recognitions}</td>
+        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${day.unique_people}</td>
         <td style="padding: 12px 15px; text-align: center;">
-            <span style="color: ${confidenceColor}; font-weight: 700;">${(
-      day.avg_confidence * 100
-    ).toFixed(1)}%</span>
+            <span style="color: ${confidenceColor}; font-weight: 700;">${(dayConfidence * 100).toFixed(1)}%</span>
         </td>
-        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${(
-          day.avg_quality * 100
-        ).toFixed(1)}%</td>
-    </tr>
-`;
+        <td style="padding: 12px 15px; text-align: center; font-weight: 600;">${(day.avg_quality * 100).toFixed(1)}%</td>
+    </tr>`;
   });
 
   html += `
             </tbody>
         </table>
     </div>
-</div>
-`;
-
-  const totalRecognitions = report.summary.total_recognitions || 0;
-  const uniquePeople = report.summary.unique_people || 0;
-  const avgConfidence = report.summary.avg_confidence || 0;
-  const avgQuality = report.summary.avg_quality || 0;
-
-  html += `
-<div class="analytics-grid">
-    <div class="stat-card recognition-card">
-        <h4>Total Recognitions</h4>
-        <div class="stat-value">${totalRecognitions}</div>
-        <div class="stat-label">Face detections</div>
-    </div>
-    <div class="stat-card performance-card">
-        <h4>Unique People</h4>
-        <div class="stat-value">${uniquePeople}</div>
-        <div class="stat-label">Different faces</div>
-    </div>
-    <div class="stat-card quality-card">
-        <h4>Avg Confidence</h4>
-        <div class="stat-value">${(avgConfidence * 100).toFixed(1)}%</div>
-        <div class="stat-label">Recognition accuracy</div>
-    </div>
-    <div class="stat-card method-card">
-        <h4>Avg Quality</h4>
-        <div class="stat-value">${(avgQuality * 100).toFixed(1)}%</div>
-        <div class="stat-label">Image quality</div>
-    </div>
-</div>
-`;
+</div>`;
 
   historicalDiv.innerHTML = html;
 }
@@ -1267,21 +1242,25 @@ function deletePerson(name) {
 
 function formatMethod(method) {
   const methodMap = {
-    standard: "Standard",
-    weighted: "Weighted Avg",
-    temporal: "Temporal",
-    enhanced: "Enhanced",
-    outlier_removed: "Outlier Filtered",
-    weighted_average: "Weighted Average",
-    adaptive: "Adaptive",
+    'standard': 'Standard',
+    'weighted': 'Weighted Avg',
+    'temporal': 'Temporal',
+    'enhanced': 'Enhanced',
+    'enhanced_matching': 'Enhanced Matching',
+    'outlier_removed': 'Outlier Filtered',
+    'weighted_average': 'Weighted Average',
+    'adaptive': 'Adaptive'
   };
 
-  if (method.includes("_")) {
-    const parts = method.split("_");
-    return parts.map((part) => methodMap[part] || part).join(" + ");
+  if (method.includes('_')) {
+    const parts = method.split('_');
+    if (methodMap[method]) {
+      return methodMap[method];
+    }
+    return parts.map(part => methodMap[part] || part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
   }
 
-  return methodMap[method] || method;
+  return methodMap[method] || method.charAt(0).toUpperCase() + method.slice(1);
 }
 
 function formatConfidenceLevel(level) {

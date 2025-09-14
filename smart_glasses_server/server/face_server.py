@@ -827,7 +827,7 @@ class EnhancedFaceRecognitionServer:
                     cosine_sim = cosine_similarity([encoding], [stored_encoding])[0][0]
                     
                     euclidean_dist = np.linalg.norm(encoding - stored_encoding)
-                    euclidean_sim = 1.0 / (1.0 + euclidean_dist * 0.5)  # Less penalty
+                    euclidean_sim = 1.0 / (1.0 + euclidean_dist * 0.5) 
                 
                     dot_product = np.dot(encoding, stored_encoding)
 
@@ -1379,6 +1379,97 @@ class EnhancedFaceRecognitionServer:
         except Exception as e:
             logging.error(f"Error removing outliers: {e}")
             return encodings  
+        
+    def get_recognition_logs(self, date=None):
+        """Get recognition logs for a specific date with proper type handling"""
+        if date is None:
+            date = datetime.now().date()
+        
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT person_name, confidence, quality_score, processing_time, 
+                    method_used, confidence_level, timestamp
+                FROM recognition_logs 
+                WHERE DATE(timestamp) = ?
+                ORDER BY timestamp DESC
+            ''', (date,))
+            
+            logs = cursor.fetchall()
+            conn.close()
+            
+            if not logs:
+                return {
+                    'logs': [],
+                    'avg_confidence': 0.0,
+                    'avg_quality': 0.0,
+                    'total_logs': 0
+                }
+            
+            processed_logs = []
+            confidences = []
+            qualities = []
+            
+            for log in logs:
+                try:
+                    person_name = log[0]
+                    if isinstance(person_name, bytes):
+                        person_name = person_name.decode('utf-8', errors='ignore')
+                    
+                    confidence = float(log[1]) if log[1] is not None else 0.0
+                    quality_score = float(log[2]) if log[2] is not None else 0.0
+                    processing_time = float(log[3]) if log[3] is not None else 0.0
+                    
+                    method_used = log[4]
+                    if isinstance(method_used, bytes):
+                        method_used = method_used.decode('utf-8', errors='ignore')
+                    
+                    confidence_level = log[5]
+                    if isinstance(confidence_level, bytes):
+                        confidence_level = confidence_level.decode('utf-8', errors='ignore')
+                    
+                    timestamp = log[6]
+                    
+                    processed_logs.append({
+                        'person_name': person_name,
+                        'confidence': confidence,
+                        'quality_score': quality_score,
+                        'processing_time': processing_time,
+                        'method_used': method_used,
+                        'confidence_level': confidence_level,
+                        'timestamp': timestamp
+                    })
+                    
+                    confidences.append(confidence)
+                    qualities.append(quality_score)
+                    
+                except (ValueError, TypeError, AttributeError) as e:
+                    print(f"Error processing log entry: {e}")
+                    print(f"Raw log data: {log}")
+                    continue
+            
+            avg_confidence = statistics.mean(confidences) if confidences else 0.0
+            avg_quality = statistics.mean(qualities) if qualities else 0.0
+            
+            return {
+                'logs': processed_logs,
+                'avg_confidence': avg_confidence,
+                'avg_quality': avg_quality,
+                'total_logs': len(processed_logs)
+            }
+            
+        except Exception as e:
+            logging.error(f"Error getting recognition logs: {e}")
+            return {
+                'logs': [],
+                'avg_confidence': 0.0,
+                'avg_quality': 0.0,
+                'total_logs': 0,
+                'error': str(e)
+            }
+
 
     def generate_daily_report(self, date=None):
         """Generate comprehensive daily analysis report"""
@@ -1401,8 +1492,15 @@ class EnhancedFaceRecognitionServer:
             if not daily_recognitions:
                 return {
                     'date': str(date),
-                    'summary': 'No recognitions recorded for this date',
-                    'total_recognitions': 0
+                    'summary': {
+                        'total_recognitions': 0,
+                        'unique_people': 0,
+                        'avg_confidence': 0.0,
+                        'avg_quality': 0.0
+                    },
+                    'people_analysis': [],
+                    'confidence_distribution': {},
+                    'performance_insights': ['No recognition data available for this date.']
                 }
             
             people_stats = defaultdict(lambda: {
@@ -1423,48 +1521,81 @@ class EnhancedFaceRecognitionServer:
             hourly_distribution = defaultdict(int)
             
             for name, confidence, quality, proc_time, method, timestamp in daily_recognitions:
-                if name: 
-                    total_recognitions += 1
-                    stats = people_stats[name]
-                    stats['count'] += 1
-                    stats['confidences'].append(confidence)
-                    stats['qualities'].append(quality)
-                    stats['processing_times'].append(proc_time)
-                    stats['methods'].append(method)
-                    
-                    if stats['first_seen'] is None:
-                        stats['first_seen'] = timestamp
-                    stats['last_seen'] = timestamp
-                    
-                    all_confidences.append(confidence)
-                    all_qualities.append(quality)
-                    all_processing_times.append(proc_time)
-                    method_counts[method] += 1
-                    
-                    hour = datetime.fromisoformat(timestamp).hour
-                    hourly_distribution[hour] += 1
+                if name:
+                    try:
+                        if isinstance(name, bytes):
+                            name = name.decode('utf-8', errors='ignore')
+                        
+                        confidence = float(confidence) if confidence is not None else 0.0
+                        quality = float(quality) if quality is not None else 0.0
+                        proc_time = float(proc_time) if proc_time is not None else 0.0
+                        
+                        if isinstance(method, bytes):
+                            method = method.decode('utf-8', errors='ignore')
+                        
+                        total_recognitions += 1
+                        stats = people_stats[name]
+                        stats['count'] += 1
+                        stats['confidences'].append(confidence)
+                        stats['qualities'].append(quality)
+                        stats['processing_times'].append(proc_time)
+                        stats['methods'].append(method)
+                        
+                        if stats['first_seen'] is None:
+                            stats['first_seen'] = timestamp
+                        stats['last_seen'] = timestamp
+                        
+                        all_confidences.append(confidence)
+                        all_qualities.append(quality)
+                        all_processing_times.append(proc_time)
+                        method_counts[method] += 1
+                        
+                        try:
+                            if isinstance(timestamp, str):
+                                hour = datetime.fromisoformat(timestamp).hour
+                            else:
+                                hour = timestamp.hour if hasattr(timestamp, 'hour') else 0
+                            hourly_distribution[hour] += 1
+                        except (ValueError, AttributeError):
+                            hourly_distribution[0] += 1
+                            
+                    except (ValueError, TypeError, AttributeError) as e:
+                        print(f"Error processing record: {e}")
+                        print(f"Raw data: name={name}, conf={confidence}, qual={quality}, time={proc_time}")
+                        continue
             
             unique_people = len(people_stats)
-            avg_confidence = statistics.mean(all_confidences) if all_confidences else 0
-            avg_quality = statistics.mean(all_qualities) if all_qualities else 0
-            avg_processing_time = statistics.mean(all_processing_times) if all_processing_times else 0
+            avg_confidence = statistics.mean(all_confidences) if all_confidences else 0.0
+            avg_quality = statistics.mean(all_qualities) if all_qualities else 0.0
+            avg_processing_time = statistics.mean(all_processing_times) if all_processing_times else 0.0
             
             top_person = max(people_stats.keys(), key=lambda x: people_stats[x]['count']) if people_stats else None
             
             people_analysis = []
             for name, stats in people_stats.items():
-                people_analysis.append({
-                    'name': name,
-                    'recognition_count': stats['count'],
-                    'avg_confidence': statistics.mean(stats['confidences']),
-                    'confidence_std': statistics.stdev(stats['confidences']) if len(stats['confidences']) > 1 else 0,
-                    'avg_quality': statistics.mean(stats['qualities']),
-                    'avg_processing_time': statistics.mean(stats['processing_times']),
-                    'most_used_method': max(set(stats['methods']), key=stats['methods'].count),
-                    'first_seen': stats['first_seen'],
-                    'last_seen': stats['last_seen'],
-                    'confidence_level': self._get_confidence_level(statistics.mean(stats['confidences']))
-                })
+                try:
+                    avg_conf = statistics.mean(stats['confidences']) if stats['confidences'] else 0.0
+                    conf_std = statistics.stdev(stats['confidences']) if len(stats['confidences']) > 1 else 0.0
+                    avg_qual = statistics.mean(stats['qualities']) if stats['qualities'] else 0.0
+                    avg_proc = statistics.mean(stats['processing_times']) if stats['processing_times'] else 0.0
+                    
+                    most_used_method = max(set(stats['methods']), key=stats['methods'].count) if stats['methods'] else 'unknown'
+                    
+                    people_analysis.append({
+                        'name': name,
+                        'recognition_count': stats['count'],
+                        'avg_confidence': avg_conf,
+                        'confidence_std': conf_std,
+                        'avg_quality': avg_qual,
+                        'avg_processing_time': avg_proc,
+                        'most_used_method': most_used_method,
+                        'first_seen': stats['first_seen'],
+                        'last_seen': stats['last_seen'],
+                        'confidence_level': self._get_confidence_level(avg_conf)
+                    })
+                except Exception as e:
+                    print(f"Error processing person stats for {name}: {e}")
+                    continue
             
             people_analysis.sort(key=lambda x: x['recognition_count'], reverse=True)
             
@@ -1481,7 +1612,7 @@ class EnhancedFaceRecognitionServer:
                 performance_insights.append("Fast processing performance")
                 
             if 'weighted_average' in method_counts and method_counts['weighted_average'] > total_recognitions * 0.5:
-                performance_insights.append(" Advanced averaging methods frequently used")
+                performance_insights.append("Advanced averaging methods frequently used")
                 
             report_data = {
                 'people_analysis': people_analysis,
@@ -1493,13 +1624,26 @@ class EnhancedFaceRecognitionServer:
             cursor.execute('''
                 INSERT OR REPLACE INTO daily_reports 
                 (report_date, total_recognitions, unique_people_count, avg_confidence, 
-                 avg_quality, avg_processing_time, top_recognized_person, report_data)
+                avg_quality, avg_processing_time, top_recognized_person, report_data)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (date, total_recognitions, unique_people, avg_confidence, avg_quality,
-                  avg_processing_time, top_person, json.dumps(report_data)))
+                avg_processing_time, top_person, json.dumps(report_data)))
             
             conn.commit()
             conn.close()
+            
+            confidence_distribution = {}
+            try:
+                confidence_distribution = {
+                    'very_high': sum(1 for c in all_confidences if c >= self.confidence_levels['very_high']),
+                    'high': sum(1 for c in all_confidences if self.confidence_levels['high'] <= c < self.confidence_levels['very_high']),
+                    'medium': sum(1 for c in all_confidences if self.confidence_levels['medium'] <= c < self.confidence_levels['high']),
+                    'low': sum(1 for c in all_confidences if self.confidence_levels['low'] <= c < self.confidence_levels['medium']),
+                    'very_low': sum(1 for c in all_confidences if c < self.confidence_levels['low'])
+                }
+            except Exception as e:
+                print(f"Error calculating confidence distribution: {e}")
+                confidence_distribution = {'very_high': 0, 'high': 0, 'medium': 0, 'low': 0, 'very_low': 0}
             
             return {
                 'date': str(date),
@@ -1508,30 +1652,25 @@ class EnhancedFaceRecognitionServer:
                     'unique_people': unique_people,
                     'avg_confidence': round(avg_confidence, 3),
                     'avg_quality': round(avg_quality, 3),
-                    'avg_processing_time': round(avg_processing_time * 1000, 1), 
+                    'avg_processing_time': round(avg_processing_time * 1000, 1),
                     'top_recognized_person': top_person
                 },
-                'people_analysis': people_analysis[:10],  
+                'people_analysis': people_analysis[:10],
                 'method_distribution': dict(method_counts),
                 'hourly_distribution': dict(hourly_distribution),
                 'performance_insights': performance_insights,
-                'confidence_distribution': {
-                    'very_high': sum(1 for c in all_confidences if c >= self.confidence_levels['very_high']),
-                    'high': sum(1 for c in all_confidences if self.confidence_levels['high'] <= c < self.confidence_levels['very_high']),
-                    'medium': sum(1 for c in all_confidences if self.confidence_levels['medium'] <= c < self.confidence_levels['high']),
-                    'low': sum(1 for c in all_confidences if self.confidence_levels['low'] <= c < self.confidence_levels['medium']),
-                    'very_low': sum(1 for c in all_confidences if c < self.confidence_levels['low'])
-                }
+                'confidence_distribution': confidence_distribution
             }
             
         except Exception as e:
             logging.error(f"Error generating daily report: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'date': str(date),
                 'error': str(e),
                 'summary': 'Error generating report'
             }
-
 face_server = EnhancedFaceRecognitionServer()
 connected_clients = {}
 
@@ -1922,47 +2061,11 @@ def get_recognition_logs():
         else:
             report_date = datetime.now().date()
         
-        conn = sqlite3.connect(face_server.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT person_name, confidence, quality_score, processing_time, method_used, timestamp
-            FROM recognition_logs 
-            WHERE DATE(timestamp) = ?
-            ORDER BY timestamp DESC
-        ''', (report_date,))
-        
-        logs = []
-        total_confidence = 0
-        total_quality = 0
-        
-        for row in cursor.fetchall():
-            person_name, confidence, quality, proc_time, method, timestamp = row
-            logs.append({
-                'person_name': person_name,
-                'confidence': confidence,
-                'quality_score': quality,
-                'processing_time': proc_time,
-                'method_used': method,
-                'timestamp': timestamp
-            })
-            total_confidence += confidence
-            total_quality += quality
-        
-        conn.close()
-        
-        avg_confidence = total_confidence / len(logs) if logs else 0
-        avg_quality = total_quality / len(logs) if logs else 0
-        
-        return jsonify({
-            'logs': logs,
-            'total_logs': len(logs),
-            'avg_confidence': avg_confidence,
-            'avg_quality': avg_quality
-        })
+        logs_data = face_server.get_recognition_logs(report_date)
+        return jsonify(logs_data)
         
     except Exception as e:
-        logging.error(f"Recognition logs error: {e}")
+        logging.error(f"Recognition logs API error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/historical_data', methods=['GET'])
