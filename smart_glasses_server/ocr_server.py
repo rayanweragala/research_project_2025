@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from flask import Flask, request, jsonify, Response, send_from_directory
+from flask import Flask, request, jsonify, Response, render_template
 import cv2
 import numpy as np
 import base64
@@ -21,12 +21,18 @@ import random
 from collections import defaultdict
 import pytesseract as pt
 import platform
-import face_server
 
 from flask_cors import CORS
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
+ROOT_DIR = os.path.dirname(BASE_DIR)
+app = Flask(
+    __name__,
+    template_folder=os.path.join(ROOT_DIR, "templates"),
+    static_folder=os.path.join(ROOT_DIR, "static")
+)
 CORS(app)
+
 logging.basicConfig(level=logging.INFO)
 
 class SinhalaOCRServer:
@@ -1302,7 +1308,7 @@ ocr_server = SinhalaOCRServer()
 @app.route('/')
 def index():
     """Serve the main OCR interface"""
-    return send_from_directory('.', 'ocr_server_index.html')
+    return render_template('ocr_server_index.html')
 
 @app.route('/api/ocr/health', methods=['GET'])
 def ocr_health():
@@ -1791,7 +1797,10 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("Server starting... Press Ctrl+C to stop")
     print("="*60)
-    
+
+    if not os.path.exists('ocr_server_index.html'):
+        print("ocr_server_index.html not found!")
+
     try:
         app.run(
             host='0.0.0.0',
