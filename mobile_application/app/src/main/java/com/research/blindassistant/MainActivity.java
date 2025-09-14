@@ -307,7 +307,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 lowerCommand.contains("පුවත්පත") || lowerCommand.contains("puwath") ||
                 lowerCommand.contains("නිව්ස්") || lowerCommand.contains("news reading")) {
             stopListening();
-            speak(StringResources.getString(Main.OPENING_PAPER), StringResources.getCurrentLocale());
+//            speak(StringResources.getString(Main.OPENING_PAPER), StringResources.getCurrentLocale());
             // startActivity(new Intent(this, PaperReadingActivity.class)); // Uncomment when activity is ready
 
         } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting") ||

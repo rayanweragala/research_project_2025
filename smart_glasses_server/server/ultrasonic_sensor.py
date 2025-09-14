@@ -8,9 +8,10 @@ Modified to use lgpio and 4-second measurement intervals
 import lgpio
 import time
 import json
+import os
 import threading
 from datetime import datetime, timedelta
-from flask import Flask, jsonify, request, render_template_string, send_from_directory
+from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 import statistics
 from collections import deque, defaultdict
@@ -20,7 +21,14 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
+ROOT_DIR = os.path.dirname(BASE_DIR)  
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(ROOT_DIR, "templates"),
+    static_folder=os.path.join(ROOT_DIR, "static")
+)
 CORS(app)
 
 # GPIO pin configuration for HC-SR04 on Pi 5
@@ -543,12 +551,7 @@ def generate_test_data():
 @app.route('/')
 def dashboard():
     """Serve the main dashboard HTML"""
-    return send_from_directory('.', 'ultrasonic_sensor.html')
-
-@app.route('/ultrasonic_sensor.html')
-def dashboard_html():
-    """Alternative route for the dashboard HTML"""
-    return send_from_directory('.', 'ultrasonic_sensor.html')
+    return render_template('ultrasonic_sensor_index.html')
 
 @app.route('/api/info')
 def api_info():
@@ -573,6 +576,9 @@ def api_info():
     })
 
 if __name__ == '__main__':
+    if not os.path.exists('ultrasonic_index.html'):
+        print("ultrasonic_index.html not found!")
+
     try:
         logger.info("Starting Pi 5 Ultrasonic Distance Sensor Server...")
         logger.info("Measurement interval: 4 seconds")

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ultrasonic Distance Sensor Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ultrasonic_server.css') }}">
+    <script src="{{ url_for('static', filename='js/ultrasonic_server.js') }}"></script>
+</head>
+<body>
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="container">
+        <div class="header">
+            <h1>Distance Sensor Dashboard</h1>
+            <p>Real-time ultrasonic distance measurements with analytics</p>
+        </div>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab(event, 'live')">📡 Live Measurements</div>
+            <div class="tab" onclick="switchTab(event, 'analytics')">📊 Analytics</div>
+            <div class="tab" onclick="switchTab(event, 'reports')">📋 Reports</div>
+        </div>
+        
+        <div id="live-tab" class="tab-content active">
+            <div class="dashboard-grid">
+                <div class="distance-display">
+                    <h3 class="section-title">📏 Current Distance</h3>
+                    <div class="distance-reading" id="distanceReading">-- cm</div>
+                    <div class="distance-zone" id="distanceZone">Connecting...</div>
+                    <div id="qualityDisplay" style="margin-top: 20px; font-size: 1.1em; font-weight: 600; color: #666;">
+                        Quality: <span id="qualityScore">--</span>%
+                    </div>
+                    <div class="quality-bar">
+                        <div class="quality-fill" id="qualityBar" style="width: 0%;"></div>
+                    </div>
+                </div>
+                
+                <div class="controls-section">
+                    <h3 class="section-title">🎮 Controls</h3>
+                    <button class="button stop" onclick="stopSensor()">⏹️ Stop Sensor</button>
+                    
+                    <h3 class="section-title" style="margin-top: 25px;">📡 System Status</h3>
+                    <div id="status" class="status">Connecting to sensor...</div>
+                    
+                    <h3 class="section-title" style="margin-top: 25px;">🔍 Current Reading</h3>
+                    <div id="currentReading"></div>
+                </div>
+            </div>
+            
+            <div class="results-section">
+                <h3 class="section-title">📝 Recent Measurements</h3>
+                <div id="measurements"></div>
+            </div>
+        </div>
+        
+        <div id="analytics-tab" class="tab-content">
+            <div class="analytics-grid">
+                <div class="stat-card distance-card">
+                    <h4>Average Distance</h4>
+                    <div class="stat-value" id="avgDistance">0 cm</div>
+                    <div class="stat-label">Mean Reading</div>
+                </div>
+                <div class="stat-card measurement-card">
+                    <h4>Total Measurements</h4>
+                    <div class="stat-value" id="totalMeasurements">0</div>
+                    <div class="stat-label">Sensor Readings</div>
+                </div>
+                <div class="stat-card range-card">
+                    <h4>Distance Range</h4>
+                    <div class="stat-value" id="distanceRange">0 cm</div>
+                    <div class="stat-label">Min - Max</div>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h3 class="section-title">📈 Zone Distribution</h3>
+                <div id="zoneChart"></div>
+            </div>
+            
+            <div class="chart-container">
+                <h3 class="section-title">⏰ 24-Hour Activity</h3>
+                <div id="hourlyChart"></div>
+            </div>
+        </div>
+        
+        <div id="reports-tab" class="tab-content">
+            <div class="report-section">
+                <div class="report-header">
+                    <h2>📋 Daily Analysis Report</h2>
+                    <div>
+                        <input type="date" id="reportDate" class="date-picker" onchange="loadDailyReport()" />
+                    </div>
+                </div>
+                
+                <div id="reportContent"></div>
+            </div>
+            
+            <div class="report-section">
+                <h3 class="section-title">📊 Measurement Logs</h3>
+                <div id="measurementLogs"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
