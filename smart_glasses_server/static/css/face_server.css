@@ -76,7 +76,8 @@
     margin-bottom: 2rem;
 }
 
-.camera-section, .controls-section {
+.camera-section,
+.controls-section {
     background-color: var(--background-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
@@ -338,31 +339,31 @@
     .face-content {
         padding: 1rem;
     }
-    
+
     .dashboard-grid {
         grid-template-columns: 1fr;
         gap: 1rem;
     }
-    
+
     .analytics-grid {
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 1rem;
     }
-    
+
     .face-nav-tabs {
         padding: 0 1rem;
     }
-    
+
     .face-tab {
         padding: 0.75rem 1rem;
         font-size: 0.875rem;
     }
-    
+
     .report-header {
         flex-direction: column;
         align-items: flex-start;
     }
-    
+
     .toast {
         min-width: 250px;
     }
@@ -372,7 +373,7 @@
     .analytics-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .button {
         width: 100%;
         margin-right: 0;
@@ -554,9 +555,20 @@
     margin: 2px;
 }
 
-.quality-excellent { background: #e8f5e8; color: #2e7d32; }
-.quality-good { background: #fff3e0; color: #f57c00; }
-.quality-poor { background: #ffebee; color: #c62828; }
+.quality-excellent {
+    background: #e8f5e8;
+    color: #2e7d32;
+}
+
+.quality-good {
+    background: #fff3e0;
+    color: #f57c00;
+}
+
+.quality-poor {
+    background: #ffebee;
+    color: #c62828;
+}
 
 .recommendation-card {
     background: linear-gradient(135deg, #f8f9fa, #e9ecef);

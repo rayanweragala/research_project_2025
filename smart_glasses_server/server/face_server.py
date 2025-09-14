@@ -56,7 +56,7 @@ class EnhancedFaceRecognitionServer:
         self.db_path = "face_database.db"
         self.face_encodings = {}
 
-        self.recognition_threshold = 0.12
+        self.recognition_threshold = 0.35
         self.quality_threshold = 0.10
         self.min_face_size = 40
         self.max_embeddings_per_person = 20  
@@ -622,6 +622,7 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Fallback face detection error: {e}")
             return None, 0.0, None
 
+    
     def recognize_face_with_averaging(self, image):
         """Enhanced recognition with better matching"""
         start_time = time.time()
@@ -635,7 +636,10 @@ class EnhancedFaceRecognitionServer:
                     'name': None,
                     'confidence': 0.0,
                     'message': "No face detected",
-                    'processing_time': float(time.time() - start_time)
+                    'processing_time': float(time.time() - start_time),
+                    'confidence_level': 'unknown',
+                    'quality_score': 0.0,
+                    'method_used': 'enhanced_matching'
                 }
             
             best_match = None
@@ -652,9 +656,11 @@ class EnhancedFaceRecognitionServer:
                     )
                     
                     euclidean_dist = np.linalg.norm(encoding - stored_encoding)
-                    euclidean_sim = 1.0 / (1.0 + euclidean_dist * 0.3)  # Reduced penalty
+                    euclidean_sim = 1.0 / (1.0 + euclidean_dist * 0.3)
                     
                     dot_sim = np.dot(encoding, stored_encoding)
+                    
+                    dot_sim = max(0.0, min(1.0, (dot_sim + 1.0) / 2.0))
                     
                     combined_similarity = (
                         cosine_sim * 0.5 + 
@@ -662,8 +668,13 @@ class EnhancedFaceRecognitionServer:
                         dot_sim * 0.15
                     )
                     
-                    quality_factor = min(1.3, (quality * 1.2 + data['quality'] * 0.8) / 1.5)  # More generous
+                    combined_similarity = max(0.0, min(1.0, combined_similarity))
+                    
+                    quality_factor = min(1.3, (quality * 1.2 + data['quality'] * 0.8) / 1.5)
+                    
                     final_confidence = combined_similarity * quality_factor
+                    
+                    final_confidence = max(0.0, min(1.0, final_confidence))
                     
                     confidences.append(final_confidence)
                 
@@ -672,10 +683,12 @@ class EnhancedFaceRecognitionServer:
                     avg_confidence = sum(top_scores) / len(top_scores)
                     
                     good_matches = [c for c in confidences if c > 0.10]  
-                    if len(good_matches) >= 2:
-                        avg_confidence *= 1.15  
+                    if len(good_matches) >= 3:
+                        avg_confidence *= 1.1  
                     elif len(good_matches) >= 3:
                         avg_confidence *= 1.25
+                    
+                    avg_confidence = max(0.0, min(1.0, avg_confidence))
                     
                     if avg_confidence > best_confidence:
                         best_confidence = avg_confidence
@@ -683,7 +696,9 @@ class EnhancedFaceRecognitionServer:
             
             processing_time = time.time() - start_time
             
-            if best_confidence > 0.12: 
+            confidence_level = self.get_confidence_level(best_confidence)
+            
+            if best_confidence > 0.40: 
                 self.log_recognition(best_match, best_confidence, quality, processing_time, 'enhanced_matching')
                 
                 return {
@@ -693,7 +708,8 @@ class EnhancedFaceRecognitionServer:
                     'message': f"Recognized {best_match}",
                     'quality_score': float(quality),
                     'processing_time': float(processing_time),
-                    'method_used': 'enhanced_matching'
+                    'method_used': 'enhanced_matching',
+                    'confidence_level': confidence_level
                 }
             else:
                 return {
@@ -703,7 +719,8 @@ class EnhancedFaceRecognitionServer:
                     'message': "Unknown person",
                     'quality_score': float(quality),
                     'processing_time': float(processing_time),
-                    'method_used': 'enhanced_matching'
+                    'method_used': 'enhanced_matching',
+                    'confidence_level': confidence_level
                 }
                 
         except Exception as e:
@@ -714,9 +731,23 @@ class EnhancedFaceRecognitionServer:
                 'confidence': 0.0,
                 'message': f"Error: {str(e)}",
                 'processing_time': float(time.time() - start_time),
-                'method_used': 'error'
+                'method_used': 'error',
+                'confidence_level': 'unknown',
+                'quality_score': 0.0
             }
 
+    def get_confidence_level(self, confidence):
+        """Determine confidence level based on confidence score (0-1 range)"""
+        if confidence >= 0.85:
+            return 'very_high'
+        elif confidence >= 0.70:
+            return 'high'
+        elif confidence >= 0.50:
+            return 'medium'
+        elif confidence >= 0.25:
+            return 'low'
+        else:
+            return 'very_low'
         
     def frame_to_base64_quality(self, frame, quality=85):
         """Convert frame to base64 string with adjustable quality"""
@@ -2152,6 +2183,7 @@ def get_camera_frame():
         if frame is None:
             logging.info("Attempting to restart camera...")
             if face_server.start_camera():
+                start_time = time.time()
                 frame = face_server.capture_frame()
                 
             if frame is None:
@@ -2166,7 +2198,7 @@ def get_camera_frame():
 
         processed_frame = face_server.preprocess_camera_frame(frame)
         recognition_result = face_server.recognize_face_with_averaging(processed_frame)
-        
+        processing_time = time.time() - start_time
         
         response_data = {
             'recognized': recognition_result.get('recognized', False),

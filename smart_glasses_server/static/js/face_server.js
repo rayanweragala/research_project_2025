@@ -5,93 +5,95 @@ let capturedImages = [];
 let previewInterval;
 
 function openAddPersonModal() {
-  const modal = document.getElementById('addPersonModal');
-  modal.classList.add('show');
-  document.getElementById('personName').value = '';
+  const modal = document.getElementById("addPersonModal");
+  modal.classList.add("show");
+  document.getElementById("personName").value = "";
   capturedImages = [];
   updateCapturedImagesDisplay();
   startPreview();
 }
 
 function closeAddPersonModal() {
-  const modal = document.getElementById('addPersonModal');
-  modal.classList.remove('show');
+  const modal = document.getElementById("addPersonModal");
+  modal.classList.remove("show");
   stopPreview();
   capturedImages = [];
 }
 
 function startPreview() {
-  const previewFrame = document.getElementById('previewFrame');
+  const previewFrame = document.getElementById("previewFrame");
   previewInterval = setInterval(() => {
-      fetch('/api/camera/frame_add_friend')
-          .then(response => response.json())
-          .then(data => {
-              if (data.success && data.frame_data.image) {
-                  previewFrame.innerHTML = `<img src="data:image/jpeg;base64,${data.frame_data.image}" alt="Preview">`;
-              }
-          })
-          .catch(err => {
-              console.error('Preview error:', err);
-          });
+    fetch("/api/camera/frame_add_friend")
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success && data.frame_data.image) {
+          previewFrame.innerHTML = `<img src="data:image/jpeg;base64,${data.frame_data.image}" alt="Preview">`;
+        }
+      })
+      .catch((err) => {
+        console.error("Preview error:", err);
+      });
   }, 500);
 }
 
 function stopPreview() {
   if (previewInterval) {
-      clearInterval(previewInterval);
-      previewInterval = null;
+    clearInterval(previewInterval);
+    previewInterval = null;
   }
 }
 
 function captureImage() {
-  fetch('/api/camera/frame_add_friend')
-      .then(response => response.json())
-      .then(data => {
-          if (data.success && data.frame_data.image) {
-              let base64Data = data.frame_data.image;
-              
-              if (base64Data.startsWith('data:image/')) {
-                  base64Data = base64Data.split(',')[1];
-              }
-              
-              if (!isValidBase64(base64Data)) {
-                  showToast('Invalid image format received', 'error');
-                  return;
-              }
-              
-              base64Data = addBase64Padding(base64Data);
-              
-              capturedImages.push(base64Data);
-              updateCapturedImagesDisplay();
-              showToast(`Image ${capturedImages.length} captured successfully!`, 'success');
-          } else {
-              showToast('Failed to capture image', 'error');
-          }
-      })
-      .catch(err => {
-          showToast('Error capturing image', 'error');
-          console.error('Capture error:', err);
-      });
-}
+  fetch("/api/camera/frame_add_friend")
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.success && data.frame_data.image) {
+        let base64Data = data.frame_data.image;
 
+        if (base64Data.startsWith("data:image/")) {
+          base64Data = base64Data.split(",")[1];
+        }
+
+        if (!isValidBase64(base64Data)) {
+          showToast("Invalid image format received", "error");
+          return;
+        }
+
+        base64Data = addBase64Padding(base64Data);
+
+        capturedImages.push(base64Data);
+        updateCapturedImagesDisplay();
+        showToast(
+          `Image ${capturedImages.length} captured successfully!`,
+          "success"
+        );
+      } else {
+        showToast("Failed to capture image", "error");
+      }
+    })
+    .catch((err) => {
+      showToast("Error capturing image", "error");
+      console.error("Capture error:", err);
+    });
+}
 
 function isValidBase64(str) {
   try {
-      const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
-      if (!base64Regex.test(str)) {
-          return false;
-      }
-      
-      atob(str);
-      return true;
-  } catch (e) {
+    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+    if (!base64Regex.test(str)) {
       return false;
+    }
+
+    atob(str);
+    return true;
+  } catch (e) {
+    return false;
   }
 }
 
 function addBase64Padding(base64) {
   while (base64.length % 4 !== 0) {
-      base64 += '=';
+    base64 += "=";
   }
   return base64;
 }
@@ -102,20 +104,22 @@ function removeCapturedImage(index) {
 }
 
 function updateCapturedImagesDisplay() {
-  const container = document.getElementById('capturedImages');
-  container.innerHTML = '';
-  
+  const container = document.getElementById("capturedImages");
+  container.innerHTML = "";
+
   capturedImages.forEach((image, index) => {
-      const imageDiv = document.createElement('div');
-      imageDiv.className = 'captured-image';
-      imageDiv.innerHTML = `
-          <img src="data:image/jpeg;base64,${image}" alt="Captured ${index + 1}">
+    const imageDiv = document.createElement("div");
+    imageDiv.className = "captured-image";
+    imageDiv.innerHTML = `
+          <img src="data:image/jpeg;base64,${image}" alt="Captured ${
+      index + 1
+    }">
           <button class="remove-btn" onclick="removeCapturedImage(${index})">&times;</button>
       `;
-      container.appendChild(imageDiv);
+    container.appendChild(imageDiv);
   });
-  
-  const submitBtn = document.getElementById('submitBtn');
+
+  const submitBtn = document.getElementById("submitBtn");
   submitBtn.disabled = capturedImages.length === 0;
 }
 
@@ -151,14 +155,14 @@ function showToast(message, type = "info", title = "", duration = 4000) {
 
   setTimeout(() => {
     if (toast.parentNode) {
-        toast.classList.remove('show');
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.parentNode.removeChild(toast);
-            }
-        }, 400);
+      toast.classList.remove("show");
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 400);
     }
-}, duration);
+  }, duration);
 }
 
 function closeToast(button) {
@@ -323,6 +327,12 @@ function getServerFrame() {
 
 function updateCurrentResult(data) {
   const currentResult = document.getElementById("currentResult");
+
+  let confidence = data.confidence;
+  if (confidence > 1.0) {
+    confidence = confidence / 100.0;
+  }
+
   if (!data.recognized && !data.error) {
     currentResult.innerHTML = `
     <div style="padding: 18px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 12px; margin-top: 18px; border-left: 4px solid #6c757d;">
@@ -337,7 +347,7 @@ function updateCurrentResult(data) {
         </div>
         <div class="confidence-bar">
             <div class="confidence-fill" style="width: ${
-              data.confidence * 100
+              confidence * 100
             }%; background: #ff9800;"></div>
         </div>
     </div>
@@ -348,17 +358,19 @@ function updateCurrentResult(data) {
         <div style="font-weight: 700; color: #2e7d32; font-size: 1.2em;">
             ${data.name}
             <span class="confidence-level conf-${
-              data.confidence_level
-            }">${formatConfidenceLevel(data.confidence_level)}</span>
+              data.confidence_level || "medium"
+            }">${formatConfidenceLevel(
+      data.confidence_level || "medium"
+    )}</span>
         </div>
         <div style="font-size: 0.95em; margin-top: 10px; color: #4caf50; font-weight: 500;">
-            Confidence: ${(data.confidence * 100).toFixed(1)}% • 
+            Confidence: ${(confidence * 100).toFixed(1)}% • 
             Quality: ${(data.quality_score * 100).toFixed(1)}%
             ${data.method_used ? ` • ${formatMethod(data.method_used)}` : ""}
         </div>
         <div class="confidence-bar">
             <div class="confidence-fill" style="width: ${
-              data.confidence * 100
+              confidence * 100
             }%;"></div>
         </div>
     </div>
@@ -381,6 +393,10 @@ function displayResult(data) {
     : "unknown";
 
   let confidence = data.confidence || 0;
+  if (confidence > 1.0) {
+    confidence = confidence / 100.0;
+  }
+
   let quality = data.quality_score || 0;
   let processingTime = data.processing_time || 0;
 
@@ -1182,7 +1198,11 @@ function displayPeopleList(people) {
         </div>
         <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center;">
           <span class="method-badge method-${person.registration_method}">
-              ${person.registration_method === "enhanced" ? "Multi-image Registration" : "Standard Registration"}
+              ${
+                person.registration_method === "enhanced"
+                  ? "Multi-image Registration"
+                  : "Standard Registration"
+              }
           </span>
           <div style="display: flex; gap: 10px;">
               <button class="button add-person" style="padding: 10px 18px; font-size: 0.85em; margin: 0;" 
@@ -1322,20 +1342,20 @@ function initializeDashboard() {
 }
 
 function analyzePerson(name) {
-  showToast(`Analyzing ${name}'s registration...`, 'info', 'Processing');
-  
+  showToast(`Analyzing ${name}'s registration...`, "info", "Processing");
+
   fetch(`/api/analyze_person/${encodeURIComponent(name)}`)
-      .then(response => response.json())
-      .then(data => {
-          if (data.error) {
-              showToast(`Analysis failed: ${data.error}`, 'error');
-              return;
-          }
-          showAnalysisModal(data);
-      })
-      .catch(err => {
-          showToast(`Error analyzing person: ${err.message}`, 'error');
-      });
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.error) {
+        showToast(`Analysis failed: ${data.error}`, "error");
+        return;
+      }
+      showAnalysisModal(data);
+    })
+    .catch((err) => {
+      showToast(`Error analyzing person: ${err.message}`, "error");
+    });
 }
 
 function showAnalysisModal(data) {
@@ -1355,17 +1375,23 @@ function showAnalysisModal(data) {
                       </div>
                       <div class="stat-card quality-card">
                           <h4>Average Quality</h4>
-                          <div class="stat-value">${(data.avg_quality * 100).toFixed(1)}%</div>
+                          <div class="stat-value">${(
+                            data.avg_quality * 100
+                          ).toFixed(1)}%</div>
                           <div class="stat-label">Overall Score</div>
                       </div>
                       <div class="stat-card performance-card">
                           <h4>Best Quality</h4>
-                          <div class="stat-value">${(data.max_quality * 100).toFixed(1)}%</div>
+                          <div class="stat-value">${(
+                            data.max_quality * 100
+                          ).toFixed(1)}%</div>
                           <div class="stat-label">Highest Score</div>
                       </div>
                       <div class="stat-card method-card">
                           <h4>Worst Quality</h4>
-                          <div class="stat-value">${(data.min_quality * 100).toFixed(1)}%</div>
+                          <div class="stat-value">${(
+                            data.min_quality * 100
+                          ).toFixed(1)}%</div>
                           <div class="stat-label">Lowest Score</div>
                       </div>
                   </div>
@@ -1373,16 +1399,22 @@ function showAnalysisModal(data) {
                   <div class="chart-container">
                       <h3 class="section-title">Photo Quality Distribution</h3>
                       <div class="photo-grid">
-                          ${data.qualities.map((quality, index) => `
+                          ${data.qualities
+                            .map(
+                              (quality, index) => `
                               <div class="photo-quality-item">
-                                  <div class="quality-indicator ${getQualityClass(quality)}">
+                                  <div class="quality-indicator ${getQualityClass(
+                                    quality
+                                  )}">
                                       Photo ${index + 1}
                                   </div>
                                   <div style="margin-top: 8px; font-weight: 600;">
                                       ${(quality * 100).toFixed(1)}%
                                   </div>
                               </div>
-                          `).join('')}
+                          `
+                            )
+                            .join("")}
                       </div>
                   </div>
                   
@@ -1395,63 +1427,68 @@ function showAnalysisModal(data) {
           </div>
       </div>
   `;
-  
-  document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
 }
 
 function closeAnalysisModal() {
-  const modal = document.getElementById('analysisModal');
+  const modal = document.getElementById("analysisModal");
   if (modal) {
-      modal.remove();
+    modal.remove();
   }
 }
 
 function getQualityClass(quality) {
-  if (quality > 0.6) return 'quality-excellent';
-  if (quality > 0.3) return 'quality-good';
-  return 'quality-poor';
+  if (quality > 0.6) return "quality-excellent";
+  if (quality > 0.3) return "quality-good";
+  return "quality-poor";
 }
 
 function generateRecommendations(recommendations) {
-  let html = '<div class="chart-container"><h3 class="section-title">Recommendations</h3>';
-  
+  let html =
+    '<div class="chart-container"><h3 class="section-title">Recommendations</h3>';
+
   if (recommendations.should_retake_photos) {
-      html += `
+    html += `
           <div class="recommendation-card">
               <strong>Consider Re-registration</strong><br>
               Overall photo quality is low. Consider capturing new photos with better lighting and positioning.
           </div>
       `;
   }
-  
+
   if (recommendations.needs_better_lighting) {
-      html += `
+    html += `
           <div class="recommendation-card">
               <strong>Improve Lighting</strong><br>
               Many photos have poor lighting. Use natural light or well-lit environments for better results.
           </div>
       `;
   }
-  
+
   if (recommendations.has_good_photos) {
-      html += `
+    html += `
           <div class="recommendation-card" style="border-left-color: #4caf50;">
               <strong>Good Quality Detected</strong><br>
               Some photos have excellent quality. The system should recognize this person reliably.
           </div>
       `;
   }
-  
-  if (!recommendations.should_retake_photos && !recommendations.needs_better_lighting && !recommendations.has_good_photos) {
-      html += `
+
+  if (
+    !recommendations.should_retake_photos &&
+    !recommendations.needs_better_lighting &&
+    !recommendations.has_good_photos
+  ) {
+    html += `
           <div class="recommendation-card">
               <strong>Analysis Complete</strong><br>
               Photo quality is acceptable for basic recognition. Consider adding more photos for improved accuracy.
           </div>
       `;
   }
-  
-  html += '</div>';
+
+  html += "</div>";
   return html;
 }
 
@@ -1521,103 +1558,119 @@ document.addEventListener("DOMContentLoaded", function () {
   initializeDashboard();
   startPeriodicUpdates();
 
-  const addPersonModal = document.getElementById('addPersonModal');
+  const addPersonModal = document.getElementById("addPersonModal");
   if (addPersonModal) {
-    addPersonModal.addEventListener('click', function(e) {
+    addPersonModal.addEventListener("click", function (e) {
       if (e.target === this) {
-          closeAddPersonModal();
+        closeAddPersonModal();
       }
     });
   }
 
-  const form = document.getElementById('addPersonForm');
+  const form = document.getElementById("addPersonForm");
   if (form) {
-    form.addEventListener('submit', function(e) {
+    form.addEventListener("submit", function (e) {
       e.preventDefault();
-      
-      const personName = document.getElementById('personName').value.trim();
-      
-      if (!personName) {
-          showToast('Please enter a person name', 'error');
-          return;
-      }
-      
-      if (capturedImages.length === 0) {
-          showToast('Please capture at least one image', 'error');
-          return;
-      }
-      
-      const submitBtn = document.getElementById('submitBtn');
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Adding Person...';
 
-      const validImages = capturedImages.filter(img => isValidBase64(img));
+      const personName = document.getElementById("personName").value.trim();
+
+      if (!personName) {
+        showToast("Please enter a person name", "error");
+        return;
+      }
+
+      if (capturedImages.length === 0) {
+        showToast("Please capture at least one image", "error");
+        return;
+      }
+
+      const submitBtn = document.getElementById("submitBtn");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Adding Person...";
+
+      const validImages = capturedImages.filter((img) => isValidBase64(img));
       if (validImages.length !== capturedImages.length) {
-        showToast(`${capturedImages.length - validImages.length} invalid images detected`, 'warning');
+        showToast(
+          `${
+            capturedImages.length - validImages.length
+          } invalid images detected`,
+          "warning"
+        );
       }
-    
+
       if (validImages.length < 3) {
-          showToast('Not enough valid images. Please capture more images.', 'error');
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Add Person';
-          return;
-      }
-      
-      const formData = {
-          name: personName,
-          images: validImages
-      };
-      
-      fetch('/api/register_enhanced', {
-          method: 'POST',
-          headers: {
-              'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(formData)
-      })
-      .then(response => {
-        if (!response.ok) {
-            return response.json().then(err => Promise.reject(err));
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.success) {
-            showToast(
-                `${personName} added successfully with ${data.photos_processed} valid images!`, 
-                'success'
-            );
-            
-            if (data.quality_analysis) {
-                const qa = data.quality_analysis;
-                setTimeout(() => {
-                    showToast(
-                        `Quality Analysis: ${qa.valid_images}/${qa.total_images} images processed. Average quality: ${(qa.average_quality * 100).toFixed(1)}%`,
-                        'info',
-                        'Registration Details',
-                        6000
-                    );
-                }, 2000);
-            }
-            
-            closeAddPersonModal();
-            const peopleTab = document.getElementById('people-tab');
-            if (peopleTab && peopleTab.classList.contains('active')) {
-                loadPeopleList();
-            }
-        } else {
-            showToast(`Failed to add person: ${data.message || data.error}`, 'error');
-        }
-    })
-    .catch(err => {
-        console.error('Add person error:', err);
-        const errorMessage = err.error || err.message || 'Unknown error occurred';
-        showToast(`Error adding person: ${errorMessage}`, 'error');
-    })
-    .finally(() => {
+        showToast(
+          "Not enough valid images. Please capture more images.",
+          "error"
+        );
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Add Person';
+        submitBtn.textContent = "Add Person";
+        return;
+      }
+
+      const formData = {
+        name: personName,
+        images: validImages,
+      };
+
+      fetch("/api/register_enhanced", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      })
+        .then((response) => {
+          if (!response.ok) {
+            return response.json().then((err) => Promise.reject(err));
+          }
+          return response.json();
+        })
+        .then((data) => {
+          if (data.success) {
+            showToast(
+              `${personName} added successfully with ${data.photos_processed} valid images!`,
+              "success"
+            );
+
+            if (data.quality_analysis) {
+              const qa = data.quality_analysis;
+              setTimeout(() => {
+                showToast(
+                  `Quality Analysis: ${qa.valid_images}/${
+                    qa.total_images
+                  } images processed. Average quality: ${(
+                    qa.average_quality * 100
+                  ).toFixed(1)}%`,
+                  "info",
+                  "Registration Details",
+                  6000
+                );
+              }, 2000);
+            }
+
+            closeAddPersonModal();
+            const peopleTab = document.getElementById("people-tab");
+            if (peopleTab && peopleTab.classList.contains("active")) {
+              loadPeopleList();
+            }
+          } else {
+            showToast(
+              `Failed to add person: ${data.message || data.error}`,
+              "error"
+            );
+          }
+        })
+        .catch((err) => {
+          console.error("Add person error:", err);
+          const errorMessage =
+            err.error || err.message || "Unknown error occurred";
+          showToast(`Error adding person: ${errorMessage}`, "error");
+        })
+        .finally(() => {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Add Person";
+        });
     });
-});
-}
+  }
 });
