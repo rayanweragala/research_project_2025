@@ -57,6 +57,9 @@ public class StringResources {
         public static final String ERROR_RECOGNIZER_BUSY = "main_error_recognizer_busy";
         public static final String ERROR_SERVER = "main_error_server";
         public static final String ERROR_SPEECH_TIMEOUT = "main_error_speech_timeout";
+
+        public static final String STOP_OBSTACLES_NEAR = "main_stop_obstacles_near";
+
     }
 
     public static final class FaceRecognition {
@@ -137,6 +140,9 @@ public class StringResources {
                 "Command not recognized, try saying face, navigation, settings or stop");
         addString(Main.MIC_PERMISSION_REQUIRED, LOCALE_ENGLISH, 
                 "Microphone permission required for voice commands");
+        addString(Main.STOP_OBSTACLES_NEAR, LOCALE_ENGLISH,
+                "Stop obstacles near");
+
 
         addString(Main.ERROR_AUDIO, LOCALE_ENGLISH, "Audio recording error");
         addString(Main.ERROR_CLIENT, LOCALE_ENGLISH, "Client side error");
@@ -350,6 +356,14 @@ public class StringResources {
         addString(Settings.BACK_TO_MAIN, LOCALE_SINHALA, "ප්‍රධාන මෙනුවට ආපසු යමින්");
         addString(Settings.SCREEN_OPEN, LOCALE_SINHALA, "සැකසුම් තිරය විවෘත කර ඇත. භාෂා මනාපය තෝරන්න.");
         addString(Settings.BACK_BUTTON_DESC, LOCALE_SINHALA, "ආපසු බොත්තම. ප්‍රධාන මෙනුවට ආපසු යමින්.");
+        addString(AddFriend.SPEECH_UNAVAILABLE, LOCALE_SINHALA,
+                "කථන හඳුනාගැනීම නොමැත. කරුණාකර නාවිගේෂන් සඳහා බොත්තම් භාවිතා කරන්න.");
+
+        addString(Settings.BACK_BUTTON_DESC, LOCALE_SINHALA,
+                "ආපසු බොත්තම. ප්‍රධාන මෙනුවට ආපසු යන්න තට්ටු කරන්න.");
+        addString(Main.STOP_OBSTACLES_NEAR, LOCALE_SINHALA,
+                "නවතන්න ඉදිරියෙන් බාධකයක්");
+
 
     }
 
