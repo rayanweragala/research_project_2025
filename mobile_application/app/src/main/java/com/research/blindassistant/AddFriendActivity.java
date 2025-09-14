@@ -1,0 +1,952 @@
+package com.research.blindassistant;
+
+import android.annotation.SuppressLint;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
+import android.util.Base64;
+import android.util.Log;
+import android.view.View;
+import android.widget.*;
+import androidx.appcompat.app.AppCompatActivity;
+import com.android.volley.DefaultRetryPolicy;
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
+
+import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+import static com.research.blindassistant.StringResources.AddFriend;
+
+public class AddFriendActivity extends AppCompatActivity implements TextToSpeech.OnInitListener, RecognitionListener,IntelligentCaptureManager.CaptureProgressCallback,SmartGlassesConnector.SmartGlassesCallback,FaceRecognitionService.FaceRecognitionCallback {
+
+    private static final String TAG = "AddFriendActivity";
+    private static final String SERVER_URL = "http://10.231.176.126:5000";
+    private TextView statusText, instructionsText, nameDisplayText,progressText;
+    private Button btnStart,btnStartOver,btnCancel;
+    private ImageView captureIndicator,qualityIndicator;
+    private ProgressBar captureProgress;
+
+    private TextToSpeech ttsEngine;
+    private SpeechRecognizer speechRecognizer;
+    private Intent speechRecognizerIntent;
+    private IntelligentCaptureManager captureManager;
+    private MockSmartGlassesConnector smartGlassesConnector;
+
+    private FaceRecognitionService faceRecognitionService;
+    private ToneGenerator toneGenerator;
+    private Handler mainHandler;
+    private RequestQueue requestQueue;
+    private boolean isListening = false;
+    private boolean isTtsReady = false;
+    private String friendName = "";
+    private CaptureState currentState = CaptureState.WAITING_FOR_NAME;
+    private int speechRetryCount = 0;
+    private static final int MAX_SPEECH_RETRIES = 3;
+    private boolean cameraStoppedByActivity = false;
+    private static final int TONE_CAPTURE_SUCCESS = ToneGenerator.TONE_PROP_BEEP2;
+    private static final int TONE_QUALITY_GOOD = ToneGenerator.TONE_DTMF_1;
+    private static final int TONE_COMPLETE = ToneGenerator.TONE_CDMA_CONFIRM;
+    private static final int TONE_ERROR = ToneGenerator.TONE_CDMA_ABBR_ALERT;
+
+    private long lastPreviewUpdate = 0;
+    private static final long PREVIEW_UPDATE_INTERVAL = 150;
+
+    private StatusManager statusManager;
+    private Handler backgroundHandler;
+    private HandlerThread backgroundThread;
+    private enum CaptureState {
+        WAITING_FOR_NAME,
+        CHECKING_SERVER,
+        CONNECTING_GLASSES,
+        READY_TO_CAPTURE,
+        CAPTURING,
+        PROCESSING,
+        COMPLETED,
+        ERROR
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_add_friend_enhanced);
+        requestQueue = Volley.newRequestQueue(this);
+        stopBackgroundCamera();
+        setupServices();
+        initializeComponents();
+        setupVoiceRecognition();
+        setupButtons();
+        addHapticFeedback();
+
+        mainHandler = new Handler();
+        backgroundThread = new HandlerThread("FrameProcessor");
+        backgroundThread.start();
+        backgroundHandler = new Handler(backgroundThread.getLooper());
+        ttsEngine = new TextToSpeech(this, this);
+
+        try {
+            toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Could not create ToneGenerator", e);
+        }
+    }
+
+    private void stopBackgroundCamera(){
+        Log.d(TAG,"stopping background camera");
+
+        String url = SERVER_URL + "/api/camera/stop";
+        JsonObjectRequest stopCameraRequest = new JsonObjectRequest(
+                Request.Method.POST, url,null,
+                response -> {
+                    Log.d(TAG,"Background camera stopped successfull");
+                    cameraStoppedByActivity = true;
+
+                    runOnUiThread(() -> {
+                        if(statusText != null){
+                            statusText.setText("Background camera stopped - Ready for face registration");
+                        }
+                    });
+                },
+                error ->{
+                    Log.w(TAG, "Background camera stop failed", error);
+                }
+        );
+        stopCameraRequest.setRetryPolicy(new DefaultRetryPolicy(3000,1,1f));
+        requestQueue.add(stopCameraRequest);
+    }
+
+    private void restartBackgroundCamera(){
+        if(!cameraStoppedByActivity){
+            Log.d(TAG, "Camera was not stopped by this activity, no need to restart");
+            return;
+        }
+        Log.d(TAG, "Restarting background camera after AddFriend activity");
+
+        String url = SERVER_URL + "/api/camera/start";
+        JsonObjectRequest startCameraRequest = new JsonObjectRequest(
+                Request.Method.POST,url,null,
+                response -> {
+                    Log.d(TAG, "Background camera restarted successfully");
+                },
+                error -> {
+                    Log.w(TAG, "Failed to restart background camera", error);
+                }
+        );
+
+        startCameraRequest.setRetryPolicy(new DefaultRetryPolicy(3000,1,1f));
+        requestQueue.add(startCameraRequest);
+    }
+    private void setupServices(){
+        statusManager = new StatusManager(this);
+        faceRecognitionService = new FaceRecognitionService(this);
+        faceRecognitionService.setCallback(this);
+
+        captureManager = new IntelligentCaptureManager();
+
+        smartGlassesConnector = new MockSmartGlassesConnector(this);
+        smartGlassesConnector.setCallback(this);
+        smartGlassesConnector.setFaceRecognitionService(faceRecognitionService);
+    }
+
+    private void initializeComponents() {
+        statusText = findViewById(R.id.statusText);
+        instructionsText = findViewById(R.id.instructionsText);
+        nameDisplayText = findViewById(R.id.nameDisplayText);
+        progressText = findViewById(R.id.progressText);
+        btnCancel = findViewById(R.id.btnCancel);
+        btnStartOver = findViewById(R.id.btnStartOver);
+        captureIndicator = findViewById(R.id.statusIndicator);
+        qualityIndicator = findViewById(R.id.qualityIndicator);
+        captureProgress = findViewById(R.id.captureProgress);
+
+        updateUIForState(CaptureState.WAITING_FOR_NAME);
+    }
+
+    private void setupVoiceRecognition() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Log.e(TAG, "Speech recognition not available on this device");
+            speak("Speech recognition is not available on this device");
+            return;
+        }
+
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        speechRecognizer.setRecognitionListener(this);
+
+        speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
+    }
+
+    private void setupButtons() {
+        btnCancel.setOnClickListener(v -> {
+            speak("Canceling face registration");
+            finishActivity();
+        });
+
+        btnStartOver.setOnClickListener(v -> {
+            speak("Starting over");
+            resetToInitialState();
+        });
+    }
+
+    private void addHapticFeedback() {
+        View[] buttons = {btnCancel, btnStartOver};
+        for (View button : buttons) {
+            button.setOnLongClickListener(v -> {
+                v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                String buttonText = ((Button) v).getText().toString();
+                speak("Button: " + buttonText);
+                return true;
+            });
+        }
+    }
+
+    @SuppressLint("SetTextI18n")
+    private void updateUIForState(CaptureState newState) {
+        currentState = newState;
+
+        switch (newState) {
+            case WAITING_FOR_NAME:
+                statusManager.updateStatus(StatusManager.ConnectionStatus.WAITING_INPUT,
+                        "Waiting for name", "Say the person's name to begin");
+                instructionsText.setText("Say the person's name to begin registration");
+                qualityIndicator.setVisibility(View.GONE);
+                captureProgress.setVisibility(View.GONE);
+                progressText.setVisibility(View.GONE);
+                btnStartOver.setVisibility(View.GONE);
+                break;
+
+            case CHECKING_SERVER:
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CHECKING_SERVER,
+                        "Checking face recognition server", "Verifying face recognition system...");
+                instructionsText.setText("Please wait while I check the face recognition system...");
+                break;
+
+            case CONNECTING_GLASSES:
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CONNECTING,
+                        "Connecting to smart glasses", "Establishing smart glasses connection...");
+                instructionsText.setText("Please wait while I connect to your smart glasses...");
+                break;
+
+            case READY_TO_CAPTURE:
+                statusManager.updateStatus(StatusManager.ConnectionStatus.READY_TO_CAPTURE,
+                        "Ready to capture", "Ask " + friendName + " to face the smart glasses");
+                instructionsText.setText("Ask " + friendName + " to face the smart glasses. I'll automatically take photos when ready.");
+                qualityIndicator.setVisibility(View.VISIBLE);
+                captureProgress.setVisibility(View.VISIBLE);
+                progressText.setVisibility(View.VISIBLE);
+                captureProgress.setMax(5);
+                captureProgress.setProgress(0);
+                break;
+
+            case CAPTURING:
+                statusManager.updateStatus(StatusManager.ConnectionStatus.CAPTURING,
+                        "Capturing face data", "Taking photos automatically...");
+                instructionsText.setText("Stay still while I capture the best photos...");
+                break;
+
+            case PROCESSING:
+                statusManager.updateStatus(StatusManager.ConnectionStatus.PROCESSING,
+                        "Processing with AI model", "Saving " + friendName + "'s face data...");
+                instructionsText.setText("Please wait while the InsightFace AI processes and saves " + friendName + "'s face data...");
+                break;
+
+            case COMPLETED:
+                statusManager.updateStatus(StatusManager.ConnectionStatus.SUCCESS,
+                        "Registration completed!", friendName + " successfully registered");
+                instructionsText.setText(friendName + " has been successfully registered and will be recognized automatically.");
+                btnStartOver.setVisibility(View.VISIBLE);
+                break;
+
+            case ERROR:
+                statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                        "Error occurred", "Registration failed");
+                instructionsText.setText("An error occurred. Press 'Start Over' to try again.");
+                btnStartOver.setVisibility(View.VISIBLE);
+                break;
+        }
+    }
+
+    private void startVoiceListening() {
+        if (!isTtsReady) {
+            Log.w(TAG, "TTS not ready, delaying voice listening");
+            mainHandler.postDelayed(this::startVoiceListening, 1000);
+            return;
+        }
+
+        if (speechRecognizer == null) {
+            Log.e(TAG, "Speech recognizer is null, cannot start listening");
+            return;
+        }
+
+        if (!isListening) {
+            Log.d(TAG, "Starting voice listening, retry count: " + speechRetryCount);
+            isListening = true;
+            try {
+                speechRecognizer.startListening(speechRecognizerIntent);
+            } catch (Exception e) {
+                Log.e(TAG, "Error starting speech recognition", e);
+                isListening = false;
+                handleSpeechRecognitionError();
+            }
+        }
+    }
+
+    private void stopVoiceListening() {
+        if (isListening && speechRecognizer != null) {
+            Log.d(TAG, "Stopping voice listening");
+            isListening = false;
+            try {
+                speechRecognizer.stopListening();
+            } catch (Exception e) {
+                Log.e(TAG, "Error stopping speech recognition", e);
+            }
+        }
+    }
+
+
+    private void speak(String text) {
+        speak(text, null);
+    }
+
+    private void speak(String text, Locale locale) {
+        if (ttsEngine != null && isTtsReady) {
+            if (locale != null && locale != ttsEngine.getLanguage()) {
+                ttsEngine.setLanguage(locale);
+            }
+            ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_id");
+            Log.d(TAG, "TTS: " + text);
+        } else {
+            Log.w(TAG, "TTS not ready, queuing message: " + text);
+            mainHandler.postDelayed(() -> {
+                if (ttsEngine != null && isTtsReady) {
+                    if (locale != null && locale != ttsEngine.getLanguage()) {
+                        ttsEngine.setLanguage(locale);
+                    }
+                    ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_id");
+                }
+            }, 500);
+        }
+    }
+
+    private void playTone(int toneType) {
+        if (toneGenerator != null) {
+            try {
+                toneGenerator.startTone(toneType, 200);
+            } catch (Exception e) {
+                Log.e(TAG, "Error playing tone", e);
+            }
+        }
+    }
+
+    private void resetToInitialState() {
+        Log.d(TAG, "Resetting to initial state");
+
+        stopVoiceListening();
+
+        if (captureManager != null) {
+            captureManager.stopCapture();
+        }
+        if (smartGlassesConnector != null) {
+            smartGlassesConnector.stopLiveFeed();
+        }
+
+        friendName = "";
+        speechRetryCount = 0;
+        nameDisplayText.setText("Name: Not set");
+        updateUIForState(CaptureState.WAITING_FOR_NAME);
+
+        mainHandler.postDelayed(this::startVoiceListening, 1000);
+    }
+
+    @Override
+    public void onInit(int status) {
+        if (status == TextToSpeech.SUCCESS) {
+            int result = ttsEngine.setLanguage(Locale.getDefault());
+            if (result == TextToSpeech.LANG_MISSING_DATA ||
+                    result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                ttsEngine.setLanguage(Locale.ENGLISH);
+            }
+
+            isTtsReady = true;
+            Log.d(TAG, "TTS initialized successfully");
+
+            speak(StringResources.getString(AddFriend.FACE_REGISTRATION_READY));
+
+            mainHandler.postDelayed(this::startVoiceListening, 2000);
+        } else {
+            Log.e(TAG, "TTS initialization failed");
+            isTtsReady = false;
+        }
+    }
+
+    @Override
+    public void onResults(Bundle results) {
+        Log.d(TAG, "Speech recognition results received");
+        isListening = false;
+        speechRetryCount = 0;
+
+        ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+
+        if (matches != null && !matches.isEmpty()) {
+            String spokenText = matches.get(0).trim();
+            Log.d(TAG, "Recognized speech: " + spokenText);
+            processSpokenText(spokenText);
+        } else {
+            Log.w(TAG, "No speech matches found");
+            handleSpeechRecognitionError();
+        }
+    }
+
+    private void processSpokenText(String spokenText) {
+        Log.d(TAG, "Processing spoken text: " + spokenText);
+
+        switch (currentState) {
+            case WAITING_FOR_NAME:
+                if (!spokenText.toLowerCase().contains("cancel")) {
+                    friendName = capitalizeFirstLetter(spokenText);
+                    nameDisplayText.setText("Name: " + friendName);
+                    nameDisplayText.setVisibility(View.VISIBLE);
+
+                    speak(String.format(StringResources.getString(AddFriend.NAME_CONFIRMATION), friendName));
+                    checkFaceRecognitionServer();
+                } else {
+                    speak(StringResources.getString(AddFriend.CANCELING_REGISTRATION));
+                    finishActivity();
+                }
+                break;
+
+            case READY_TO_CAPTURE:
+            case CAPTURING:
+                String lowerText = spokenText.toLowerCase();
+                if (lowerText.contains("stop") || lowerText.contains("cancel")) {
+                    captureManager.stopCapture();
+                    speak(StringResources.getString(AddFriend.STOPPING_CAPTURE));
+                } else if (lowerText.contains("start over")) {
+                    resetToInitialState();
+                } else {
+                    startVoiceListening();
+                }
+                break;
+
+            default:
+                Log.d(TAG, "Speech not processed in current state: " + currentState);
+                break;
+        }
+    }
+
+    private void handleSpeechRecognitionError() {
+        if (speechRetryCount < MAX_SPEECH_RETRIES) {
+            speechRetryCount++;
+            Log.d(TAG, "Retrying speech recognition, attempt: " + speechRetryCount);
+
+            if (currentState == CaptureState.WAITING_FOR_NAME) {
+                speak("I didn't catch that. Please say the person's name again.");
+                mainHandler.postDelayed(this::startVoiceListening, 2000);
+            }
+        } else {
+            Log.e(TAG, "Max speech recognition retries reached");
+            speak("I'm having trouble hearing you. Please use the start over button to try again.");
+            updateUIForState(CaptureState.ERROR);
+            instructionsText.setText("Speech recognition failed. Please press 'Start Over' to try again.");
+        }
+    }
+
+    private void checkFaceRecognitionServer() {
+        updateUIForState(CaptureState.CHECKING_SERVER);
+        if (faceRecognitionService != null) {
+            faceRecognitionService.checkServerHealth();
+        } else {
+            Log.e(TAG, "Face recognition service is null");
+            onConnectionError("Face recognition service not available");
+        }
+    }
+
+    private void connectToSmartGlasses() {
+        updateUIForState(CaptureState.CONNECTING_GLASSES);
+        if (smartGlassesConnector != null) {
+            smartGlassesConnector.connect();
+        } else {
+            Log.e(TAG, "Smart glasses connector is null");
+            onConnectionStatusChanged(false, "Smart glasses connector not available");
+        }
+    }
+
+    private void startIntelligentCapture() {
+        updateUIForState(CaptureState.READY_TO_CAPTURE);
+
+        speak("Ask " + friendName + " to face the smart glasses. I'll automatically take the best photos.");
+
+        if (captureManager != null && smartGlassesConnector != null) {
+            captureManager.startIntelligentCapture(friendName, this);
+            smartGlassesConnector.startLiveFeed();
+
+            mainHandler.postDelayed(this::startVoiceListening, 3000);
+        } else {
+            Log.e(TAG, "Capture manager or smart glasses connector is null");
+            onError("System components not available");
+        }
+    }
+
+
+    @Override
+    public void onCaptureStarted(String personName) {
+        updateUIForState(CaptureState.CAPTURING);
+        Log.d(TAG, "Capture started for: " + personName);
+    }
+
+    @Override
+    public void onRealTimeFeedback(String feedback, float qualityScore) {
+        Log.d(TAG, String.format("Real-time feedback: score=%.2f, feedback='%s'", qualityScore, feedback));
+        int qualityLevel = (int) (qualityScore * 5);
+        if (System.currentTimeMillis() - lastPreviewUpdate > 200) {
+            runOnUiThread(() -> {
+                switch (qualityLevel) {
+                    case 0:
+                    case 1:
+                        qualityIndicator.setImageResource(R.drawable.ic_quality_poor);
+                        break;
+                    case 2:
+                    case 3:
+                        qualityIndicator.setImageResource(R.drawable.ic_quality_medium);
+                        break;
+                    case 4:
+                    case 5:
+                        qualityIndicator.setImageResource(R.drawable.ic_quality_good);
+                        if (qualityScore > 0.8f) {
+                            playTone(TONE_QUALITY_GOOD);
+                        }
+                        break;
+                }
+            });
+        }
+
+        if (qualityScore < 0.5f && Math.random() < 0.1) {
+            speak(feedback);
+        }
+
+    }
+
+    @Override
+    public void onTechnicalFeedback(String technicalFeedback, FaceQualityAnalyzer.QualityMetrics metrics) {
+
+    }
+
+    @Override
+    public void onSuccessfulCapture(int captureNumber, String message) {
+        Log.d(TAG, "Successful capture #" + captureNumber + ": " + message);
+        playTone(TONE_CAPTURE_SUCCESS);
+        speak(message);
+
+        runOnUiThread(() -> {
+            captureProgress.setProgress(captureNumber);
+            progressText.setText(captureNumber + " photos captured");
+        });
+    }
+
+    @Override
+    public void onProgressUpdate(int currentCount, int targetCount, String progressMessage) {
+        runOnUiThread(() -> {
+            progressText.setText(currentCount + " / " + targetCount + " photos captured");
+        });
+
+        if (Math.random() < 0.2) {
+            speak(progressMessage);
+        }
+    }
+
+    @Override
+    public void onCaptureCompleted(String personName, List<IntelligentCaptureManager.CapturedFace> capturedFaces) {
+        playTone(TONE_COMPLETE);
+        speak("Perfect! I've captured " + capturedFaces.size() + " excellent photos of " + personName + ". Now processing and saving.");
+
+        updateUIForState(CaptureState.PROCESSING);
+        stopVoiceListening();
+
+        if (smartGlassesConnector != null) {
+            smartGlassesConnector.stopLiveFeed();
+        }
+
+        for (int i = 0; i < capturedFaces.size(); i++) {
+            IntelligentCaptureManager.CapturedFace face = capturedFaces.get(i);
+            Log.d(TAG, String.format("Captured face %d: %dx%d, quality=%.2f, angle=%s",
+                    i+1, face.bitmap.getWidth(), face.bitmap.getHeight(), face.qualityScore, face.faceAngle));
+        }
+        processAndSaveCapturedFaces(capturedFaces);
+    }
+
+    @Override
+    public void onCaptureStopped(String reason) {
+        speak("Capture stopped: " + reason);
+        updateUIForState(CaptureState.READY_TO_CAPTURE);
+        mainHandler.postDelayed(this::startVoiceListening, 2000);
+    }
+
+    @Override
+    public void onError(String error) {
+        Log.e(TAG, "Capture error: " + error);
+        playTone(TONE_ERROR);
+        speak("Error: " + error);
+        updateUIForState(CaptureState.ERROR);
+        instructionsText.setText("Error: " + error + ". Press 'Start Over' to try again.");
+        stopVoiceListening();
+    }
+
+    private void processAndSaveCapturedFaces(List<IntelligentCaptureManager.CapturedFace> capturedFaces) {
+        Log.d(TAG, "Processing " + capturedFaces.size() + " captured faces for saving");
+
+        backgroundHandler.post(() -> {
+            try {
+                String[] imageBase64Array = new String[capturedFaces.size()];
+
+                for (int i = 0; i < capturedFaces.size(); i++) {
+                    Bitmap bitmap = capturedFaces.get(i).bitmap;
+
+                    int quality = bitmap.getWidth() > 640 ? 75 : 85;
+
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos);
+                    byte[] imageBytes = baos.toByteArray();
+                    imageBase64Array[i] = Base64.encodeToString(imageBytes, Base64.NO_WRAP);
+
+                    try {
+                        baos.close();
+                    } catch (Exception e) {
+                        Log.w(TAG, "Error closing ByteArrayOutputStream", e);
+                    }
+                }
+
+                runOnUiThread(() -> {
+                    if (smartGlassesConnector != null) {
+                        smartGlassesConnector.sendRecognitionData(friendName, imageBase64Array);
+                    } else {
+                        onError("Smart glasses connection lost");
+                    }
+                });
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error processing captured faces", e);
+                runOnUiThread(() -> onError("Failed to process captured images"));
+            }
+        });
+    }
+
+    @Override
+    public void onConnectionStatusChanged(boolean connected, String message) {
+        runOnUiThread(()->{
+            LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+            TextView noPreviewText = (TextView) noPreviewMessage.getChildAt(0);
+            if (connected) {
+                noPreviewText.setText("Connected - Waiting for video feed...");
+            } else {
+                noPreviewText.setText("Smart glasses not connected");
+            }
+
+        });
+            if (connected) {
+                speak("Smart glasses connected successfully!");
+                startIntelligentCapture();
+            } else {
+                playTone(TONE_ERROR);
+                speak("Connection failed: " + message);
+                updateUIForState(CaptureState.ERROR);
+                instructionsText.setText("Smart glasses connection failed. Please check the connection and try again.");
+            }
+
+    }
+
+    @Override
+    public void onFrameReceived(Bitmap frame, long timestamp, double confidence) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastPreviewUpdate < PREVIEW_UPDATE_INTERVAL) {
+            if (captureManager != null && captureManager.isCapturing()) {
+                captureManager.processCandidateFrame(frame);
+            }
+
+            return;
+        }
+
+        backgroundHandler.post(() -> {
+            ImageView liveFeedPreview = findViewById(R.id.liveFeedPreview);
+
+            Bitmap displayFrame = null;
+            if (liveFeedPreview.getWidth() > 0 && liveFeedPreview.getHeight() > 0) {
+                int displayWidth = liveFeedPreview.getWidth() / 2;
+                int displayHeight = liveFeedPreview.getHeight() / 2;
+                displayFrame = Bitmap.createScaledBitmap(frame, displayWidth, displayHeight, true);
+            }
+
+            final Bitmap finalDisplayFrame = displayFrame;
+            runOnUiThread(() -> {
+                LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+                if (noPreviewMessage.getVisibility() == View.VISIBLE) {
+                    noPreviewMessage.setVisibility(View.GONE);
+                }
+
+                if (finalDisplayFrame != null) {
+                    liveFeedPreview.setImageBitmap(finalDisplayFrame);
+                }
+            });
+
+            if (captureManager != null && captureManager.isCapturing()) {
+                captureManager.processCandidateFrame(frame);
+            }
+        });
+
+        lastPreviewUpdate = currentTime;
+    }
+
+    @Override
+    public void onFeedStopped() {
+        Log.d(TAG, "Smart glasses feed stopped");
+        runOnUiThread(()->{
+            ImageView liveFeedPreview = findViewById(R.id.liveFeedPreview);
+            LinearLayout noPreviewMessage = findViewById(R.id.noPreviewMessage);
+
+            liveFeedPreview.setImageResource(R.drawable.ic_camera_preview);
+            noPreviewMessage.setVisibility(View.VISIBLE);
+
+            TextView noPreviewTextView = (TextView) noPreviewMessage.getChildAt(1);
+            if (noPreviewTextView != null) {
+                ((TextView) noPreviewTextView).setText("Smart glasses disconnected");
+            }
+        });
+    }
+
+    @Override
+    public void onPersonRegistered(String personName) {
+        speak("Excellent! " + personName + " has been successfully registered in the smart glasses system. They will now be recognized automatically.");
+
+        updateUIForState(CaptureState.COMPLETED);
+
+        mainHandler.postDelayed(() -> {
+            Intent resultIntent = new Intent();
+            resultIntent.putExtra("friend_name", friendName);
+            resultIntent.putExtra("registration_success", true);
+            setResult(RESULT_OK, resultIntent);
+            finish();
+        }, 3000);
+    }
+
+    @Override
+    public void onPersonRecognized(String name, float confidence, String message){
+        Log.d(TAG, "Person recognized: " + name + " (" + confidence + ")");
+    }
+
+    @Override
+    public void onPersonRegistered(String name, boolean success, String message) {
+        if (success) {
+            speak("Face registration successful! " + message);
+            onPersonRegistered(name);
+        } else {
+            playTone(TONE_ERROR);
+            speak("Registration failed: " + message);
+            updateUIForState(CaptureState.ERROR);
+            instructionsText.setText("Registration failed: " + message + ". Press 'Start Over' to try again.");
+        }
+    }
+
+    @Override
+    public void onConnectionError(String error) {
+        playTone(TONE_ERROR);
+        speak("Face recognition server error: " + error);
+        updateUIForState(CaptureState.ERROR);
+        instructionsText.setText("Server connection error: " + error + ". Please check your network and server status.");
+    }
+
+    @Override
+    public void onServerHealthCheck(boolean healthy, int peopleCount) {
+        if (healthy) {
+            speak("Face recognition server is ready. " + peopleCount + " people currently registered. Now connecting to smart glasses.");
+            connectToSmartGlasses();
+        } else {
+            playTone(TONE_ERROR);
+            speak("Face recognition server is not responding");
+            updateUIForState(CaptureState.ERROR);
+            instructionsText.setText("Face recognition server is not available. Please start the server and try again.");
+        }
+    }
+
+    @Override
+    public void onReadyForSpeech(Bundle params) {
+        Log.d(TAG, "Speech recognizer ready");
+    }
+
+    @Override
+    public void onBeginningOfSpeech() {
+        Log.d(TAG, "User started speaking");
+    }
+
+    @Override
+    public void onRmsChanged(float rmsdB) {
+    }
+
+    @Override
+    public void onBufferReceived(byte[] buffer) {
+    }
+
+    @Override
+    public void onEndOfSpeech() {
+        Log.d(TAG, "User stopped speaking");
+        isListening = false;
+    }
+
+    @Override
+    public void onPartialResults(Bundle partialResults) {
+    }
+
+    @Override
+    public void onEvent(int eventType, Bundle params) {
+        Log.d(TAG, "Speech recognition event: " + eventType);
+    }
+
+    @Override
+    public void onError(int error) {
+        isListening = false;
+        String errorMessage = getSpeechErrorMessage(error);
+        Log.e(TAG, "Speech recognition error: " + error + " - " + errorMessage);
+
+        switch (error) {
+            case SpeechRecognizer.ERROR_NO_MATCH:
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
+                handleSpeechRecognitionError();
+                break;
+
+            case SpeechRecognizer.ERROR_AUDIO:
+            case SpeechRecognizer.ERROR_CLIENT:
+                Log.e(TAG, "Critical speech recognition error: " + errorMessage);
+                speak("Speech recognition unavailable. Please use the buttons to navigate.");
+                break;
+
+            case SpeechRecognizer.ERROR_NETWORK:
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
+                speak("Network error. Please check your connection and try again.");
+                handleSpeechRecognitionError();
+                break;
+
+            default:
+                handleSpeechRecognitionError();
+                break;
+        }
+    }
+
+    private String getSpeechErrorMessage(int error) {
+        switch (error) {
+            case SpeechRecognizer.ERROR_AUDIO: return "Audio recording error";
+            case SpeechRecognizer.ERROR_CLIENT: return "Client side error";
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: return "Insufficient permissions";
+            case SpeechRecognizer.ERROR_NETWORK: return "Network error";
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT: return "Network timeout";
+            case SpeechRecognizer.ERROR_NO_MATCH: return "No speech match";
+            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY: return "Recognition service busy";
+            case SpeechRecognizer.ERROR_SERVER: return "Server error";
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: return "No speech input";
+            default: return "Unknown error";
+        }
+    }
+
+    private String capitalizeFirstLetter(String text) {
+        if (text == null || text.isEmpty()) return text;
+        return text.substring(0, 1).toUpperCase() + text.substring(1).toLowerCase();
+    }
+
+    private void finishActivity() {
+        setResult(RESULT_CANCELED);
+        finish();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        Log.d(TAG, "Destroying activity");
+        restartBackgroundCamera();
+        stopVoiceListening();
+
+        if (backgroundHandler != null) {
+            backgroundHandler.removeCallbacksAndMessages(null);
+        }
+        if (backgroundThread != null) {
+            backgroundThread.quitSafely();
+            try {
+                backgroundThread.join(1000);
+            } catch (InterruptedException e) {
+                Log.w(TAG, "Background thread cleanup interrupted");
+            }
+        }
+
+        if (ttsEngine != null) {
+            ttsEngine.stop();
+            ttsEngine.shutdown();
+        }
+
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+        }
+
+        if (captureManager != null) {
+            captureManager.cleanup();
+        }
+
+        if (smartGlassesConnector != null) {
+            smartGlassesConnector.cleanup();
+        }
+
+        if(faceRecognitionService != null){
+            faceRecognitionService.cleanup();
+        }
+
+        if (toneGenerator != null) {
+            toneGenerator.release();
+        }
+
+        if(requestQueue != null){
+            requestQueue.stop();
+        }
+
+        super.onDestroy();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopVoiceListening();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (currentState == CaptureState.WAITING_FOR_NAME) {
+            startVoiceListening();
+        }
+    }
+
+    @Override
+    public void onBackPressed(){
+        Log.d(TAG, "Back button pressed, restarting background camera");
+        restartBackgroundCamera();
+        super.onBackPressed();
+    }
+
+    @Override
+    public void finish() {
+        Log.d(TAG, "Activity finishing, restarting background camera");
+        restartBackgroundCamera();
+        super.finish();
+    }
+}
