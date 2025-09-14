@@ -1,5 +1,5 @@
 import statistics
-from flask import Flask, Response, request, jsonify, send_from_directory
+from flask import Flask, Response, request, jsonify, render_template
 import cv2
 import numpy as np
 import base64
@@ -37,8 +37,16 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-app = Flask(__name__)
-CORS(app) 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
+ROOT_DIR = os.path.dirname(BASE_DIR)  
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(ROOT_DIR, "templates"),
+    static_folder=os.path.join(ROOT_DIR, "static")
+)
+CORS(app)
+
 
 class EnhancedFaceRecognitionServer:
     def __init__(self):
@@ -1651,7 +1659,7 @@ connected_clients = {}
 @app.route('/')
 def web_interface():
     """Web interface for testing"""
-    return send_from_directory('.', 'face_server_index.html')
+    return render_template('face_server_index.html')
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
