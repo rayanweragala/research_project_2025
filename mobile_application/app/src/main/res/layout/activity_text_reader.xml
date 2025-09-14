@@ -52,7 +52,6 @@
         
         </LinearLayout>
         
-        
         <!-- Processing Indicator -->
         <ProgressBar
                 android:id="@+id/processingIndicator"
@@ -84,7 +83,7 @@
         <View
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@drawable/smart_glasses_overlay_border"/>
+                android:background="@drawable/document_overlay_border"/>
         
         <!-- No Feed Message -->
         <LinearLayout
@@ -99,14 +98,14 @@
             <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="👓"
+                    android:text="📄"
                     android:textSize="50dp"
-                    android:alpha="0.3" android:textColor="#EF5350"/>
+                    android:alpha="0.3" android:textColor="#2196F3"/>
             
             <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/connecting_camera_message"
+                    android:text="@string/position_document_message"
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
                     android:textAlignment="center"
@@ -114,7 +113,7 @@
                     android:layout_marginTop="8dp"/>
         
         </LinearLayout>
-        
+    
     </FrameLayout>
     
     <!-- Results Section -->
@@ -140,15 +139,16 @@
                     android:textColor="#0091EA"
                     android:textStyle="bold"
                     android:layout_marginBottom="4dp"/>
+            
             <TextView
-                    android:id="@+id/resultsText"
+                    android:id="@+id/documentTypeText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/txt_processing"
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:contentDescription="@string/recognition_results_desc"
                     android:layout_marginBottom="8dp"/>
+            
             <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -175,12 +175,14 @@
                         app:tint="#1A5F7A"/>
                 
                 <ImageButton
-                        android:id="@+id/pauseButton"
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
+                        android:id="@+id/copyButton"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_copy"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:visibility="gone"
-                        app:tint="@color/accent_primary"/>
+                        android:enabled="false"
+                        android:layout_marginStart="8dp"
+                        app:tint="#1A5F7A"/>
             
             </LinearLayout>
             
@@ -203,6 +205,43 @@
                     android:layout_marginVertical="8dp"/>
             
             <!-- Performance Metrics -->
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:weightSum="3">
+                
+                <TextView
+                        android:id="@+id/confidenceText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/confidence_placeholder"
+                        android:textSize="12sp"
+                        android:textColor="@color/secondary_text"
+                        android:gravity="center"/>
+                
+                <TextView
+                        android:id="@+id/processingTimeText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/time_placeholder"
+                        android:textSize="12sp"
+                        android:textColor="@color/secondary_text"
+                        android:gravity="center"/>
+                
+                <TextView
+                        android:id="@+id/qualityScoreText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/quality_placeholder"
+                        android:textSize="12sp"
+                        android:textColor="@color/secondary_text"
+                        android:gravity="center"/>
+            
+            </LinearLayout>
         
         </LinearLayout>
     
@@ -249,6 +288,7 @@
                     android:layout_height="8dp"
                     android:background="@color/accent_primary"
                     android:layout_marginStart="8dp" />
+        
         </LinearLayout>
         
         <!-- Control Buttons -->
@@ -288,6 +328,5 @@
         </LinearLayout>
     
     </LinearLayout>
-    
 
 </LinearLayout>
