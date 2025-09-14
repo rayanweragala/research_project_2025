@@ -22,14 +22,24 @@ from collections import defaultdict
 import pytesseract as pt
 import platform
 
+try:
+    from picamera2 import Picamera2
+    RPI_CAMERA_AVAILABLE = True
+except ImportError:
+    RPI_CAMERA_AVAILABLE = False
+    Picamera2 = None
+    print("Picamera2 not available - will use USB camera fallback")
+
+
 from flask_cors import CORS
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
-ROOT_DIR = os.path.dirname(BASE_DIR)
+BASE_DIR = '/opt/research_project'
+TEMPLATES_DIR = '/opt/research_project/templates'
+STATIC_DIR = '/opt/research_project/static'
 app = Flask(
     __name__,
-    template_folder=os.path.join(ROOT_DIR, "templates"),
-    static_folder=os.path.join(ROOT_DIR, "static")
+    template_folder=TEMPLATES_DIR,
+    static_folder=STATIC_DIR
 )
 CORS(app)
 
@@ -37,7 +47,7 @@ logging.basicConfig(level=logging.INFO)
 
 class SinhalaOCRServer:
     def __init__(self):
-        self.keras_model_path = 'best_document_classifier_model.keras'
+        self.keras_model_path = '/opt/research_project/server/best_document_classifier_model.keras'
         self.document_classifier = None
         self.ocr_reader = None
         self.tts_engine = None
@@ -638,7 +648,6 @@ class SinhalaOCRServer:
     def init_models(self):
         """Initialize Keras model and OCR reader"""
         try:
-            # Initialize Keras model
             if os.path.exists(self.keras_model_path):
                 print("Loading Keras model...")
                 self.document_classifier = tf.keras.models.load_model(self.keras_model_path)
@@ -1302,7 +1311,6 @@ class SinhalaOCRServer:
             print(f"Test data generation error: {e}")
             return False
 
-# Initialize OCR server
 ocr_server = SinhalaOCRServer()
 
 @app.route('/')
@@ -1322,6 +1330,16 @@ def ocr_health():
         'database_ready': ocr_server.conn is not None,
         'stats': ocr_server.processing_stats
     })
+
+@app.route('/api/health')
+def health():
+    """Health check endpoint that dashboard expects"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'ocr',
+        'timestamp': datetime.now().isoformat()
+    })
+
 
 @app.route('/api/camera/start', methods=['POST'])
 def start_camera():
@@ -1727,6 +1745,9 @@ def get_enhanced_stats():
 def get_local_ip():
     """Get local IP address"""
     try:
+        if 'LOCAL_IP' in os.environ:
+            return os.environ['LOCAL_IP']
+        
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
@@ -1740,7 +1761,6 @@ if __name__ == '__main__':
     print("SINHALA OCR SERVER WITH KERAS MODEL & ENHANCED REPORTING")
     print("="*60)
     
-    # Check model availability
     model_available = os.path.exists(ocr_server.keras_model_path)
     print(f"Document Classifier: {'Available' if model_available else 'Not Found'}")
     print(f"EasyOCR Reader: {'Loaded' if ocr_server.ocr_reader else 'Failed'}")
@@ -1798,8 +1818,11 @@ if __name__ == '__main__':
     print("Server starting... Press Ctrl+C to stop")
     print("="*60)
 
-    if not os.path.exists('ocr_server_index.html'):
-        print("ocr_server_index.html not found!")
+    template_path = os.path.join(TEMPLATES_DIR, 'ocr_server_index.html')
+    if not os.path.exists(template_path):
+        print(f"ocr_server_index.html not found at {template_path}")
+    else:
+        print(f"Template found at {template_path}")
 
     try:
         app.run(

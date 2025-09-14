@@ -1,7 +1,10 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sinhala OCR Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/ocr_server.css') }}">
     <script src="{{ url_for('static', filename='js/ocr_server.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -9,20 +12,33 @@
 <body>
     <div class="toast-container" id="toastContainer"></div>
 
-    <div class="container">
-        <div class="header">
-            <h1>Sinhala OCR Dashboard</h1>
-            <p>Intelligent document processing with advanced text extraction</p>
+    <div class="ocr-header">
+        <div class="container">
+            <div class="flex items-center justify-between py-4">
+                <div>
+                    <h1 class="ocr-title">Sinhala OCR Dashboard</h1>
+                    <p class="ocr-subtitle">Intelligent document processing with advanced text extraction</p>
+                </div>
+                <div class="text-sm text-muted">
+                    <span id="currentTime"></span>
+                </div>
+            </div>
         </div>
-        
-        <div class="tabs">
-            <div class="tab active" onclick="switchTab(event, 'process')">Document Processing</div>
-            <div class="tab" onclick="switchTab(event, 'analytics')">Analytics</div>
-            <div class="tab" onclick="switchTab(event, 'reports')">Reports</div>
-            <div class="tab" onclick="switchTab(event, 'history')">Document History</div>
+    </div>
+
+    <nav class="ocr-nav">
+        <div class="container">
+            <div class="ocr-nav-tabs">
+                <button class="ocr-tab active" onclick="switchTab(event, 'process')">Document Processing</button>
+                <button class="ocr-tab" onclick="switchTab(event, 'analytics')">Analytics</button>
+                <button class="ocr-tab" onclick="switchTab(event, 'reports')">Reports</button>
+                <button class="ocr-tab" onclick="switchTab(event, 'history')">Document History</button>
+            </div>
         </div>
-        
-        <div id="process-tab" class="tab-content active">
+    </nav>
+
+    <main class="ocr-content">
+        <div id="process-tab" class="ocr-tab-content active">
             <div class="dashboard-grid">
                 <div class="upload-section">
                     <h3 class="section-title">Document Upload</h3>
@@ -34,10 +50,11 @@
                     <input type="file" id="fileInput" class="file-input" accept=".jpg,.jpeg,.png,.pdf,.tiff,.tif" />
                     
                     <div id="previewContainer" style="display: none;">
-                        <h4 style="margin: 20px 0 10px 0; color: #333;">Document Preview:</h4>
+                        <h4 style="margin: 20px 0 10px 0; color: var(--text-primary);">Document Preview:</h4>
                         <img id="previewImage" class="preview-image" />
                     </div>
                 </div>
+
                 <div class="controls-section">
                     <h3 class="section-title">Processing Controls</h3>
                     
@@ -53,7 +70,7 @@
                         Clear Results
                     </button>
                     
-                    <h3 class="section-title" style="margin-top: 25px;">System Status</h3>
+                    <h3 class="section-title" style="margin-top: 1.5rem;">System Status</h3>
                     <div id="status" class="status info">Ready for document processing</div>
                     
                     <div class="processing-indicator" id="processingIndicator">
@@ -61,27 +78,28 @@
                         Processing document...
                     </div>
                 </div>
+
                 <div class="camera-section">
-        <h3 class="section-title">Camera Feed</h3>
-        <div class="camera-container" id="cameraContainer">
-            <img id="cameraPreview" alt="Camera feed" style="display: none;" />
-            <div class="empty-state" id="cameraPlaceholder">
-                <h3>Camera Not Active</h3>
-                <p>Start camera to see live feed</p>
-            </div>
-        </div>
-        
-        <div class="camera-controls">
-            <button class="button process" id="startCameraBtn" onclick="startCamera()">
-                Start Camera
-            </button>
-            <button class="button clear" id="stopCameraBtn" onclick="stopCamera()" disabled>
-                Stop Camera
-            </button>
-            <button class="button speak" id="captureBtn" onclick="captureFromCamera()" disabled>
-                Capture Frame
-            </button>
-        </div>
+                    <h3 class="section-title">Camera Feed</h3>
+                    <div class="camera-container" id="cameraContainer">
+                        <img id="cameraPreview" alt="Camera feed" style="display: none;" />
+                        <div class="empty-state" id="cameraPlaceholder">
+                            <h3>Camera Not Active</h3>
+                            <p>Start camera to see live feed</p>
+                        </div>
+                    </div>
+                    
+                    <div class="camera-controls">
+                        <button class="button process" id="startCameraBtn" onclick="startCamera()">
+                            Start Camera
+                        </button>
+                        <button class="button clear" id="stopCameraBtn" onclick="stopCamera()" disabled>
+                            Stop Camera
+                        </button>
+                        <button class="button speak" id="captureBtn" onclick="captureFromCamera()" disabled>
+                            Capture Frame
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -108,7 +126,7 @@
             </div>
         </div>
         
-        <div id="analytics-tab" class="tab-content">
+        <div id="analytics-tab" class="ocr-tab-content">
             <div class="analytics-grid">
                 <div class="stat-card documents-card">
                     <h4>Total Documents</h4>
@@ -134,53 +152,68 @@
             
             <div class="chart-container">
                 <h3 class="section-title">Document Type Distribution</h3>
-                <div id="docTypeChart"></div>
+                <div id="docTypeChart" class="card p-4">
+                    <div class="text-muted">Chart will be displayed here</div>
+                </div>
             </div>
             
             <div class="chart-container">
                 <h3 class="section-title">Processing Performance</h3>
-                <div id="performanceChart"></div>
+                <div id="performanceChart" class="card p-4">
+                    <div class="text-muted">Chart will be displayed here</div>
+                </div>
             </div>
 
             <div class="chart-container">
                 <h3 class="section-title">Quality Analysis</h3>
-                <div id="qualityChart"></div>
+                <div id="qualityChart" class="card p-4">
+                    <div class="text-muted">Chart will be displayed here</div>
+                </div>
             </div>
         </div>
         
-        <div id="reports-tab" class="tab-content">
+        <div id="reports-tab" class="ocr-tab-content">
             <div class="report-section">
                 <div class="report-header">
                     <h2>Daily Processing Report</h2>
                     <div style="display: flex; gap: 15px; align-items: center;">
                         <input type="date" id="reportDate" class="date-picker" onchange="loadDailyReport()" />
-                        <button class="button process" onclick="generateTestData()" style="padding: 10px 18px; font-size: 0.95em;">
+                        <button class="btn btn-primary" onclick="generateTestData()">
                             Generate Test Data
                         </button>
                     </div>
                 </div>
                 
-                <div id="reportContent"></div>
+                <div id="reportContent" class="card p-4">
+                    <div class="text-muted">Select a date to view the daily report</div>
+                </div>
             </div>
             
             <div class="report-section">
                 <h3 class="section-title">Processing Logs</h3>
-                <div id="processingLogs"></div>
+                <div id="processingLogs" class="card p-4">
+                    <div class="text-muted">Processing logs will appear here</div>
+                </div>
             </div>
             
             <div class="report-section">
                 <h3 class="section-title">Historical Performance (Last 7 Days)</h3>
-                <div id="historicalData"></div>
+                <div id="historicalData" class="card p-4">
+                    <div class="text-muted">Historical performance data will appear here</div>
+                </div>
             </div>
         </div>
         
-        <div id="history-tab" class="tab-content">
+        <div id="history-tab" class="ocr-tab-content">
             <div class="results-section">
                 <h3 class="section-title">Recent Documents</h3>
-                <div class="recent-documents" id="recentDocuments"></div>
+                <div class="recent-documents" id="recentDocuments">
+                    <div class="card p-4">
+                        <div class="text-muted">Document history will appear here</div>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
-
+    </main>
 </body>
 </html>

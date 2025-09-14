@@ -21,13 +21,13 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
-ROOT_DIR = os.path.dirname(BASE_DIR)  
-
+BASE_DIR = '/opt/research_project'
+TEMPLATES_DIR = '/opt/research_project/templates'
+STATIC_DIR = '/opt/research_project/static'
 app = Flask(
     __name__,
-    template_folder=os.path.join(ROOT_DIR, "templates"),
-    static_folder=os.path.join(ROOT_DIR, "static")
+    template_folder=TEMPLATES_DIR,
+    static_folder=STATIC_DIR
 )
 CORS(app)
 
@@ -536,7 +536,6 @@ def generate_test_data():
             test_measurements.append(measurement)
             measurement_history.append(measurement)
        
-        # Update statistics
         for measurement in test_measurements:
             update_statistics(measurement.distance)
        
@@ -550,7 +549,7 @@ def generate_test_data():
 
 @app.route('/')
 def dashboard():
-    """Serve the main dashboard HTML"""
+    """Serve the main sensor HTML"""
     return render_template('ultrasonic_sensor_index.html')
 
 @app.route('/api/info')
@@ -576,8 +575,12 @@ def api_info():
     })
 
 if __name__ == '__main__':
-    if not os.path.exists('ultrasonic_index.html'):
-        print("ultrasonic_index.html not found!")
+
+    template_path = os.path.join(TEMPLATES_DIR, 'ultrasonic_sensor_index.html')
+    if not os.path.exists(template_path):
+        print(f"ultrasonic_sensor_index.html not found at {template_path}")
+    else:
+        print(f"Template found at {template_path}")
 
     try:
         logger.info("Starting Pi 5 Ultrasonic Distance Sensor Server...")

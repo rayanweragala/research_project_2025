@@ -33,17 +33,18 @@ except ImportError:
     print("Picamera2 not available - falling back to OpenCV")
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
-ROOT_DIR = os.path.dirname(BASE_DIR)  
+BASE_DIR = '/opt/research_project'
+TEMPLATES_DIR = '/opt/research_project/templates'
+STATIC_DIR = '/opt/research_project/static'
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(ROOT_DIR, "templates"),
-    static_folder=os.path.join(ROOT_DIR, "static")
+    template_folder=TEMPLATES_DIR,
+    static_folder=STATIC_DIR
 )
 CORS(app)
 
@@ -1678,6 +1679,7 @@ def health_check():
         'confidence_levels': face_server.confidence_levels
     })
 
+
 @app.route('/api/recognize_realtime', methods=['POST'])
 def recognize_realtime():
     """Real-time recognition endpoint with averaging"""
@@ -2321,6 +2323,9 @@ def get_camera_frame():
 def get_local_ip():
     """Get local IP address"""
     try:
+        if 'LOCAL_IP' in os.environ:
+            return os.environ['LOCAL_IP']
+        
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
@@ -2584,8 +2589,11 @@ if __name__ == '__main__':
     print("Server starting... Press Ctrl+C to stop")
     print("="*80)
 
-    if not os.path.exists('face_server_index.html'):
-        print("face_server_index.html not found!")
+    template_path = os.path.join(TEMPLATES_DIR, 'face_server_index.html')
+    if not os.path.exists(template_path):
+        print(f"face_server_index.html not found at {template_path}")
+    else:
+        print(f"Template found at {template_path}")
 
     try:
         app.run(
