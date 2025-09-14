@@ -1045,6 +1045,24 @@ class SinhalaOCRServer:
             print(f"Database query error: {e}")
             return []
     
+    def frame_to_base64_quality(self, frame, quality=75):
+        """Convert frame to base64 string with quality control"""
+        try:
+            if frame is None:
+                return None
+            
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+            if not ret:
+                logging.error("Failed to encode frame to JPEG")
+                return None
+            
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            return jpg_as_text
+        
+        except Exception as e:
+            logging.error(f"Error converting frame to base64: {e}")
+            return None
+    
     def get_daily_report(self, date_str):
         """Generate daily processing report"""
         if not self.conn:
@@ -1391,90 +1409,55 @@ def stop_camera():
     
 @app.route('/api/camera/frame', methods=['GET'])
 def get_camera_frame():
-    """Get current camera frame with face recognition"""
+    """Get current camera frame - simplified version without face recognition"""
     try:
         include_image = request.args.get('include_image', 'true').lower() == 'true'
-        image_quality = int(request.args.get('quality', '85'))
-        recognition_only = request.args.get('recognition_only', 'false').lower() == 'true'
+        image_quality = int(request.args.get('image_quality', '75'))
         
         if not ocr_server.camera_active:
-            logging.warning("Camera not active")
             return jsonify({
                 'error': 'Camera not active',
-                'image': '',
-                'recognized': False,
-                'message': 'Camera not available',
-                'confidence': 0.0,
+                'image': None,
                 'timestamp': datetime.now().isoformat()
-            }), 500
+            }), 400
         
         if ocr_server.camera_error:
-            logging.error(f"Camera error: {ocr_server.camera_error}")
             return jsonify({
                 'error': ocr_server.camera_error,
-                'image': '',
-                'recognized': False,
-                'message': 'Camera error',
-                'confidence': 0.0,
+                'image': None,
                 'timestamp': datetime.now().isoformat()
             }), 500
         
         frame = ocr_server.capture_frame()
         if frame is None:
-            logging.info("Attempting to restart camera...")
-            if ocr_server.start_camera():
-                frame = ocr_server.capture_frame()
-                
-            if frame is None:
-                return jsonify({
-                    'error': 'Failed to capture frame',
-                    'image': '',
-                    'recognized': False,
-                    'message': 'Frame capture failed',
-                    'confidence': 0.0,
-                    'timestamp': datetime.now().isoformat()
-                }), 500
+            return jsonify({
+                'error': 'Failed to capture frame',
+                'image': None,
+                'timestamp': datetime.now().isoformat()
+            }), 500
 
-        processed_frame = ocr_server.preprocess_camera_frame(frame)
-        recognition_result = ocr_server.recognize_face_with_averaging(processed_frame)
-        
-        
         response_data = {
-            'recognized': recognition_result.get('recognized', False),
-            'message': recognition_result.get('message', 'Processing...'),
-            'confidence': recognition_result.get('confidence', 0.0),
-            'confidence_level': recognition_result.get('confidence_level', 'unknown'),
-            'quality_score': recognition_result.get('quality_score', 0.0),
-            'processing_time': recognition_result.get('processing_time', 0.0),
-            'method_used': recognition_result.get('method_used', 'unknown'),
-            'name': recognition_result.get('name', None),
+            'success': True,
             'timestamp': datetime.now().isoformat()
         }
 
-        if include_image and not recognition_only:
-            frame_base64 = ocr_server.frame_to_base64_quality(frame, image_quality)
+        if include_image:
+            frame_base64 = ocr_server.frame_to_base64(frame)
             if frame_base64 is None:
                 return jsonify({
                     'error': 'Failed to encode frame',
-                    **response_data
+                    'image': None,
+                    'timestamp': datetime.now().isoformat()
                 }), 500
             response_data['image'] = frame_base64
-        elif include_image:
-            response_data['image'] = ''
-        else:
-            pass
-            
+        
         return jsonify(response_data)
         
     except Exception as e:
         logging.error(f"Frame endpoint error: {e}")
-        logging.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
             'error': f'Frame capture error: {str(e)}',
-            'image': '',
-            'recognized': False,
-            'message': 'Server error',
-            'confidence': 0.0,
+            'image': None,
             'timestamp': datetime.now().isoformat()
         }), 500
 

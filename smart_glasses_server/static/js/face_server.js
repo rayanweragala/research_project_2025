@@ -1,6 +1,123 @@
 let recognitionActive = false;
 let recognitionInterval;
 let currentStats = {};
+let capturedImages = [];
+let previewInterval;
+
+function openAddPersonModal() {
+  const modal = document.getElementById('addPersonModal');
+  modal.classList.add('show');
+  document.getElementById('personName').value = '';
+  capturedImages = [];
+  updateCapturedImagesDisplay();
+  startPreview();
+}
+
+function closeAddPersonModal() {
+  const modal = document.getElementById('addPersonModal');
+  modal.classList.remove('show');
+  stopPreview();
+  capturedImages = [];
+}
+
+function startPreview() {
+  const previewFrame = document.getElementById('previewFrame');
+  previewInterval = setInterval(() => {
+      fetch('/api/camera/frame_add_friend')
+          .then(response => response.json())
+          .then(data => {
+              if (data.success && data.frame_data.image) {
+                  previewFrame.innerHTML = `<img src="data:image/jpeg;base64,${data.frame_data.image}" alt="Preview">`;
+              }
+          })
+          .catch(err => {
+              console.error('Preview error:', err);
+          });
+  }, 500);
+}
+
+function stopPreview() {
+  if (previewInterval) {
+      clearInterval(previewInterval);
+      previewInterval = null;
+  }
+}
+
+function captureImage() {
+  fetch('/api/camera/frame_add_friend')
+      .then(response => response.json())
+      .then(data => {
+          if (data.success && data.frame_data.image) {
+              let base64Data = data.frame_data.image;
+              
+              if (base64Data.startsWith('data:image/')) {
+                  base64Data = base64Data.split(',')[1];
+              }
+              
+              if (!isValidBase64(base64Data)) {
+                  showToast('Invalid image format received', 'error');
+                  return;
+              }
+              
+              base64Data = addBase64Padding(base64Data);
+              
+              capturedImages.push(base64Data);
+              updateCapturedImagesDisplay();
+              showToast(`Image ${capturedImages.length} captured successfully!`, 'success');
+          } else {
+              showToast('Failed to capture image', 'error');
+          }
+      })
+      .catch(err => {
+          showToast('Error capturing image', 'error');
+          console.error('Capture error:', err);
+      });
+}
+
+
+function isValidBase64(str) {
+  try {
+      const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+      if (!base64Regex.test(str)) {
+          return false;
+      }
+      
+      atob(str);
+      return true;
+  } catch (e) {
+      return false;
+  }
+}
+
+function addBase64Padding(base64) {
+  while (base64.length % 4 !== 0) {
+      base64 += '=';
+  }
+  return base64;
+}
+
+function removeCapturedImage(index) {
+  capturedImages.splice(index, 1);
+  updateCapturedImagesDisplay();
+}
+
+function updateCapturedImagesDisplay() {
+  const container = document.getElementById('capturedImages');
+  container.innerHTML = '';
+  
+  capturedImages.forEach((image, index) => {
+      const imageDiv = document.createElement('div');
+      imageDiv.className = 'captured-image';
+      imageDiv.innerHTML = `
+          <img src="data:image/jpeg;base64,${image}" alt="Captured ${index + 1}">
+          <button class="remove-btn" onclick="removeCapturedImage(${index})">&times;</button>
+      `;
+      container.appendChild(imageDiv);
+  });
+  
+  const submitBtn = document.getElementById('submitBtn');
+  submitBtn.disabled = capturedImages.length === 0;
+}
 
 function showToast(message, type = "info", title = "", duration = 4000) {
   const toastContainer = document.getElementById("toastContainer");
@@ -1064,20 +1181,20 @@ function displayPeopleList(people) {
             ).toFixed(1)}%</span></div>
         </div>
         <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center;">
-                                 <span class="method-badge method-${
-                                   person.registration_method
-                                 }">
-                 ${
-                   person.registration_method === "enhanced"
-                     ? "Multi-image Registration"
-                     : "Standard Registration"
-                 }
-             </span>
-            <button class="button stop" style="padding: 10px 18px; font-size: 0.85em; margin: 0;" 
-                    onclick="deletePerson('${person.name}')">
-                Delete
-            </button>
-        </div>
+          <span class="method-badge method-${person.registration_method}">
+              ${person.registration_method === "enhanced" ? "Multi-image Registration" : "Standard Registration"}
+          </span>
+          <div style="display: flex; gap: 10px;">
+              <button class="button add-person" style="padding: 10px 18px; font-size: 0.85em; margin: 0;" 
+                      onclick="analyzePerson('${person.name}')">
+                  Analyze
+              </button>
+              <button class="button stop" style="padding: 10px 18px; font-size: 0.85em; margin: 0;" 
+                      onclick="deletePerson('${person.name}')">
+                  Delete
+              </button>
+          </div>
+      </div>
     </div>
 `;
   });
@@ -1204,6 +1321,140 @@ function initializeDashboard() {
   setDefaultReportDate();
 }
 
+function analyzePerson(name) {
+  showToast(`Analyzing ${name}'s registration...`, 'info', 'Processing');
+  
+  fetch(`/api/analyze_person/${encodeURIComponent(name)}`)
+      .then(response => response.json())
+      .then(data => {
+          if (data.error) {
+              showToast(`Analysis failed: ${data.error}`, 'error');
+              return;
+          }
+          showAnalysisModal(data);
+      })
+      .catch(err => {
+          showToast(`Error analyzing person: ${err.message}`, 'error');
+      });
+}
+
+function showAnalysisModal(data) {
+  const modalHtml = `
+      <div class="modal analysis-modal show" id="analysisModal">
+          <div class="modal-content">
+              <div class="modal-header">
+                  <h3 class="modal-title">Quality Analysis - ${data.name}</h3>
+                  <button class="modal-close" onclick="closeAnalysisModal()">&times;</button>
+              </div>
+              <div class="modal-body">
+                  <div class="analytics-grid" style="margin-bottom: 25px;">
+                      <div class="stat-card recognition-card">
+                          <h4>Photos</h4>
+                          <div class="stat-value">${data.photo_count}</div>
+                          <div class="stat-label">Total Images</div>
+                      </div>
+                      <div class="stat-card quality-card">
+                          <h4>Average Quality</h4>
+                          <div class="stat-value">${(data.avg_quality * 100).toFixed(1)}%</div>
+                          <div class="stat-label">Overall Score</div>
+                      </div>
+                      <div class="stat-card performance-card">
+                          <h4>Best Quality</h4>
+                          <div class="stat-value">${(data.max_quality * 100).toFixed(1)}%</div>
+                          <div class="stat-label">Highest Score</div>
+                      </div>
+                      <div class="stat-card method-card">
+                          <h4>Worst Quality</h4>
+                          <div class="stat-value">${(data.min_quality * 100).toFixed(1)}%</div>
+                          <div class="stat-label">Lowest Score</div>
+                      </div>
+                  </div>
+                  
+                  <div class="chart-container">
+                      <h3 class="section-title">Photo Quality Distribution</h3>
+                      <div class="photo-grid">
+                          ${data.qualities.map((quality, index) => `
+                              <div class="photo-quality-item">
+                                  <div class="quality-indicator ${getQualityClass(quality)}">
+                                      Photo ${index + 1}
+                                  </div>
+                                  <div style="margin-top: 8px; font-weight: 600;">
+                                      ${(quality * 100).toFixed(1)}%
+                                  </div>
+                              </div>
+                          `).join('')}
+                      </div>
+                  </div>
+                  
+                  ${generateRecommendations(data.recommendations)}
+                  
+                  <div style="text-align: center; margin-top: 30px;">
+                      <button class="button secondary" onclick="closeAnalysisModal()">Close</button>
+                  </div>
+              </div>
+          </div>
+      </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeAnalysisModal() {
+  const modal = document.getElementById('analysisModal');
+  if (modal) {
+      modal.remove();
+  }
+}
+
+function getQualityClass(quality) {
+  if (quality > 0.6) return 'quality-excellent';
+  if (quality > 0.3) return 'quality-good';
+  return 'quality-poor';
+}
+
+function generateRecommendations(recommendations) {
+  let html = '<div class="chart-container"><h3 class="section-title">Recommendations</h3>';
+  
+  if (recommendations.should_retake_photos) {
+      html += `
+          <div class="recommendation-card">
+              <strong>Consider Re-registration</strong><br>
+              Overall photo quality is low. Consider capturing new photos with better lighting and positioning.
+          </div>
+      `;
+  }
+  
+  if (recommendations.needs_better_lighting) {
+      html += `
+          <div class="recommendation-card">
+              <strong>Improve Lighting</strong><br>
+              Many photos have poor lighting. Use natural light or well-lit environments for better results.
+          </div>
+      `;
+  }
+  
+  if (recommendations.has_good_photos) {
+      html += `
+          <div class="recommendation-card" style="border-left-color: #4caf50;">
+              <strong>Good Quality Detected</strong><br>
+              Some photos have excellent quality. The system should recognize this person reliably.
+          </div>
+      `;
+  }
+  
+  if (!recommendations.should_retake_photos && !recommendations.needs_better_lighting && !recommendations.has_good_photos) {
+      html += `
+          <div class="recommendation-card">
+              <strong>Analysis Complete</strong><br>
+              Photo quality is acceptable for basic recognition. Consider adding more photos for improved accuracy.
+          </div>
+      `;
+  }
+  
+  html += '</div>';
+  return html;
+}
+
 function startPeriodicUpdates() {
   setInterval(() => {
     fetch("/api/health")
@@ -1269,4 +1520,104 @@ function startPeriodicUpdates() {
 document.addEventListener("DOMContentLoaded", function () {
   initializeDashboard();
   startPeriodicUpdates();
+
+  const addPersonModal = document.getElementById('addPersonModal');
+  if (addPersonModal) {
+    addPersonModal.addEventListener('click', function(e) {
+      if (e.target === this) {
+          closeAddPersonModal();
+      }
+    });
+  }
+
+  const form = document.getElementById('addPersonForm');
+  if (form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const personName = document.getElementById('personName').value.trim();
+      
+      if (!personName) {
+          showToast('Please enter a person name', 'error');
+          return;
+      }
+      
+      if (capturedImages.length === 0) {
+          showToast('Please capture at least one image', 'error');
+          return;
+      }
+      
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Adding Person...';
+
+      const validImages = capturedImages.filter(img => isValidBase64(img));
+      if (validImages.length !== capturedImages.length) {
+        showToast(`${capturedImages.length - validImages.length} invalid images detected`, 'warning');
+      }
+    
+      if (validImages.length < 3) {
+          showToast('Not enough valid images. Please capture more images.', 'error');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Add Person';
+          return;
+      }
+      
+      const formData = {
+          name: personName,
+          images: validImages
+      };
+      
+      fetch('/api/register_enhanced', {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(formData)
+      })
+      .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => Promise.reject(err));
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            showToast(
+                `${personName} added successfully with ${data.photos_processed} valid images!`, 
+                'success'
+            );
+            
+            if (data.quality_analysis) {
+                const qa = data.quality_analysis;
+                setTimeout(() => {
+                    showToast(
+                        `Quality Analysis: ${qa.valid_images}/${qa.total_images} images processed. Average quality: ${(qa.average_quality * 100).toFixed(1)}%`,
+                        'info',
+                        'Registration Details',
+                        6000
+                    );
+                }, 2000);
+            }
+            
+            closeAddPersonModal();
+            const peopleTab = document.getElementById('people-tab');
+            if (peopleTab && peopleTab.classList.contains('active')) {
+                loadPeopleList();
+            }
+        } else {
+            showToast(`Failed to add person: ${data.message || data.error}`, 'error');
+        }
+    })
+    .catch(err => {
+        console.error('Add person error:', err);
+        const errorMessage = err.error || err.message || 'Unknown error occurred';
+        showToast(`Error adding person: ${errorMessage}`, 'error');
+    })
+    .finally(() => {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Add Person';
+    });
+});
+}
 });

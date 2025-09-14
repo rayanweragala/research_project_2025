@@ -48,6 +48,7 @@
                     <h3 class="section-title">System Controls</h3>
                     <button class="button start" onclick="startRecognition()">Start Recognition</button>
                     <button class="button stop" onclick="stopRecognition()">Stop Recognition</button>
+                    <button class="button add-person" onclick="openAddPersonModal()">Add Person</button>
                     
                     <h3 class="section-title" style="margin-top: 1.5rem;">System Status</h3>
                     <div id="status" class="status">Ready to start</div>
@@ -152,5 +153,48 @@
             </div>
         </div>
     </main>
+    <div class="modal" id="addPersonModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Person</h3>
+                <button class="modal-close" onclick="closeAddPersonModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addPersonForm">
+                    <div class="form-group">
+                        <label class="form-label" for="personName">Person Name</label>
+                        <input type="text" id="personName" class="form-input" 
+                               placeholder="Enter person's name" required>
+                    </div>
+    
+                    <div class="capture-section">
+                        <h4 style="margin-bottom: 1rem;">Capture Images</h4>
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                            Capture 3-5 clear photos from different angles for better recognition.
+                        </p>
+                        
+                        <div class="preview-frame" id="previewFrame">
+                            <span>Camera preview will appear here</span>
+                        </div>
+                        
+                        <button type="button" class="button start" onclick="captureImage()">
+                            Capture Image
+                        </button>
+                        
+                        <div class="captured-images" id="capturedImages"></div>
+                    </div>
+    
+                    <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                        <button type="button" class="button secondary" onclick="closeAddPersonModal()">
+                            Cancel
+                        </button>
+                        <button type="submit" class="button add-person" id="submitBtn">
+                            Add Person
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

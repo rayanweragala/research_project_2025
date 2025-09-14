@@ -1061,6 +1061,7 @@ function stopCamera() {
     });
 }
 
+
 function startCameraFeed() {
   const preview = document.getElementById("cameraPreview");
   const placeholder = document.getElementById("cameraPlaceholder");
@@ -1079,7 +1080,7 @@ function startCameraFeed() {
         return response.json();
       })
       .then((data) => {
-        if (data.image) {
+        if (data.success && data.image) {
           preview.src = `data:image/jpeg;base64,${data.image}`;
           preview.style.display = "block";
           placeholder.style.display = "none";
@@ -1090,11 +1091,12 @@ function startCameraFeed() {
       .catch((err) => {
         console.warn("Camera feed error:", err);
       });
-  }, 200); // Update every 200ms (5 FPS)
+  }, 200);
 }
 
+
 function captureFromCamera() {
-  fetch(`${BASE_URL}/api/camera/frame?include_image=true&quality=85`)
+  fetch(`${BASE_URL}/api/camera/frame?include_image=true&image_quality=85`)
     .then((response) => {
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
@@ -1102,11 +1104,9 @@ function captureFromCamera() {
       return response.json();
     })
     .then((data) => {
-      if (data.image) {
-        // Convert camera frame to file-like object for processing
+      if (data.success && data.image) {
         const img = document.getElementById("cameraPreview");
         if (img.src) {
-          // Create a canvas to get the image data
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
 
@@ -1114,31 +1114,20 @@ function captureFromCamera() {
           canvas.height = img.naturalHeight;
           ctx.drawImage(img, 0, 0);
 
-          // Convert to blob and process
           canvas.toBlob(
             (blob) => {
               currentDocumentData = new File([blob], "camera-capture.jpg", {
                 type: "image/jpeg",
               });
 
-              // Show preview
               const previewImg = document.getElementById("previewImage");
-              const previewContainer =
-                document.getElementById("previewContainer");
+              const previewContainer = document.getElementById("previewContainer");
               previewImg.src = img.src;
               previewContainer.style.display = "block";
 
-              // Enable process button
               document.getElementById("processBtn").disabled = false;
-              updateStatus(
-                "Camera frame captured. Ready to process.",
-                "success"
-              );
-              showToast(
-                "Frame captured successfully",
-                "success",
-                "Capture Complete"
-              );
+              updateStatus("Camera frame captured. Ready to process.", "success");
+              showToast("Frame captured successfully", "success", "Capture Complete");
             },
             "image/jpeg",
             0.85
