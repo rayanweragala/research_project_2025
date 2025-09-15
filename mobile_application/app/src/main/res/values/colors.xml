@@ -198,6 +198,7 @@
     <color name="shadow_light">#0d000000</color>
     <color name="shadow_medium">#1a000000</color>
     <color name="shadow_strong">#33000000</color>
+    <color name="navigation_active_color">#4CAF50</color> <!-- Green for active GPS -->
 
     <color name="radio_button_text_selector">@color/radio_text_selected</color>
 

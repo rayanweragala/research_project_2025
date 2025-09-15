@@ -21,9 +21,9 @@ public class FaceQualityAnalyzer {
     private ExecutorService executorService;
     private Handler mainHandler;
     private Random random;
-    private static final float MIN_FACE_SIZE_RATIO=0.20f;
+    private static final float MIN_FACE_SIZE_RATIO=0.008f;
     private static final float MAX_FACE_SIZE_RATIO=0.85f;
-    private static final float OPTIMAL_FACE_SIZE_RATIO=0.40f;
+    private static final float OPTIMAL_FACE_SIZE_RATIO=0.25f;
     private static final float MIN_BRIGHTNESS = 60f;
     private static final float MAX_BRIGHTNESS = 220f;
     private static final float OPTIMAL_BRIGHTNESS = 128f;
@@ -31,7 +31,7 @@ public class FaceQualityAnalyzer {
     private static final float MAX_HEAD_ROTATION_YAW = 25f;
     private static final float MAX_HEAD_ROTATION_PITCH = 20f;
     private static final float MAX_HEAD_ROTATION_ROLL = 15f;
-    private static final float MIN_QUALITY_SCORE = 0.6f;
+    private static final float MIN_QUALITY_SCORE = 0.3f;
     private static final int MIN_FACE_PIXELS = 100 * 100;
     private static final float EYE_OPENNESS_THRESHOLD = 0.3f;
     private static final float SMILE_THRESHOLD = 0.1f;
@@ -43,12 +43,12 @@ public class FaceQualityAnalyzer {
         executorService = Executors.newSingleThreadExecutor();
         mainHandler = new Handler(Looper.getMainLooper());
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
                 .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-                .setMinFaceSize(0.15f)
-                .enableTracking()
+                .setMinFaceSize(0.2f)
                 .build();
+
         faceDetector = FaceDetection.getClient(options);
     }
 
@@ -56,47 +56,97 @@ public class FaceQualityAnalyzer {
         if (frame == null || callback == null) {
             return;
         }
+
+        Handler timeoutHandler = new Handler(Looper.getMainLooper());
+        final boolean[] completed = {false};
+
+        Runnable timeoutRunnable = () -> {
+            if (!completed[0]) {
+                completed[0] = true;
+                Log.w(TAG, "Analysis timed out");
+                callback.onAnalysisComplete(createErrorResult("Analysis timeout"));
+            }
+        };
+
+        timeoutHandler.postDelayed(timeoutRunnable, 800);
+
         executorService.submit(() -> {
-            performAnalysis(frame, callback);
+            if (!completed[0]) {
+                performAnalysis(frame, (result) -> {
+                    if (!completed[0]) {
+                        completed[0] = true;
+                        timeoutHandler.removeCallbacks(timeoutRunnable);
+                        callback.onAnalysisComplete(result);
+                    }
+                });
+            }
         });
     }
-
-    private void performAnalysis(Bitmap frame,QualityAnalysisCallback callback) {
+    private void performAnalysis(Bitmap frame, QualityAnalysisCallback callback) {
         try {
-            InputImage image = InputImage.fromBitmap(frame, 0);
+            Log.d(TAG, "Starting analysis on frame: " + frame.getWidth() + "x" + frame.getHeight());
+
+            Bitmap processedFrame;
+            if (frame.getWidth() > 640 || frame.getHeight() > 640) {
+                int maxDim = Math.max(frame.getWidth(), frame.getHeight());
+                float scale = 640f / maxDim;
+                int newWidth = (int) (frame.getWidth() * scale);
+                int newHeight = (int) (frame.getHeight() * scale);
+                processedFrame = Bitmap.createScaledBitmap(frame, newWidth, newHeight, false);
+            } else {
+                processedFrame = frame;
+            }
+
+            InputImage image = InputImage.fromBitmap(processedFrame, 0);
 
             faceDetector.process(image)
                     .addOnSuccessListener(faces -> {
+                        Log.d(TAG, "Detected " + faces.size() + " faces");
                         FaceQualityResult result;
                         if (faces.isEmpty()) {
+                            Log.d(TAG, "No faces detected");
                             result = createNoFaceResult();
                         } else {
-                            Face bestFace = findBestFace(faces, frame.getWidth(), frame.getHeight());
-                            result = analyzeFaceQuality(frame, bestFace);
+                            Face bestFace = findBestFace(faces, processedFrame.getWidth(), processedFrame.getHeight());
+                            Log.d(TAG, "Analyzing best face...");
+                            result = analyzeFaceQuality(processedFrame, bestFace);
+                            Log.d(TAG, "Analysis result - Quality: " + result.qualityScore +
+                                    ", Angle: " + result.faceAngle +
+                                    ", Good: " + result.isGoodQuality);
                         }
-                        mainHandler.post(() -> callback.onAnalysisComplete(result));
+
+                        if (processedFrame != frame && !processedFrame.isRecycled()) {
+                            processedFrame.recycle();
+                        }
+
+                        callback.onAnalysisComplete(result);
                     })
                     .addOnFailureListener(e -> {
+                        if (processedFrame != frame && !processedFrame.isRecycled()) {
+                            processedFrame.recycle();
+                        }
+
                         Log.e(TAG, "Face detection failed", e);
                         FaceQualityResult errorResult = createErrorResult("Face detection failed: " + e.getMessage());
-                        mainHandler.post(() -> callback.onAnalysisComplete(errorResult));
+                        callback.onAnalysisComplete(errorResult);
                     });
 
         } catch (Exception e) {
             Log.e(TAG, "Error in quality analysis", e);
             FaceQualityResult errorResult = createErrorResult("Analysis error: " + e.getMessage());
-            mainHandler.post(() -> callback.onAnalysisComplete(errorResult));
+            callback.onAnalysisComplete(errorResult);
         }
     }
- private Face findBestFace(List<Face> faces,int imageWidth,int imageHeight){
+    private Face findBestFace(List<Face> faces, int imageWidth, int imageHeight) {
         Face bestFace = null;
         float bestScore = 0f;
 
-        for(Face face:faces){
+        for (Face face : faces) {
             Rect bounds = face.getBoundingBox();
             float faceArea = bounds.width() * bounds.height();
-            float imageArea = imageHeight * imageWidth;
-            float sizeScore = imageArea / faceArea;
+            float imageArea = imageWidth * imageHeight;
+
+            float sizeScore = faceArea / imageArea;
 
             float centerX = imageWidth / 2f;
             float centerY = imageHeight / 2f;
@@ -108,13 +158,14 @@ public class FaceQualityAnalyzer {
             );
             float positionScore = 1f - (distance / maxDistance);
             float totalScore = sizeScore * 0.7f + positionScore * 0.3f;
-            if(totalScore > bestScore){
+
+            if (totalScore > bestScore) {
                 bestScore = totalScore;
                 bestFace = face;
             }
         }
         return bestFace;
- }
+    }
 
  private FaceQualityResult analyzeFaceQuality(Bitmap frame,Face face){
     QualityMetrics metrics = new QualityMetrics();
@@ -217,16 +268,20 @@ public class FaceQualityAnalyzer {
         long totalBrightness = 0;
         int pixelCount = 0;
 
-        for (int x = startX; x < endX; x += 5) {
-            for (int y = startY; y < endY; y += 5) {
-                int pixel = bitmap.getPixel(x, y);
-                int r = (pixel >> 16) & 0xff;
-                int g = (pixel >> 8) & 0xff;
-                int b = pixel & 0xff;
+        int step = Math.max(8, Math.min(region.width(), region.height()) / 20);
 
-                int brightness = (int) (0.299 * r + 0.587 * g + 0.114 * b);
-                totalBrightness += brightness;
-                pixelCount++;
+        for (int x = startX; x < endX; x += step) {
+            for (int y = startY; y < endY; y += step) {
+                try {
+                    int pixel = bitmap.getPixel(x, y);
+                    int brightness = ((pixel >> 16) & 0xff) * 77 +
+                            ((pixel >> 8) & 0xff) * 151 +
+                            (pixel & 0xff) * 28;
+                    totalBrightness += brightness >> 8;
+                    pixelCount++;
+                } catch (Exception e) {
+                    continue;
+                }
             }
         }
 
@@ -239,27 +294,33 @@ public class FaceQualityAnalyzer {
     }
 
     private float calculateLaplacianVariance(Bitmap bitmap, Rect region) {
-        int startX = Math.max(1, region.left);
-        int startY = Math.max(1, region.top);
-        int endX = Math.min(bitmap.getWidth() - 1, region.right);
-        int endY = Math.min(bitmap.getHeight() - 1, region.bottom);
+        int startX = Math.max(2, region.left);
+        int startY = Math.max(2, region.top);
+        int endX = Math.min(bitmap.getWidth() - 2, region.right);
+        int endY = Math.min(bitmap.getHeight() - 2, region.bottom);
+
+        int step = Math.max(6, Math.min(region.width(), region.height()) / 15);
 
         double sum = 0;
         double sumSquared = 0;
         int count = 0;
 
-        for (int x = startX; x < endX; x++) {
-            for (int y = startY; y < endY; y++) {
-                int center = getGrayValue(bitmap.getPixel(x, y));
-                int left = getGrayValue(bitmap.getPixel(x-1, y));
-                int right = getGrayValue(bitmap.getPixel(x+1, y));
-                int top = getGrayValue(bitmap.getPixel(x, y-1));
-                int bottom = getGrayValue(bitmap.getPixel(x, y+1));
+        for (int x = startX; x < endX; x += step) {
+            for (int y = startY; y < endY; y += step) {
+                try {
+                    int center = getGrayValueFast(bitmap.getPixel(x, y));
+                    int left = getGrayValueFast(bitmap.getPixel(x - step, y));
+                    int right = getGrayValueFast(bitmap.getPixel(x + step, y));
+                    int top = getGrayValueFast(bitmap.getPixel(x, y - step));
+                    int bottom = getGrayValueFast(bitmap.getPixel(x, y + step));
 
-                double laplacian = Math.abs(-4 * center + left + right + top + bottom);
-                sum += laplacian;
-                sumSquared += laplacian * laplacian;
-                count++;
+                    double laplacian = Math.abs(-4 * center + left + right + top + bottom);
+                    sum += laplacian;
+                    sumSquared += laplacian * laplacian;
+                    count++;
+                } catch (Exception e) {
+                    continue;
+                }
             }
         }
 
@@ -268,6 +329,12 @@ public class FaceQualityAnalyzer {
         double mean = sum / count;
         double variance = (sumSquared / count) - (mean * mean);
         return (float) Math.max(0, variance);
+    }
+
+    private int getGrayValueFast(int pixel) {
+        return (((pixel >> 16) & 0xff) * 77 +
+                ((pixel >> 8) & 0xff) * 151 +
+                (pixel & 0xff) * 28) >> 8;
     }
 
     private int getGrayValue(int pixel) {
@@ -290,10 +357,10 @@ public class FaceQualityAnalyzer {
     }
 
     private float calculateOverallQuality(QualityMetrics metrics) {
-        return metrics.faceSizeScore * 0.25f +
-                metrics.poseScore * 0.25f +
-                metrics.eyeOpennessScore * 0.15f +
-                metrics.brightnessScore * 0.15f +
+        return metrics.faceSizeScore * 0.30f +
+                metrics.poseScore * 0.20f +
+                metrics.eyeOpennessScore * 0.10f +
+                metrics.brightnessScore * 0.20f +
                 metrics.sharpnessScore * 0.15f +
                 metrics.landmarkScore * 0.05f;
     }
@@ -301,7 +368,7 @@ public class FaceQualityAnalyzer {
     private Bitmap extractFaceForProcessing(Bitmap original, Face face) {
         Rect bounds = face.getBoundingBox();
 
-        int expansion = (int) (Math.min(bounds.width(), bounds.height()) * 0.2f);
+        int expansion = (int) (Math.min(bounds.width(), bounds.height()) * 0.1f);
         Rect expandedBounds = new Rect(
                 Math.max(0, bounds.left - expansion),
                 Math.max(0, bounds.top - expansion),
@@ -310,12 +377,25 @@ public class FaceQualityAnalyzer {
         );
 
         try {
-            return Bitmap.createBitmap(original,
+            Bitmap extracted = Bitmap.createBitmap(original,
                     expandedBounds.left, expandedBounds.top,
                     expandedBounds.width(), expandedBounds.height());
+
+            if (extracted.getWidth() > 300 || extracted.getHeight() > 300) {
+                int maxDim = Math.max(extracted.getWidth(), extracted.getHeight());
+                float scale = 300f / maxDim;
+                int newWidth = (int) (extracted.getWidth() * scale);
+                int newHeight = (int) (extracted.getHeight() * scale);
+
+                Bitmap scaled = Bitmap.createScaledBitmap(extracted, newWidth, newHeight, false);
+                extracted.recycle();
+                return scaled;
+            }
+
+            return extracted;
         } catch (Exception e) {
             Log.e(TAG, "Error extracting face region", e);
-            return original;
+            return null;
         }
     }
 
@@ -355,11 +435,11 @@ public class FaceQualityAnalyzer {
         float yaw = Math.abs(pose[1]);
         float roll = Math.abs(pose[2]);
 
-        if (yaw < 10 && pitch < 10 && roll < 10) {
+        if (yaw < 15 && pitch < 15 && roll < 20) {
             return "frontal";
-        } else if (yaw > 15) {
+        } else if (yaw > 25) {
             return pose[1] > 0 ? "right_profile" : "left_profile";
-        } else if (yaw > 5) {
+        } else if (yaw > 10) {
             return pose[1] > 0 ? "slight_right" : "slight_left";
         } else {
             return "frontal";

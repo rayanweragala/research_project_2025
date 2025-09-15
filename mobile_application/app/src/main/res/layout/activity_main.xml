@@ -46,29 +46,29 @@
             android:padding="12dp">
 
         <ImageView
-                android:id="@+id/voiceStatusIcon"
+                android:id="@+id/navigationStatusIcon"
                 android:layout_width="20dp"
                 android:layout_height="20dp"
-                android:src="@drawable/ic_mic"
+                android:src="@drawable/ic_navigation_24dp"
                 android:layout_marginEnd="8dp"
-                android:contentDescription="@string/voice_status_indicator_desc"
-                app:tint="@color/accent_text" />
+                android:contentDescription="@string/navigation_status_indicator_desc"
+                app:tint="@color/status_idle" />
 
         <TextView
-                android:id="@+id/statusText"
+                android:id="@+id/navigationStatusText"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="@string/ready_status"
+                android:text="@string/navigation_ready_status"
                 android:textColor="@color/primary_text"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
         <View
-                android:id="@+id/statusIndicator"
+                android:id="@+id/navigationIndicator"
                 android:layout_width="8dp"
                 android:layout_height="8dp"
-                android:background="@drawable/recording_dot"
+                android:background="@drawable/navigation_active_dot"
                 android:layout_marginStart="8dp" />
 
     </LinearLayout>
@@ -85,7 +85,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-        <!-- Stop Smart Glasses Button - Prominent placement -->
         <Button
                 android:id="@+id/btnStopSmartGlasses"
                 android:layout_width="match_parent"
