@@ -20,15 +20,19 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.app.NotificationManagerCompat;
 
+// STT Service imports
+import com.research.blindassistant.STTService;
+import com.research.blindassistant.STTServiceManager;
+
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Locale;
 
 import static com.research.blindassistant.StringResources.Main;
 
-public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener,RecognitionListener {
+public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener, RecognitionListener, STTServiceManager.STTManagerCallback {
 
-    private Button btnPeopleRecognition,btnVoiceCommand,btnNavigation,btnSettings, btnStopSmartGlasses;
+    private Button btnPeopleRecognition, btnVoiceCommand, btnNavigation, btnSettings, btnStopSmartGlasses;
     private TextView statusText;
     private TextToSpeech ttsEngine;
     private SpeechRecognizer speechRecognizer;
@@ -37,11 +41,96 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private static final int PERMISSION_REQUEST_RECORD_AUDIO = 1;
     private static final int PERMISSION_REQUEST_NOTIFICATIONS = 2;
 
+    // STT Service components
+    private STTServiceManager sttManager;
+    private boolean useCustomSTT = true; // Flag to switch between custom STT and Android STT
+    private boolean sttServiceReady = false;
+
     private void loadSavedLanguagePreference() {
-        String langCode = getSharedPreferences("blind_assistant_prefs",MODE_PRIVATE)
+        String langCode = getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
                 .getString("selected_language", "en");
         Locale savedLocale = langCode.equals("si") ? StringResources.LOCALE_SINHALA : StringResources.LOCALE_ENGLISH;
         StringResources.setLocale(savedLocale);
+    }
+
+    private void initializeSTTService() {
+        // Initialize STT Service Manager
+        sttManager = new STTServiceManager(this);
+        sttManager.setManagerCallback(this);
+
+        // Check if we should use custom STT
+        useCustomSTT = getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                .getBoolean("use_custom_stt", true);
+
+        if (useCustomSTT) {
+            Log.d("MainActivity", "Initializing custom STT service...");
+            sttManager.bindService();
+
+            // Configure Raspberry Pi server
+            String piServerIP = getSharedPreferences("stt_prefs", MODE_PRIVATE)
+                    .getString("pi_server_ip", "192.168.1.100");
+            String piServerPort = getSharedPreferences("stt_prefs", MODE_PRIVATE)
+                    .getString("pi_server_port", "5002");
+
+            Log.d("MainActivity", "STT Server configured: " + piServerIP + ":" + piServerPort);
+        } else {
+            Log.d("MainActivity", "Using Android built-in STT");
+            setupVoiceRecognition();
+        }
+    }
+
+    @Override
+    public void onServiceConnected() {
+        Log.d("MainActivity", "STT Service connected successfully");
+        sttServiceReady = true;
+
+        // Configure the server
+        String piServerIP = getSharedPreferences("stt_prefs", MODE_PRIVATE)
+                .getString("pi_server_ip", "192.168.1.100");
+        String piServerPort = getSharedPreferences("stt_prefs", MODE_PRIVATE)
+                .getString("pi_server_port", "5002");
+
+        sttManager.setServerConfig(piServerIP, piServerPort);
+
+        // Test connection to server
+        sttManager.testConnection(new STTService.STTCallback() {
+            @Override
+            public void onTranscriptionSuccess(String transcription, STTService.TranscriptionInfo info) {
+                Log.d("MainActivity", "STT Server connection successful: " + transcription);
+                updateStatus("STT server connected");
+                speak("Custom STT server ready", StringResources.getCurrentLocale());
+            }
+
+            @Override
+            public void onTranscriptionError(String error) {
+                Log.w("MainActivity", "STT Server connection failed: " + error);
+                updateStatus("STT server connection failed, using fallback");
+                // Fallback to Android STT
+                useCustomSTT = false;
+                setupVoiceRecognition();
+            }
+
+            @Override
+            public void onServerHealthCheck(boolean isHealthy, STTService.ServerStatus status) {
+                if (isHealthy && status != null) {
+                    Log.d("MainActivity", "STT Server healthy - Model: " + status.modelType +
+                            ", Accuracy: " + status.avgAccuracy + "%");
+                }
+            }
+        });
+    }
+
+    @Override
+    public void onServiceDisconnected() {
+        Log.d("MainActivity", "STT Service disconnected");
+        sttServiceReady = false;
+
+        // Fallback to Android STT
+        if (useCustomSTT) {
+            Log.d("MainActivity", "Falling back to Android STT due to service disconnection");
+            useCustomSTT = false;
+            setupVoiceRecognition();
+        }
     }
 
     private void updateSpeechRecognitionLanguage() {
@@ -55,7 +144,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
         speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
 
         if (currentLocale.equals(StringResources.LOCALE_SINHALA)) {
@@ -77,7 +166,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         ttsEngine = new TextToSpeech(this, this);
         initializeComponents();
-        setupVoiceRecognition();
+
+        // Initialize STT Service first
+        initializeSTTService();
+
         setupButtons();
         addHapticFeedback();
 
@@ -85,6 +177,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         ensureForegroundMonitoring();
     }
+
     private void initializeComponents() {
         btnPeopleRecognition = findViewById(R.id.btnPeopleRecognition);
         btnVoiceCommand = findViewById(R.id.btnVoiceCommand);
@@ -95,7 +188,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void setupVoiceRecognition() {
-
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
@@ -118,7 +210,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
 
             updateSpeechRecognitionLanguage();
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
         } catch (Exception e) {
             Log.e("MainActivity", "Error initializing speech recognizer: " + e.getMessage());
             updateStatus("Error initializing speech recognition");
@@ -151,16 +243,15 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             Log.e("MainActivity", "Failed to start monitoring service", e);
         }
     }
+
     private void setupButtons() {
         btnPeopleRecognition.setOnClickListener(v -> {
             speak(StringResources.getString(Main.FACE_RECOGNITION_STARTING), StringResources.getCurrentLocale());
             updateStatus("Opening face recognition...");
             new android.os.Handler().postDelayed(() -> {
                 startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
-            },1500);
+            }, 1500);
         });
-
-
 
         btnVoiceCommand.setOnClickListener(v -> {
             toggleVoiceListening();
@@ -170,7 +261,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             stopListening();
             speak(StringResources.getString(Main.NAVIGATION_STARTING), StringResources.getCurrentLocale());
             updateStatus("Loading navigation...");
-
         });
 
         btnSettings.setOnClickListener(v -> {
@@ -182,15 +272,15 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             }, 1500);
         });
 
-        btnStopSmartGlasses.setOnClickListener(v->{
+        btnStopSmartGlasses.setOnClickListener(v -> {
             stopSmartGlasses();
         });
     }
 
     private void addHapticFeedback() {
-        View [] buttons = {btnPeopleRecognition,btnVoiceCommand,btnNavigation,btnSettings};
-        for(View button:buttons) {
-            button.setOnLongClickListener(v->{
+        View[] buttons = {btnPeopleRecognition, btnVoiceCommand, btnNavigation, btnSettings};
+        for (View button : buttons) {
+            button.setOnLongClickListener(v -> {
                 v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                 String buttonText = ((Button) v).getText().toString();
                 speak(String.format(StringResources.getString(Main.BUTTON_TAP_ACTIVATE), buttonText), StringResources.LOCALE_SINHALA);
@@ -200,60 +290,162 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void toggleVoiceListening() {
-        if(isListening){
+        if (isListening) {
             stopListening();
         } else {
             startListening();
         }
     }
 
-    private void startListening(){
-        if(!isListening){
-            if (speechRecognizer == null) {
-                Log.e("MainActivity", "Speech recognizer is null, reinitializing...");
-                recreaeSpeechRecognizer();
-                if (speechRecognizer == null) {
-                    updateStatus("Speech recognition not available");
-                    speak("Speech recognition is not available", StringResources.getCurrentLocale());
-                    return;
-                }
-            }
-
-            if(ttsEngine == null && ttsEngine.isSpeaking()){
-                Log.d("MainActivity", "TTS is speaking, waiting before starting recognition");
-                new Handler().postDelayed(this::startListening, 1000);
-                return;
-            }
-
-            try {
-                isListening = true;
-                updateStatus("Voice assistant active");
-                speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
-                new Handler().postDelayed(() -> {
-                    if (isListening && speechRecognizer != null) {
-                        try {
-                            updateSpeechRecognitionLanguage();
-                            speechRecognizer.startListening(speechRecognizerIntent);
-                            btnVoiceCommand.setText("Stop listening");
-                            btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
-                            updateStatus("Ready for voice command");
-                        } catch (Exception e) {
-                            Log.e("MainActivity", "Error in delayed start: " + e.getMessage());
-                            isListening = false;
-                            recreaeSpeechRecognizer();
-                        }
-                    }
-                }, 2000);
-            } catch (Exception e) {
-                Log.e("MainActivity", "Error starting speech recognition: " + e.getMessage());
-                isListening = false;
-                updateStatus("Error starting speech recognition");
-                speak("Error starting speech recognition", StringResources.getCurrentLocale());
+    private void startListening() {
+        if (!isListening) {
+            if (useCustomSTT && sttServiceReady) {
+                startCustomSTTListening();
+            } else {
+                startAndroidSTTListening();
             }
         }
     }
 
+    private void startCustomSTTListening() {
+        Log.d("MainActivity", "Starting custom STT listening via Raspberry Pi server...");
+
+        isListening = true;
+        updateStatus("Starting custom STT recording...");
+        speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
+
+        new Handler().postDelayed(() -> {
+            if (isListening && sttServiceReady) {
+                sttManager.startRecording(new STTService.STTCallback() {
+                    @Override
+                    public void onTranscriptionSuccess(String transcription, STTService.TranscriptionInfo info) {
+                        Log.d("MainActivity", "Custom STT recording started: " + transcription);
+                        btnVoiceCommand.setText("Stop listening");
+                        btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
+                        updateStatus("Custom STT listening...");
+
+                        // Auto-stop after 5 seconds for demo
+                        new Handler().postDelayed(() -> {
+                            if (isListening) {
+                                stopCustomSTTListening();
+                            }
+                        }, 5000);
+                    }
+
+                    @Override
+                    public void onTranscriptionError(String error) {
+                        Log.e("MainActivity", "Custom STT start error: " + error);
+                        isListening = false;
+                        updateStatus("Custom STT start failed, using fallback");
+                        // Fallback to Android STT
+                        useCustomSTT = false;
+                        startAndroidSTTListening();
+                    }
+
+                    @Override
+                    public void onServerHealthCheck(boolean isHealthy, STTService.ServerStatus status) {
+                        // Not used in start recording
+                    }
+                });
+            }
+        }, 2000);
+    }
+
+    private void stopCustomSTTListening() {
+        if (isListening && useCustomSTT && sttServiceReady) {
+            Log.d("MainActivity", "Stopping custom STT recording...");
+
+            sttManager.stopRecording(new STTService.STTCallback() {
+                @Override
+                public void onTranscriptionSuccess(String transcription, STTService.TranscriptionInfo info) {
+                    Log.d("MainActivity", "Custom STT transcription received: " + transcription);
+                    isListening = false;
+                    btnVoiceCommand.setText("Voice Assistant");
+                    btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
+                    updateStatus("Custom STT processing complete");
+
+                    if (transcription != null && !transcription.trim().isEmpty()) {
+                        processVoiceCommand(transcription);
+                    } else {
+                        speak("No speech detected by custom STT", StringResources.getCurrentLocale());
+                    }
+                }
+
+                @Override
+                public void onTranscriptionError(String error) {
+                    Log.e("MainActivity", "Custom STT stop error: " + error);
+                    isListening = false;
+                    btnVoiceCommand.setText("Voice Assistant");
+                    btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
+                    updateStatus("Custom STT error");
+                    speak("Custom STT processing failed", StringResources.getCurrentLocale());
+                }
+
+                @Override
+                public void onServerHealthCheck(boolean isHealthy, STTService.ServerStatus status) {
+                    // Not used in stop recording
+                }
+            });
+        }
+    }
+
+    private void startAndroidSTTListening() {
+        Log.d("MainActivity", "Starting Android built-in STT...");
+
+        if (speechRecognizer == null) {
+            Log.e("MainActivity", "Speech recognizer is null, reinitializing...");
+            recreaeSpeechRecognizer();
+            if (speechRecognizer == null) {
+                updateStatus("Speech recognition not available");
+                speak("Speech recognition is not available", StringResources.getCurrentLocale());
+                return;
+            }
+        }
+
+        if (ttsEngine != null && ttsEngine.isSpeaking()) {
+            Log.d("MainActivity", "TTS is speaking, waiting before starting recognition");
+            new Handler().postDelayed(this::startAndroidSTTListening, 1000);
+            return;
+        }
+
+        try {
+            isListening = true;
+            updateStatus("Voice assistant listening...");
+            speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
+            new Handler().postDelayed(() -> {
+                if (isListening && speechRecognizer != null) {
+                    try {
+                        updateSpeechRecognitionLanguage();
+                        speechRecognizer.startListening(speechRecognizerIntent);
+                        btnVoiceCommand.setText("Stop listening");
+                        btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
+                        updateStatus("Android STT listening...");
+                    } catch (Exception e) {
+                        Log.e("MainActivity", "Error in delayed start: " + e.getMessage());
+                        isListening = false;
+                        recreaeSpeechRecognizer();
+                    }
+                }
+            }, 2000);
+        } catch (Exception e) {
+            Log.e("MainActivity", "Error starting speech recognition: " + e.getMessage());
+            isListening = false;
+            updateStatus("Error starting speech recognition");
+            speak("Error starting speech recognition", StringResources.getCurrentLocale());
+        }
+    }
+
     private void stopListening() {
+        if (isListening) {
+            if (useCustomSTT && sttServiceReady) {
+                stopCustomSTTListening();
+            } else {
+                stopAndroidSTTListening();
+            }
+        }
+    }
+
+    private void stopAndroidSTTListening() {
         if (isListening) {
             isListening = false;
             try {
@@ -270,9 +462,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
     }
 
-    private void processVoiceCommand(String command){
+    private void processVoiceCommand(String command) {
         String lowerCommand = command.toLowerCase().trim();
-        Log.d("VoiceCommand", "Received command: " + command);
+        Log.d("VoiceCommand", "Received command: " + command + " (via " +
+                (useCustomSTT ? "Custom STT" : "Android STT") + ")");
 
         double faceMatchScore = calculateSimilarity(lowerCommand, "muhuna");
         double navMatchScore = calculateSimilarity(lowerCommand, "sanchalanaya");
@@ -284,8 +477,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         Log.d("VoiceCommand", "Settings match score: " + settingsMatchScore);
         Log.d("VoiceCommand", "Paper match score: " + paperMatchScore);
 
-
-        if(lowerCommand.equals("face") || lowerCommand.contains("people") ||
+        if (lowerCommand.equals("face") || lowerCommand.contains("people") ||
                 lowerCommand.contains("recognition") || lowerCommand.contains("recognize") ||
                 lowerCommand.contains("muhuna") || lowerCommand.contains("muhuṇa") ||
                 lowerCommand.contains("mohana") || lowerCommand.contains("mohuna") ||
@@ -294,50 +486,48 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 lowerCommand.startsWith("muh") || lowerCommand.startsWith("moh")) {
             stopListening();
             speak(StringResources.getString(Main.OPENING_FACE_RECOGNITION), StringResources.getCurrentLocale());
-            startActivity(new Intent(this,EnhancedFaceRecognitionActivity.class));
+            startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
 
-        } else if(lowerCommand.contains("navigation") || lowerCommand.contains("navigate") ||
+        } else if (lowerCommand.contains("navigation") || lowerCommand.contains("navigate") ||
                 lowerCommand.contains("sanchalanaya") || lowerCommand.contains("සංචාලනය") ||
                 lowerCommand.contains("sanchalan") || lowerCommand.contains("direction")) {
             stopListening();
             speak(StringResources.getString(Main.OPENING_NAVIGATION), StringResources.getCurrentLocale());
 
-        } else if(lowerCommand.contains("paper") || lowerCommand.contains("news") ||
+        } else if (lowerCommand.contains("paper") || lowerCommand.contains("news") ||
                 lowerCommand.contains("newspaper") || lowerCommand.contains("puwathpatha") ||
                 lowerCommand.contains("පුවත්පත") || lowerCommand.contains("puwath") ||
                 lowerCommand.contains("නිව්ස්") || lowerCommand.contains("news reading")) {
             stopListening();
             speak(StringResources.getString(Main.OPENING_PAPER), StringResources.getCurrentLocale());
-            // startActivity(new Intent(this, PaperReadingActivity.class)); // Uncomment when activity is ready
 
-        } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting") ||
+        } else if (lowerCommand.contains("settings") || lowerCommand.contains("setting") ||
                 lowerCommand.contains("sakesum") || lowerCommand.contains("සැකසුම්") ||
                 lowerCommand.contains("sakasuma") || lowerCommand.contains("config")) {
             stopListening();
             speak(StringResources.getString(Main.SETTINGS_OPENING), StringResources.getCurrentLocale());
             startActivity(new Intent(this, SettingsActivity.class));
 
-        } else if(lowerCommand.contains("stop") || lowerCommand.contains("exit") ||
+        } else if (lowerCommand.contains("stop") || lowerCommand.contains("exit") ||
                 lowerCommand.contains("navattanna") || lowerCommand.contains("නවත්වන්න") ||
                 lowerCommand.contains("navatta") || lowerCommand.contains("thamba")) {
 
             speak(StringResources.getString(Main.STOPPING_VOICE_COMMANDS), StringResources.getCurrentLocale());
             stopListening();
 
-        } else if(lowerCommand.contains("stop") || lowerCommand.contains("shutdown") || lowerCommand.contains("turn off")
+        } else if (lowerCommand.contains("stop") || lowerCommand.contains("shutdown") || lowerCommand.contains("turn off")
                 || lowerCommand.contains("stop smart glasses")) {
             stopListening();
             stopSmartGlasses();
-        }else {
+        } else {
             Log.d("VoiceCommand", "Command not recognized: " + command);
-            speak("Command not recognized. You said: " + command, StringResources.getCurrentLocale());
-
+            speak("Command not recognized", StringResources.getCurrentLocale());
             speak("Try saying: face, navigation, paper, settings, or stop", StringResources.getCurrentLocale());
         }
     }
 
-    private void stopSmartGlasses(){
-        speak("Stopping smart glasses...",StringResources.getCurrentLocale());
+    private void stopSmartGlasses() {
+        speak("Stopping smart glasses...", StringResources.getCurrentLocale());
         updateStatus("Stopping smart glasses...");
 
         Intent stopIntent = new Intent(this, SmartGlassesForegroundService.class);
@@ -367,17 +557,18 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         for (int i = 1; i <= s1.length(); i++) {
             for (int j = 1; j <= s2.length(); j++) {
-                int cost = (s1.charAt(i-1) == s2.charAt(j-1)) ? 0 : 1;
+                int cost = (s1.charAt(i - 1) == s2.charAt(j - 1)) ? 0 : 1;
                 dp[i][j] = Math.min(Math.min(
-                                dp[i-1][j] + 1,
-                                dp[i][j-1] + 1),
-                        dp[i-1][j-1] + cost
+                                dp[i - 1][j] + 1,
+                                dp[i][j - 1] + 1),
+                        dp[i - 1][j - 1] + cost
                 );
             }
         }
 
         return dp[s1.length()][s2.length()];
     }
+
     private void updateStatus(String message) {
         statusText.setText(message);
         statusText.setContentDescription(message);
@@ -389,7 +580,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void speak(String text, Locale locale) {
         if (ttsEngine != null) {
-            if (isListening && speechRecognizer != null) {
+            if (isListening && speechRecognizer != null && !useCustomSTT) {
                 try {
                     speechRecognizer.stopListening();
                 } catch (Exception e) {
@@ -410,179 +601,188 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
     }
 
+    // Android STT Recognition Listener methods (only used when useCustomSTT = false)
     @Override
     public void onReadyForSpeech(Bundle params) {
-        updateStatus("Ready for voice input");
+        if (!useCustomSTT) {
+            // Status update removed - no speech text display
+        }
     }
 
     @Override
-    public void onBeginningOfSpeech(){
-        updateStatus("Voice detected");
+    public void onBeginningOfSpeech() {
+        if (!useCustomSTT) {
+            // Status update removed - no speech text display
+        }
     }
 
     @Override
     public void onRmsChanged(float rmsdB) {
-
     }
 
     @Override
-    public void onBufferReceived(byte[] buffer) {}
+    public void onBufferReceived(byte[] buffer) {
+    }
 
     @Override
     public void onEndOfSpeech() {
-        updateStatus("Processing...");
+        if (!useCustomSTT) {
+            // Status update removed - no speech text display
+        }
     }
 
     @Override
     public void onError(int error) {
-        String errorMessage;
-        Log.e("MainActivity", "Speech recognition error: " + error);
-        boolean shouldRecreateRecognizer = false;
-        switch (error) {
-            case SpeechRecognizer.ERROR_AUDIO:
-                errorMessage = StringResources.getString(Main.ERROR_AUDIO);
-                shouldRecreateRecognizer = true;
-                Log.e("MainActivity", "Audio recording error");
-                break;
-            case SpeechRecognizer.ERROR_CLIENT:
-                errorMessage = StringResources.getString(Main.ERROR_CLIENT);
-                Log.e("MainActivity", "Client side error");
-                shouldRecreateRecognizer = true;
-                break;
-            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
-                errorMessage = StringResources.getString(Main.ERROR_INSUFFICIENT_PERMISSIONS);
-                Log.e("MainActivity", "Insufficient permissions");
-                break;
-            case SpeechRecognizer.ERROR_NETWORK:
-                errorMessage = StringResources.getString(Main.ERROR_NETWORK);
-                Log.e("MainActivity", "Network error");
-                break;
-            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
-                errorMessage = StringResources.getString(Main.ERROR_NETWORK_TIMEOUT);
-                Log.e("MainActivity", "Network timeout");
-                break;
-            case SpeechRecognizer.ERROR_NO_MATCH:
-                errorMessage = StringResources.getString(Main.ERROR_NO_MATCH);
-                Log.d("MainActivity", "No speech match found");
-                restartListening();
-                break;
-            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                errorMessage = StringResources.getString(Main.ERROR_RECOGNIZER_BUSY);
-                Log.e("MainActivity", "Speech recognizer busy");
-                break;
-            case SpeechRecognizer.ERROR_SERVER:
-                errorMessage = StringResources.getString(Main.ERROR_SERVER);
-                Log.e("MainActivity", "Server error");
-                break;
-            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
-                errorMessage = StringResources.getString(Main.ERROR_SPEECH_TIMEOUT);
-                Log.d("MainActivity", "Speech timeout");
-                restartListening();
-                break;
-            default:
-                errorMessage = "Speech recognition error: " + error;
-                Log.e("MainActivity", "Unknown speech recognition error: " + error);
-                break;
-        }
-
-        updateStatus(errorMessage);
-
-        if(error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT){
-            speak(errorMessage);
-        }
-
-        isListening = false;
-        btnVoiceCommand.setText("Voice Assistant");
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
-        }
-
-        if(shouldRecreateRecognizer){
-            new Handler().postDelayed(()->{
-                recreaeSpeechRecognizer();
-                if(speechRecognizer != null){
-                    startListening();
-                }
-            },2000);
-        }else {
-            new Handler().postDelayed(this::restartListening, 1000);
-        }
-
-    }
-
-    public void onResults(Bundle results){
-        ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-        float[] confidenceScores = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
-
-        if(matches != null && !matches.isEmpty()){
-            String recognizedText = matches.get(0);
-            float confidence = 0.0f;
-
-            if(confidenceScores != null && confidenceScores.length > 0) {
-                confidence = confidenceScores[0];
-                Log.d("VoiceCommand", "Confidence: " + confidence);
-
-                if(confidence < 0.5f) {
-                    Log.d("VoiceCommand", "Low confidence, ignoring: " + recognizedText);
-                    updateStatus("Speech unclear, try again");
-                    speak("Please speak more clearly", StringResources.getCurrentLocale());
+        if (!useCustomSTT) {
+            String errorMessage;
+            Log.e("MainActivity", "Speech recognition error: " + error);
+            boolean shouldRecreateRecognizer = false;
+            switch (error) {
+                case SpeechRecognizer.ERROR_AUDIO:
+                    errorMessage = StringResources.getString(Main.ERROR_AUDIO);
+                    shouldRecreateRecognizer = true;
+                    Log.e("MainActivity", "Audio recording error");
+                    break;
+                case SpeechRecognizer.ERROR_CLIENT:
+                    errorMessage = StringResources.getString(Main.ERROR_CLIENT);
+                    Log.e("MainActivity", "Client side error");
+                    shouldRecreateRecognizer = true;
+                    break;
+                case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
+                    errorMessage = StringResources.getString(Main.ERROR_INSUFFICIENT_PERMISSIONS);
+                    Log.e("MainActivity", "Insufficient permissions");
+                    break;
+                case SpeechRecognizer.ERROR_NETWORK:
+                    errorMessage = StringResources.getString(Main.ERROR_NETWORK);
+                    Log.e("MainActivity", "Network error");
+                    break;
+                case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
+                    errorMessage = StringResources.getString(Main.ERROR_NETWORK_TIMEOUT);
+                    Log.e("MainActivity", "Network timeout");
+                    break;
+                case SpeechRecognizer.ERROR_NO_MATCH:
+                    errorMessage = StringResources.getString(Main.ERROR_NO_MATCH);
+                    Log.d("MainActivity", "No speech match found");
                     restartListening();
-                    return;
-                }
+                    break;
+                case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
+                    errorMessage = StringResources.getString(Main.ERROR_RECOGNIZER_BUSY);
+                    Log.e("MainActivity", "Speech recognizer busy");
+                    break;
+                case SpeechRecognizer.ERROR_SERVER:
+                    errorMessage = StringResources.getString(Main.ERROR_SERVER);
+                    Log.e("MainActivity", "Server error");
+                    break;
+                case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
+                    errorMessage = StringResources.getString(Main.ERROR_SPEECH_TIMEOUT);
+                    Log.d("MainActivity", "Speech timeout");
+                    restartListening();
+                    break;
+                default:
+                    errorMessage = "Speech recognition error: " + error;
+                    Log.e("MainActivity", "Unknown speech recognition error: " + error);
+                    break;
             }
 
-            Log.d("VoiceCommand", "Processing: " + recognizedText + " (confidence: " + confidence + ")");
-            updateStatus("Processing command...");
-            processVoiceCommand(recognizedText);
-        }
+            // Only update status for serious errors, not for no match or timeout
+            if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                updateStatus(errorMessage);
+                speak(errorMessage);
+            }
 
-        restartListening();
+            isListening = false;
+            btnVoiceCommand.setText("Voice Assistant");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
+            }
+
+            if (shouldRecreateRecognizer) {
+                new Handler().postDelayed(() -> {
+                    recreaeSpeechRecognizer();
+                    if (speechRecognizer != null) {
+                        startListening();
+                    }
+                }, 2000);
+            } else {
+                new Handler().postDelayed(this::restartListening, 1000);
+            }
+        }
+    }
+
+    public void onResults(Bundle results) {
+        if (!useCustomSTT) {
+            ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+            float[] confidenceScores = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
+
+            if (matches != null && !matches.isEmpty()) {
+                String recognizedText = matches.get(0);
+                float confidence = 0.0f;
+
+                if (confidenceScores != null && confidenceScores.length > 0) {
+                    confidence = confidenceScores[0];
+                    Log.d("VoiceCommand", "Confidence: " + confidence);
+
+                    if (confidence < 0.5f) {
+                        Log.d("VoiceCommand", "Low confidence, ignoring: " + recognizedText);
+                        updateStatus("Speech unclear, try again");
+                        speak("Please speak more clearly", StringResources.getCurrentLocale());
+                        restartListening();
+                        return;
+                    }
+                }
+
+                Log.d("VoiceCommand", "Processing Android STT: " + recognizedText + " (confidence: " + confidence + ")");
+                updateStatus("Processing...");
+                processVoiceCommand(recognizedText);
+            }
+
+            restartListening();
+        }
     }
 
     private void restartListening() {
-        if(isListening && speechRecognizer != null){
-
-            new Handler().postDelayed(()->{
-                if(isListening){
-                    try{
+        if (isListening && speechRecognizer != null && !useCustomSTT) {
+            new Handler().postDelayed(() -> {
+                if (isListening) {
+                    try {
                         updateSpeechRecognitionLanguage();
                         speechRecognizer.startListening(speechRecognizerIntent);
-                    }catch (Exception e){
+                    } catch (Exception e) {
                         Log.e("MainActivity", "Error restarting speech recognition: " + e.getMessage());
                         recreaeSpeechRecognizer();
                     }
                 }
-            },1000);
+            }, 1000);
         }
     }
 
     private void recreaeSpeechRecognizer() {
         Log.d("MainActivity", "Recreating speech recognizer");
-        if(speechRecognizer != null){
-            try{
+        if (speechRecognizer != null) {
+            try {
                 speechRecognizer.destroy();
-            }catch (Exception e){
+            } catch (Exception e) {
                 Log.e("MainActivity", "Error destroying speech recognizer: " + e.getMessage());
             }
         }
-        try{
+        try {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
             speechRecognizer.setRecognitionListener(this);
             updateSpeechRecognitionLanguage();
-        }catch (Exception e){
+        } catch (Exception e) {
             Log.e("MainActivity", "Error recreating speech recognizer: " + e.getMessage());
             speechRecognizer = null;
         }
     }
 
     @Override
-    public void onPartialResults(Bundle partialResults){
-        // Real-time voice-to-text display removed for privacy
-        // Voice recognition continues to work in background without showing partial text
+    public void onPartialResults(Bundle partialResults) {
+        // Completely removed - no speech-to-text display
     }
 
     @Override
-    public void onEvent(int eventType,Bundle params){}
+    public void onEvent(int eventType, Bundle params) {
+    }
 
     @Override
     public void onInit(int status) {
@@ -594,7 +794,6 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             }
 
             speak(StringResources.getString(Main.ASSISTANT_READY), currentLocale);
-
         }
     }
 
@@ -603,7 +802,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_RECORD_AUDIO) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                setupVoiceRecognition();
+                if (!useCustomSTT) {
+                    setupVoiceRecognition();
+                }
             } else {
                 speak(StringResources.getString(Main.MIC_PERMISSION_REQUIRED), StringResources.LOCALE_SINHALA);
             }
@@ -616,11 +817,20 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        // Cleanup STT Service
+        if (sttManager != null) {
+            sttManager.unbindService();
+        }
+
+        // Cleanup TTS
         if (ttsEngine != null) {
             ttsEngine.stop();
             ttsEngine.shutdown();
         }
-        if(speechRecognizer != null){
+
+        // Cleanup Android STT
+        if (speechRecognizer != null) {
             try {
                 speechRecognizer.stopListening();
                 speechRecognizer.destroy();
@@ -633,7 +843,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     @Override
     protected void onPause() {
         super.onPause();
-        if(isListening){
+        if (isListening) {
             stopListening();
         }
     }
@@ -642,12 +852,76 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     protected void onResume() {
         super.onResume();
         loadSavedLanguagePreference();
-        if(speechRecognizer != null){
+
+        // Update language for Android STT if needed
+        if (speechRecognizer != null && !useCustomSTT) {
             updateSpeechRecognitionLanguage();
         }
+
         try {
             getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
                     .edit().putBoolean("ui_recognition_active", false).apply();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
+    }
+
+    // Method to toggle between Custom STT and Android STT (for demo purposes)
+    public void toggleSTTMode() {
+        useCustomSTT = !useCustomSTT;
+
+        Log.d("MainActivity", "Switched to " + (useCustomSTT ? "Custom STT" : "Android STT"));
+        updateStatus("Using " + (useCustomSTT ? "Custom STT Server" : "Android STT"));
+
+        getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                .edit()
+                .putBoolean("use_custom_stt", useCustomSTT)
+                .apply();
+
+        if (useCustomSTT && !sttServiceReady) {
+            // Re-initialize STT service if needed
+            initializeSTTService();
+        } else if (!useCustomSTT && speechRecognizer == null) {
+            // Re-initialize Android STT if needed
+            setupVoiceRecognition();
+        }
+
+        speak("Switched to " + (useCustomSTT ? "custom STT server" : "Android STT"),
+                StringResources.getCurrentLocale());
+    }
+
+    // Method to check STT service health (for demo purposes)
+    public void checkSTTServiceHealth() {
+        if (useCustomSTT && sttServiceReady) {
+            sttManager.quickHealthCheck(new STTService.STTCallback() {
+                @Override
+                public void onTranscriptionSuccess(String transcription, STTService.TranscriptionInfo info) {
+                    Log.d("MainActivity", "STT Service health check: " + transcription);
+                    speak("STT service is healthy", StringResources.getCurrentLocale());
+                }
+
+                @Override
+                public void onTranscriptionError(String error) {
+                    Log.e("MainActivity", "STT Service health check failed: " + error);
+                    speak("STT service health check failed", StringResources.getCurrentLocale());
+                }
+
+                @Override
+                public void onServerHealthCheck(boolean isHealthy, STTService.ServerStatus status) {
+                    if (isHealthy && status != null) {
+                        Log.d("MainActivity", "STT Server Status - Model: " + status.modelType +
+                                ", Requests: " + status.totalRequests +
+                                ", Success Rate: " + (status.totalRequests > 0 ?
+                                (status.successfulTranscriptions * 100.0 / status.totalRequests) : 0) + "%");
+
+                        speak("STT server is healthy with " + status.modelType + " model",
+                                StringResources.getCurrentLocale());
+                    } else {
+                        speak("STT server health check failed", StringResources.getCurrentLocale());
+                    }
+                }
+            });
+        } else {
+            speak("Custom STT service not available", StringResources.getCurrentLocale());
+        }
     }
 }
