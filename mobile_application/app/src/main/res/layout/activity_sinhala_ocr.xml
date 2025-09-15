@@ -1,0 +1,421 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:padding="16dp"
+              android:background="@color/background_color"
+              tools:context=".SinhalaOCRActivity">
+    
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="8dp"
+            android:id="@+id/headerLayout"
+            android:background="@color/header_background">
+        
+        <FrameLayout
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="12dp">
+            
+            <View
+                    android:id="@+id/statusIndicatorBackground"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/status_indicator_background_disconnected"/>
+            
+            <ImageView
+                    android:id="@+id/statusIndicator"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_document_scanner"
+                    android:contentDescription="@string/smart_glasses_status_desc"
+                    app:tint="@color/status_disconnected"/>
+        
+        </FrameLayout>
+        
+        <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+            
+            <TextView
+                    android:id="@+id/statusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/connecting_smart_glasses"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary_text"
+                    android:contentDescription="@string/current_status_desc" />
+            
+            <TextView
+                    android:id="@+id/statusSubtext"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sinhala_ocr_subtitle"
+                    android:textSize="12sp"
+                    android:textColor="@color/secondary_text"
+                    android:layout_marginTop="2dp" />
+        
+        </LinearLayout>
+        
+        <View
+                android:id="@+id/connectionPulse"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/connection_pulse_indicator"
+                android:visibility="gone" />
+    
+    </LinearLayout>
+    
+    <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_margin="8dp"
+            android:background="@color/camera_background">
+        
+        <ImageView
+                android:id="@+id/cameraFeedView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:contentDescription="@string/smart_glasses_camera_feed_desc"
+                android:background="#f0f0f0" />
+        
+        <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/document_overlay_border" />
+        
+        <LinearLayout
+                android:id="@+id/noFeedMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="visible">
+            
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📄"
+                    android:textSize="48sp"
+                    android:alpha="0.3" />
+            
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/position_document_message"
+                    android:textSize="14sp"
+                    android:textColor="@color/secondary_text"
+                    android:textAlignment="center"
+                    android:alpha="0.7"
+                    android:layout_marginTop="8dp" />
+        
+        </LinearLayout>
+        
+        <!-- Document Detection Overlay -->
+        <LinearLayout
+                android:id="@+id/documentDetectionOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="top|end"
+                android:padding="8dp"
+                android:visibility="gone">
+            
+            <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:background="@drawable/overlay_info_background"
+                    android:padding="6dp"
+                    android:gravity="center_vertical">
+                
+                <ImageView
+                        android:id="@+id/documentQualityIndicator"
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:src="@drawable/ic_document_check"
+                        android:layout_marginEnd="4dp"
+                        app:tint="@color/success_color" />
+                
+                <TextView
+                        android:id="@+id/documentQualityText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/document_detected"
+                        android:textSize="12sp"
+                        android:textColor="@color/overlay_text" />
+            
+            </LinearLayout>
+        
+        </LinearLayout>
+    
+    </FrameLayout>
+    
+    <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="140dp"
+            android:layout_margin="8dp"
+            android:background="@color/results_background"
+            android:padding="8dp">
+        
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+            
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="4dp"
+                    android:gravity="center_vertical">
+                
+                <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/extracted_text_desc"
+                        android:textSize="12sp"
+                        android:textColor="@color/accent_text"
+                        android:textStyle="bold" />
+                
+                <ImageButton
+                        android:id="@+id/speakButton"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_volume_up"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/speak_text_desc"
+                        android:enabled="false"
+                        android:layout_marginEnd="4dp"
+                        app:tint="@color/accent_text" />
+                
+                <ImageButton
+                        android:id="@+id/copyButton"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_copy"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/copy_text_desc"
+                        android:enabled="false"
+                        app:tint="@color/accent_text" />
+            
+            </LinearLayout>
+            
+            <TextView
+                    android:id="@+id/resultsText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ocr_result_placeholder"
+                    android:textSize="14sp"
+                    android:textColor="@color/secondary_text"
+                    android:contentDescription="@string/extracted_text_desc"
+                    android:layout_marginBottom="8dp"
+                    android:lineSpacingExtra="2dp" />
+            
+            <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/divider_color"
+                    android:layout_marginVertical="4dp" />
+            
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/processing_metrics_title"
+                    android:textSize="11sp"
+                    android:textColor="@color/accent_text"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="2dp" />
+            
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:weightSum="3">
+                
+                <TextView
+                        android:id="@+id/confidenceMetric"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/confidence_placeholder"
+                        android:textSize="11sp"
+                        android:textColor="@color/performance_text"
+                        android:fontFamily="monospace"
+                        android:gravity="start" />
+                
+                <TextView
+                        android:id="@+id/processingTimeMetric"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/time_placeholder"
+                        android:textSize="11sp"
+                        android:textColor="@color/performance_text"
+                        android:fontFamily="monospace"
+                        android:gravity="center" />
+                
+                <TextView
+                        android:id="@+id/documentTypeMetric"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/type_placeholder"
+                        android:textSize="11sp"
+                        android:textColor="@color/performance_text"
+                        android:fontFamily="monospace"
+                        android:gravity="end" />
+            
+            </LinearLayout>
+        
+        </LinearLayout>
+    
+    </ScrollView>
+    
+    <TextView
+            android:id="@+id/instructionsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="8dp"
+            android:padding="12dp"
+            android:text="@string/position_document_instruction"
+            android:textSize="14sp"
+            android:textColor="@color/instruction_text"
+            android:background="@color/instruction_background"
+            android:contentDescription="@string/current_instructions_desc"
+            android:drawableStart="@drawable/ic_document_info"
+            android:drawablePadding="8dp"
+            android:gravity="center_vertical" />
+    
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_margin="8dp">
+        
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+            
+            <Button
+                    android:id="@+id/btnStartOCR"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="@string/start_reading"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/button_primary"
+                    android:textColor="@color/button_text_primary"
+                    android:contentDescription="@string/start_ocr_recognition_desc" />
+            
+            <Button
+                    android:id="@+id/btnStopOCR"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="@string/stop_reading"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/button_secondary"
+                    android:textColor="@color/button_text_secondary"
+                    android:visibility="gone"
+                    android:contentDescription="@string/stop_ocr_recognition_desc"
+                    android:drawableTop="@drawable/ic_stop"
+                    android:drawablePadding="4dp" />
+        
+        </LinearLayout>
+        
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+            
+            <Button
+                    android:id="@+id/btnSaveText"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="@string/save_text_btn"
+                    android:textSize="12sp"
+                    android:background="@drawable/button_accent"
+                    android:textColor="@color/button_text_accent"
+                    android:contentDescription="@string/save_extracted_text_desc"
+                    android:drawableStart="@drawable/ic_save"
+                    android:drawablePadding="6dp"
+                    android:gravity="center"
+                    android:enabled="false" />
+            
+            <Button
+                    android:id="@+id/btnBack"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="@string/back_btn"
+                    android:textSize="12sp"
+                    android:background="@drawable/button_neutral"
+                    android:textColor="@color/button_text_neutral"
+                    android:contentDescription="@string/return_to_main_menu_desc"
+                    android:drawableStart="@drawable/ic_arrow_back"
+                    android:drawablePadding="6dp"
+                    android:gravity="center" />
+        
+        </LinearLayout>
+    
+    </LinearLayout>
+    
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/voice_helper_background"
+            android:padding="8dp"
+            android:gravity="center_vertical">
+        
+        <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginEnd="8dp"
+                android:src="@drawable/ic_mic"
+                android:contentDescription="@string/voice_commands_available_desc" />
+        
+        <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/voice_commands_ocr"
+                android:textSize="10sp"
+                android:textColor="@color/voice_helper_text" />
+        
+        <ImageView
+                android:id="@+id/voiceIndicator"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:src="@drawable/voice_listening_indicator"
+                android:contentDescription="@string/voice_listening_indicator_desc"
+                android:visibility="gone" />
+    
+    </LinearLayout>
+
+</LinearLayout>

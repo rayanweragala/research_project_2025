@@ -200,5 +200,7 @@
     <color name="shadow_strong">#33000000</color>
 
     <color name="radio_button_text_selector">@color/radio_text_selected</color>
-
+    
+    <color name="overlay_text">#FFFFFF</color>
+    <color name="success_color">#4CAF50</color>
 </resources>
