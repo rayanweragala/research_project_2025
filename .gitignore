@@ -6,7 +6,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
+whisper-sinhala/
 # === ANDROID & GRADLE ===
 .gradle/
 build/
