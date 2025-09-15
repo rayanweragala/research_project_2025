@@ -24,7 +24,7 @@ import pyaudio
 import threading
 
 # Your model setup
-MODEL_PATH = "../whisper-sinhala/checkpoint-1000"
+MODEL_PATH = "../whisper-sinhala"
 DEVICE = "cpu"
 LANGUAGE = "si"
 
