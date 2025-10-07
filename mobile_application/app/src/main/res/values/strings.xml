@@ -149,4 +149,7 @@
     <string name="settings_back_to_main">Going back to main menu</string>
     <string name="voice_commands_settings">Voice Commands: \'SINHALA\', \'ENGLISH\'</string>
 
+    <string name="navigation_ready_status">GPS Ready</string>
+    <string name="navigation_status_indicator_desc">Navigation status indicator</string>
+
 </resources>

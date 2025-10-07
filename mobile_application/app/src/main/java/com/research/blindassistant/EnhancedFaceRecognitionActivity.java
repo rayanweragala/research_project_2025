@@ -321,8 +321,8 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
         }
     }
 
-    private void requestFrameFromServer() {
 
+    private void requestFrameFromServer() {
         if (!serverCameraActive) {
             Log.w(TAG, "Server camera not active, skipping frame request");
             return;
@@ -335,14 +335,29 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                     try {
                         totalFramesReceived++;
 
-                        if(response.has("error")){
+                        if (response.has("error")) {
                             String errorMsg = response.getString("error");
-                            Log.w(TAG, "Error requesting frame from server: " + errorMsg);
-                            statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
-                                    "Frame Error", errorMsg);
-                            mainHandler.post(() -> {
-                                updateResults("⚠️ " + errorMsg);
-                            });
+                            Log.w(TAG, "Server error in frame response: " + errorMsg);
+
+                            if (errorMsg.contains("Camera not active")) {
+                                serverCameraActive = false;
+                                statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                                        "Camera Inactive", "Smart glasses camera disconnected");
+                                mainHandler.post(() -> {
+                                    updateResults("⚠️ Smart glasses camera disconnected");
+                                });
+                                mainHandler.postDelayed(this::startServerCamera, 2000);
+                            } else if (errorMsg.contains("Failed to capture frame")) {
+                                mainHandler.post(() -> {
+                                    updateResults("⚠️ Frame capture failed - checking connection...");
+                                });
+                            } else {
+                                statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
+                                        "Frame Error", errorMsg);
+                                mainHandler.post(() -> {
+                                    updateResults("⚠️ " + errorMsg);
+                                });
+                            }
                             return;
                         }
 
@@ -351,17 +366,19 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                                     "Recognition Active", "Processing frames...");
                         }
 
-                        String imageBase64 = response.getString("image");
+                        String imageBase64 = response.optString("image", "");
                         boolean serverRecognized = response.optBoolean("recognized", false);
                         String serverMessage = response.optString("message", "Processing...");
                         double serverConfidence = response.optDouble("confidence", 0.0);
                         String recognizedName = response.optString("name", null);
                         String confidenceLevel = response.optString("confidence_level", "unknown");
-                        Double qualityScore = response.optDouble("quality_score",0.0);
-                        Double processingTime = response.optDouble("processing_time",0.0);
+                        double qualityScore = response.optDouble("quality_score", 0.0);
+                        double processingTime = response.optDouble("processing_time", 0.0);
                         String methodUsed = response.optString("method_used", "unknown");
 
-                        displayFrame(imageBase64);
+                        if (!imageBase64.isEmpty()) {
+                            displayFrame(imageBase64);
+                        }
 
                         processServerRecognitionResult(serverRecognized, recognizedName, serverMessage,
                                 serverConfidence, confidenceLevel, qualityScore,
@@ -369,20 +386,47 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
 
                     } catch (JSONException e) {
                         Log.e(TAG, "Error parsing frame response", e);
+                        mainHandler.post(() -> {
+                            updateResults("⚠️ Invalid response from server");
+                        });
                     }
                 },
                 error -> {
                     Log.e(TAG, "Frame request error", error);
+
+                    String errorMessage;
+                    if (error instanceof com.android.volley.TimeoutError) {
+                        errorMessage = "Server response timeout";
+                    } else if (error instanceof com.android.volley.NoConnectionError) {
+                        errorMessage = "No network connection";
+                    } else if (error instanceof com.android.volley.ServerError) {
+                        errorMessage = "Smart glasses server error";
+                    } else if (error instanceof com.android.volley.NetworkError) {
+                        errorMessage = "Network error";
+                    } else {
+                        errorMessage = "Connection issue";
+                    }
+
                     statusManager.updateStatus(StatusManager.ConnectionStatus.ERROR,
-                            "Connection Issue", "Smart glasses feed interrupted");
+                            "Connection Issue", errorMessage);
+
                     if (isRecognizing) {
                         mainHandler.post(() -> {
-                            updateResults("⚠️ Connection to smart glasses interrupted");
+                            updateResults("⚠️ " + errorMessage + " - retrying...");
                         });
+                    }
+
+                    if (error instanceof com.android.volley.ServerError) {
+                        serverCameraActive = false;
+                        mainHandler.postDelayed(() -> {
+                            if (isRecognizing && !serverCameraActive) {
+                                testServerConnection();
+                            }
+                        }, 3000);
                     }
                 });
 
-        request.setRetryPolicy(new DefaultRetryPolicy(3000, 0, 0));
+        request.setRetryPolicy(new DefaultRetryPolicy(2000, 1, 1.0f));
         requestQueue.add(request);
     }
 
@@ -427,7 +471,8 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                     methodUsed);
 
             if (System.currentTimeMillis() - lastRecognitionTime > RECOGNITION_INTERVAL) {
-                speak(name + " identified");
+                Locale currentLocale = StringResources.getCurrentLocale();
+                speak(name, currentLocale);
                 lastRecognitionTime = System.currentTimeMillis();
             }
         } else if(qualityScore > 0.3){
@@ -452,8 +497,8 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
             updateResults(resultMessage);
             updatePerformanceDisplay();
         });
-
     }
+
     private void startVoiceListening() {
         if (!isListening) {
             isListening = true;
@@ -477,17 +522,15 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
             stopRecognition();
         } else if (lowerCommand.contains("add friend") || lowerCommand.contains("register") ||
                 lowerCommand.contains("new face")) {
-            speak("Opening face registration");
+            speak("Opening face registration", StringResources.getCurrentLocale());
             startActivity(new Intent(this, AddFriendActivity.class));
         } else if (lowerCommand.contains("back") || lowerCommand.contains("return")) {
-            speak("Going back to main menu");
+            speak("Going back to main menu", StringResources.getCurrentLocale());
             finish();
-        } else if (lowerCommand.contains("stats") || lowerCommand.contains("performance")) {
-            showPerformanceStats();
         } else if (isRecognizing) {
-            speak("Commands available: stop, add friend, stats, or back");
+            speak("Commands available: stop, add friend, or back", StringResources.getCurrentLocale());
         } else {
-            speak("Commands available: start, add friend, or back");
+            speak("Commands available: start, add friend, or back", StringResources.getCurrentLocale());
         }
     }
 
@@ -536,7 +579,7 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
                 stats.getAvgProcessingTime()
         );
 
-        speak(statsMessage);
+//        speak(statsMessage);
         updateResults("📊 " + statsMessage);
     }
 
@@ -561,8 +604,23 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
 
     private void speak(String text, Locale locale) {
         if (ttsEngine != null) {
-            if (locale != null && locale != ttsEngine.getLanguage()) {
-                ttsEngine.setLanguage(locale);
+            String langCode = getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .getString("selected_language", "en");
+
+            Locale targetLocale;
+            if (locale != null) {
+                targetLocale = locale;
+            } else {
+                targetLocale = langCode.equals("si") ?
+                        StringResources.LOCALE_SINHALA : StringResources.LOCALE_ENGLISH;
+            }
+
+            if (targetLocale != ttsEngine.getLanguage()) {
+                int result = ttsEngine.setLanguage(targetLocale);
+                if (result == TextToSpeech.LANG_MISSING_DATA ||
+                        result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    ttsEngine.setLanguage(Locale.ENGLISH);
+                }
             }
             ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "SMART_GLASSES_UTTERANCE");
         }

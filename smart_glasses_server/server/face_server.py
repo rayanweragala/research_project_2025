@@ -33,17 +33,18 @@ except ImportError:
     print("Picamera2 not available - falling back to OpenCV")
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
-ROOT_DIR = os.path.dirname(BASE_DIR)  
+BASE_DIR = '/opt/research_project'
+TEMPLATES_DIR = '/opt/research_project/templates'
+STATIC_DIR = '/opt/research_project/static'
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(ROOT_DIR, "templates"),
-    static_folder=os.path.join(ROOT_DIR, "static")
+    template_folder=TEMPLATES_DIR,
+    static_folder=STATIC_DIR
 )
 CORS(app)
 
@@ -55,8 +56,8 @@ class EnhancedFaceRecognitionServer:
         self.db_path = "face_database.db"
         self.face_encodings = {}
 
-        self.recognition_threshold = 0.25  
-        self.quality_threshold = 0.20      
+        self.recognition_threshold = 0.35
+        self.quality_threshold = 0.10
         self.min_face_size = 40
         self.max_embeddings_per_person = 20  
 
@@ -423,12 +424,13 @@ class EnhancedFaceRecognitionServer:
             eye_openness_score = self._calculate_eye_openness_score(face)
 
             quality_score = min(1.0, 
-                size_ratio * 0.25 + 
-                blur_score * 0.25 + 
-                lightning_score * 0.20 + 
+                size_ratio * 0.30 +       
+                blur_score * 0.20 +       
+                lightning_score * 0.25 +   
                 angle_score * 0.15 + 
-                symmetry_score * 0.10 + 
-                eye_openness_score * 0.05
+                symmetry_score * 0.05 +    
+                eye_openness_score * 0.05 + 
+                0.15                      
             )
             
             face_info = {
@@ -436,12 +438,13 @@ class EnhancedFaceRecognitionServer:
                 'area_ratio': float(size_ratio),
                 'landmarks': face.kps.tolist() if hasattr(face, 'kps') else None,
                 'quality_breakdown': {
-                    'size': float(size_ratio * 0.25),
-                    'blur': float(blur_score * 0.25),
-                    'lighting': float(lightning_score * 0.20),
+                    'size': float(size_ratio * 0.30),
+                    'blur': float(blur_score * 0.20),
+                    'lighting': float(lightning_score * 0.25),
                     'angle': float(angle_score * 0.15),
-                    'symmetry': float(symmetry_score * 0.10),
-                    'eye_openness': float(eye_openness_score * 0.05)
+                    'symmetry': float(symmetry_score * 0.05),
+                    'eye_openness': float(eye_openness_score * 0.05),
+                    'base_boost': 0.15
                 }
             }
             
@@ -490,7 +493,7 @@ class EnhancedFaceRecognitionServer:
             return 0.5
         
     def _calculate_lightning_score(self, image, bbox):
-        """lighting quality assessment"""
+        """lighting quality assessment - more lenient"""
         try:
             x1, y1, x2, y2 = map(int, bbox)
             face_roi = image[y1:y2, x1:x2]
@@ -499,18 +502,18 @@ class EnhancedFaceRecognitionServer:
             mean_brightness = np.mean(gray_face)
             std_brightness = np.std(gray_face)
             
-            if 80 <= mean_brightness <= 180:
+            if 60 <= mean_brightness <= 200:  
                 brightness_score = 1.0
             else:
-                brightness_score = max(0.2, 1.0 - abs(mean_brightness - 130) / 130)
+                brightness_score = max(0.3, 1.0 - abs(mean_brightness - 130) / 150) 
             
-            contrast_score = min(1.0, std_brightness / 50.0)
+            contrast_score = min(1.0, std_brightness / 40.0)  
             
-            lighting_score = (brightness_score * 0.7 + contrast_score * 0.3)
-            return lighting_score
+            lighting_score = (brightness_score * 0.6 + contrast_score * 0.4) 
+            return max(0.4, lighting_score)  
             
         except:
-            return 0.5
+            return 0.6 
         
     def _calculate_face_angle_score(self, face):
         """face angle assessment"""
@@ -619,136 +622,132 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Fallback face detection error: {e}")
             return None, 0.0, None
 
+    
     def recognize_face_with_averaging(self, image):
-        """recognition with multiple averaging methods"""
+        """Enhanced recognition with better matching"""
         start_time = time.time()
-        self.recognition_stats['total_requests'] += 1
         
         try:
-            if image is None:
-                raise ValueError("Image is None")
-            
-            if len(image.shape) != 3:
-                raise ValueError(f"Invalid image shape: {image.shape}")
-            
-            try:
-                image_hash = hash(image.tobytes()[:1000])
-            except Exception as e:
-                logging.warning(f"Could not create image hash: {e}")
-                image_hash = hash(str(time.time()))
-            
-            cached_result = self.check_cache(image_hash)
-            if cached_result:
-                return cached_result
-            
             encoding, quality, face_info = self.extract_face_encoding(image)
             
             if encoding is None:
-                result = {
+                return {
                     'recognized': False,
                     'name': None,
                     'confidence': 0.0,
                     'message': "No face detected",
+                    'processing_time': float(time.time() - start_time),
+                    'confidence_level': 'unknown',
                     'quality_score': 0.0,
-                    'processing_time': float(time.time() - start_time),
-                    'model_loaded': self.model_loaded,
-                    'method_used': 'none'
+                    'method_used': 'enhanced_matching'
                 }
-                self.cache_result(image_hash, result)
-                return result
             
-            if quality < self.quality_threshold:
-                result = {
-                    'recognized': False,
-                    'name': None,
-                    'confidence': float(quality),
-                    'message': "Face quality too low for recognition",
-                    'quality_score': float(quality),
-                    'processing_time': float(time.time() - start_time),
-                    'face_info': face_info,
-                    'model_loaded': self.model_loaded,
-                    'method_used': 'quality_filter'
-                }
-                self.cache_result(image_hash, result)
-                return result
+            best_match = None
+            best_confidence = 0.0
             
-            best_match, best_confidence, method_used = self._match_with_averaging(encoding, quality)
+            for name, stored_data in self.face_encodings.items():
+                confidences = []
+                
+                for data in stored_data:
+                    stored_encoding = data['encoding']
+                    
+                    cosine_sim = np.dot(encoding, stored_encoding) / (
+                        np.linalg.norm(encoding) * np.linalg.norm(stored_encoding)
+                    )
+                    
+                    euclidean_dist = np.linalg.norm(encoding - stored_encoding)
+                    euclidean_sim = 1.0 / (1.0 + euclidean_dist * 0.3)
+                    
+                    dot_sim = np.dot(encoding, stored_encoding)
+                    
+                    dot_sim = max(0.0, min(1.0, (dot_sim + 1.0) / 2.0))
+                    
+                    combined_similarity = (
+                        cosine_sim * 0.5 + 
+                        euclidean_sim * 0.35 +  
+                        dot_sim * 0.15
+                    )
+                    
+                    combined_similarity = max(0.0, min(1.0, combined_similarity))
+                    
+                    quality_factor = min(1.3, (quality * 1.2 + data['quality'] * 0.8) / 1.5)
+                    
+                    final_confidence = combined_similarity * quality_factor
+                    
+                    final_confidence = max(0.0, min(1.0, final_confidence))
+                    
+                    confidences.append(final_confidence)
+                
+                if confidences:
+                    top_scores = sorted(confidences, reverse=True)[:min(3, len(confidences))]
+                    avg_confidence = sum(top_scores) / len(top_scores)
+                    
+                    good_matches = [c for c in confidences if c > 0.10]  
+                    if len(good_matches) >= 3:
+                        avg_confidence *= 1.1  
+                    elif len(good_matches) >= 3:
+                        avg_confidence *= 1.25
+                    
+                    avg_confidence = max(0.0, min(1.0, avg_confidence))
+                    
+                    if avg_confidence > best_confidence:
+                        best_confidence = avg_confidence
+                        best_match = name
             
-            if best_match and best_confidence > 0.3:
-                self.temporal_results.append({
-                    'name': best_match,
-                    'confidence': best_confidence,
-                    'timestamp': time.time()
-                })
-
-                if len(self.temporal_results) >= 3:
-                    recent_results = [r for r in self.temporal_results if r['name'] == best_match]
-                    if len(recent_results) >= 2:
-                        avg_confidence = statistics.mean([r['confidence'] for r in recent_results])
-                        if avg_confidence > self.confidence_boost_threshold:
-                            best_confidence = min(0.96, avg_confidence * 1.15)
-                            method_used += "_temporal"
-                            self.recognition_stats['temporal_smoothing_applied'] += 1
-
             processing_time = time.time() - start_time
             
-            self._update_daily_stats(best_match, best_confidence, quality, processing_time)
+            confidence_level = self.get_confidence_level(best_confidence)
             
-            if best_confidence > self.recognition_threshold:
-                self.recognition_stats['successful_recognitions'] += 1
-                self.log_recognition(best_match, best_confidence, quality, processing_time, method_used)
+            if best_confidence > 0.40: 
+                self.log_recognition(best_match, best_confidence, quality, processing_time, 'enhanced_matching')
                 
-                result = {
+                return {
                     'recognized': True,
                     'name': best_match,
                     'confidence': float(best_confidence),
-                    'confidence_level': self._get_confidence_level(best_confidence),
                     'message': f"Recognized {best_match}",
-                    'quality_score': float(quality),  
+                    'quality_score': float(quality),
                     'processing_time': float(processing_time),
-                    'face_info': face_info,
-                    'model_loaded': self.model_loaded,
-                    'method_used': method_used
+                    'method_used': 'enhanced_matching',
+                    'confidence_level': confidence_level
                 }
             else:
-                result = {
+                return {
                     'recognized': False,
                     'name': None,
                     'confidence': float(best_confidence),
-                    'confidence_level': self._get_confidence_level(best_confidence),
-                    'message': "Unknown person" if self.model_loaded else "Model not loaded",
+                    'message': "Unknown person",
                     'quality_score': float(quality),
                     'processing_time': float(processing_time),
-                    'face_info': face_info,
-                    'model_loaded': self.model_loaded,
-                    'method_used': method_used
+                    'method_used': 'enhanced_matching',
+                    'confidence_level': confidence_level
                 }
-            
-            total_requests = self.recognition_stats['total_requests']
-            current_avg = self.recognition_stats['avg_processing_time']
-            self.recognition_stats['avg_processing_time'] = (
-                (current_avg * (total_requests - 1) + processing_time) / total_requests
-            )
-            
-            self.cache_result(image_hash, result)
-            return result
-            
+                
         except Exception as e:
-            self.recognition_stats['errors'] += 1
             logging.error(f"Recognition error: {e}")
-            logging.error(f"Traceback: {traceback.format_exc()}")
-            
             return {
                 'recognized': False,
                 'name': None,
                 'confidence': 0.0,
                 'message': f"Error: {str(e)}",
-                'quality_score': 0.0,
                 'processing_time': float(time.time() - start_time),
-                'error': True,
-                'model_loaded': self.model_loaded,
-                'method_used': 'error'
+                'method_used': 'error',
+                'confidence_level': 'unknown',
+                'quality_score': 0.0
             }
+
+    def get_confidence_level(self, confidence):
+        """Determine confidence level based on confidence score (0-1 range)"""
+        if confidence >= 0.85:
+            return 'very_high'
+        elif confidence >= 0.70:
+            return 'high'
+        elif confidence >= 0.50:
+            return 'medium'
+        elif confidence >= 0.25:
+            return 'low'
+        else:
+            return 'very_low'
         
     def frame_to_base64_quality(self, frame, quality=85):
         """Convert frame to base64 string with adjustable quality"""
@@ -824,83 +823,43 @@ class EnhancedFaceRecognitionServer:
                 for data in stored_data:
                     stored_encoding = data['encoding']
                     stored_quality = data['quality']
-                    stored_weight = data['weight']
                     
                     cosine_sim = cosine_similarity([encoding], [stored_encoding])[0][0]
+                    
                     euclidean_dist = np.linalg.norm(encoding - stored_encoding)
-                    euclidean_sim = 1.0 / (1.0 + euclidean_dist)
-                    
-                    quality_factor = (quality + stored_quality) / 2
+                    euclidean_sim = 1.0 / (1.0 + euclidean_dist * 0.5) 
+                
+                    dot_product = np.dot(encoding, stored_encoding)
+
                     combined_similarity = (
-                        cosine_sim * 0.6 + 
-                        euclidean_sim * 0.4
-                    ) * quality_factor
+                    cosine_sim * 0.5 + 
+                    euclidean_sim * 0.3 + 
+                    dot_product * 0.2
+                    )
                     
-                    confidences.append(combined_similarity)
-                    weights.append(stored_weight * stored_quality)
-                    qualities.append(stored_quality)
+                    quality_factor = min(1.2, (quality + stored_quality) / 1.5)
+                    final_similarity = combined_similarity * quality_factor
+                    confidences.append(final_similarity)
+                    weights.append(stored_quality + 0.1) 
                 
                 if not confidences:
-                    continue
-                
-                if self.averaging_methods['outlier_removal'] and len(confidences) > 3:
-                    q1 = np.percentile(confidences, 25)
-                    q3 = np.percentile(confidences, 75)
-                    iqr = q3 - q1
-                    lower_bound = q1 - 1.5 * iqr
-                    upper_bound = q3 + 1.5 * iqr
                     
-                    filtered_confidences = []
-                    filtered_weights = []
+                    top_scores = sorted(confidences, reverse=True)[:min(3, len(confidences))]
+                    final_confidence = sum(top_scores) / len(top_scores)
+                
+                    if len([c for c in confidences if c > 0.15]) >= 2:
+                        final_confidence *= 1.1
+                        method_used = "multi_match_boost"
                     
-                    for i, conf in enumerate(confidences):
-                        if lower_bound <= conf <= upper_bound:
-                            filtered_confidences.append(conf)
-                            filtered_weights.append(weights[i])
-                    
-                    if filtered_confidences:
-                        confidences = filtered_confidences
-                        weights = filtered_weights
-                        method_used = "outlier_removed"
-                        self.recognition_stats['outliers_removed'] += 1
-                
-                if self.averaging_methods['weighted_average'] and len(confidences) > 1:
-                    total_weight = sum(weights)
-                    if total_weight > 0:
-                        final_confidence = sum(c * w for c, w in zip(confidences, weights)) / total_weight
-                        method_used += "_weighted"
-                        self.recognition_stats['weighted_average_applied'] += 1
-                    else:
-                        final_confidence = statistics.mean(confidences)
-                else:
-                    top_scores = sorted(confidences, reverse=True)[:min(5, len(confidences))]
-                    final_confidence = statistics.mean(top_scores)
-                
-                if self.averaging_methods['adaptive_threshold']:
-                    sample_count = len(stored_data)
-                    if sample_count >= 10:
-                        final_confidence *= 1.05
-                        method_used += "_adaptive"
-                        self.recognition_stats['adaptive_threshold_used'] += 1
-                    elif sample_count >= 15:
-                        final_confidence *= 1.10
-                
-                avg_quality = statistics.mean(qualities)
-                if avg_quality > 0.8:
-                    final_confidence *= 1.03
-                
-                if final_confidence > best_confidence:
-                    best_confidence = final_confidence
-                    best_match = name
-            
+                    if final_confidence > best_confidence:
+                        best_confidence = final_confidence
+                        best_match = name
+        
             return best_match, best_confidence, method_used
+                
             
         except ImportError:
-            logging.warning("sklearn not available, using basic similarity")
-            return None, 0.0, "no_sklearn"
-        except Exception as e:
-            logging.error(f"Matching error: {e}")
-            return None, 0.0, "matching_error"
+            return self._basic_matching_fallback(encoding, quality)
 
     def _get_confidence_level(self, confidence):
         """Get confidence level description"""
@@ -1268,22 +1227,13 @@ class EnhancedFaceRecognitionServer:
             return None
 
     def add_person_enhanced(self, name, images_base64):
-        """ person registration with support for 10-15 images and quality analysis"""
+        """Fixed registration - keep high quality images and lower requirements"""
         try:
             if not self.model_loaded:
                 return {
                     'success': False,
-                    'message': 'Face recognition model not loaded. Please check server logs.',
-                    'photos_processed': 0,
-                    'quality_analysis': {}
-                }
-            
-            if len(images_base64) < 5:
-                return {
-                    'success': False,
-                    'message': 'Minimum 5 images required for registration',
-                    'photos_processed': 0,
-                    'quality_analysis': {}
+                    'message': 'Face recognition model not loaded',
+                    'photos_processed': 0
                 }
             
             conn = sqlite3.connect(self.db_path)
@@ -1301,9 +1251,6 @@ class EnhancedFaceRecognitionServer:
             
             successful_encodings = []
             quality_scores = []
-            processing_results = []
-            
-            logging.info(f"Processing {len(images_base64)} images for {name}")
             
             for i, img_base64 in enumerate(images_base64):
                 try:
@@ -1312,87 +1259,35 @@ class EnhancedFaceRecognitionServer:
                     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     
                     if image is None:
-                        logging.warning(f"Could not decode image {i+1} for {name}")
-                        processing_results.append({
-                            'image_index': i+1,
-                            'status': 'decode_failed',
-                            'quality': 0.0,
-                            'message': 'Could not decode image'
-                        })
                         continue
 
                     encoding, quality, face_info = self.extract_face_encoding(image)
                     
-                    processing_results.append({
-                        'image_index': i+1,
-                        'status': 'processed',
-                        'quality': quality,
-                        'face_detected': encoding is not None,
-                        'face_info': face_info,
-                        'message': f"Quality: {quality:.2f}" if encoding is not None else "No face detected"
-                    })
-                    
-                    if encoding is not None and quality > 0.25:
+                    if encoding is not None and quality > 0.20: 
                         successful_encodings.append({
                             'encoding': encoding,
                             'quality': quality,
-                            'weight': quality  
+                            'weight': quality * 1.2 
                         })
                         quality_scores.append(quality)
-                        logging.info(f"Processed image {i+1} for {name}, quality: {quality:.3f}")
-                    else:
-                        if encoding is None:
-                            logging.warning(f"No face detected in image {i+1} for {name}")
-                        else:
-                            logging.warning(f"Poor quality in image {i+1} for {name}: {quality:.3f}")
-                    
+                        logging.info(f"Kept image {i+1} for {name}, quality: {quality:.3f}")
+                        
                 except Exception as e:
-                    logging.error(f"Error processing image {i+1} for {name}: {e}")
-                    processing_results.append({
-                        'image_index': i+1,
-                        'status': 'error',
-                        'quality': 0.0,
-                        'message': f'Processing error: {str(e)}'
-                    })
+                    logging.error(f"Error processing image {i+1}: {e}")
                     continue
             
-            if len(successful_encodings) < 3:
+            if len(successful_encodings) < 2:  
                 conn.rollback()
                 return {
                     'success': False,
-                    'message': f'Insufficient valid images. Got {len(successful_encodings)}, need at least 3',
-                    'photos_processed': len(successful_encodings),
-                    'quality_analysis': {
-                        'total_images': len(images_base64),
-                        'processed_images': len(processing_results),
-                        'valid_images': len(successful_encodings),
-                        'average_quality': float(statistics.mean(quality_scores)) if quality_scores else 0.0,
-                        'quality_distribution': self._analyze_quality_distribution(quality_scores),
-                        'processing_details': processing_results
-                    }
+                    'message': f'Need at least 2 good images. Got {len(successful_encodings)}',
+                    'photos_processed': len(successful_encodings)
                 }
             
-            if len(successful_encodings) > 5:
-                filtered_encodings = self._remove_encoding_outliers(successful_encodings)
-                removed_count = len(successful_encodings) - len(filtered_encodings)
-                
-                if removed_count > 0:
-                    logging.info(f"Removed {removed_count} outlier encodings for {name}")
-                    successful_encodings = filtered_encodings
-            
-            for i, enc_data in enumerate(successful_encodings):
-                similarity_scores = []
-                for j, other_enc_data in enumerate(successful_encodings):
-                    if i != j:
-                        try:
-                            from sklearn.metrics.pairwise import cosine_similarity
-                            sim = cosine_similarity([enc_data['encoding']], [other_enc_data['encoding']])[0][0]
-                            similarity_scores.append(sim)
-                        except:
-                            similarity_scores.append(0.7)  
-                
-                avg_similarity = statistics.mean(similarity_scores) if similarity_scores else 0.7
-                enc_data['weight'] = (enc_data['quality'] * 0.7 + avg_similarity * 0.3)
+            if len(successful_encodings) > 8:
+                successful_encodings.sort(key=lambda x: x['quality'], reverse=True)
+                successful_encodings = successful_encodings[:8]
+                logging.info(f"Kept top 8 images for {name}")
             
             for enc_data in successful_encodings:
                 encoding_blob = enc_data['encoding'].tobytes()
@@ -1401,7 +1296,7 @@ class EnhancedFaceRecognitionServer:
                     VALUES (?, ?, ?, ?)
                 ''', (person_id, encoding_blob, enc_data['quality'], enc_data['weight']))
             
-            avg_quality = statistics.mean([e['quality'] for e in successful_encodings])
+            avg_quality = sum([e['quality'] for e in successful_encodings]) / len(successful_encodings)
             best_quality = max([e['quality'] for e in successful_encodings])
             
             cursor.execute('''
@@ -1411,44 +1306,28 @@ class EnhancedFaceRecognitionServer:
             self.face_encodings[name] = successful_encodings
             
             conn.commit()
+            conn.close()
             
             self.recognition_cache.clear()
             
-            quality_analysis = {
-                'total_images': len(images_base64),
-                'processed_images': len(processing_results),
-                'valid_images': len(successful_encodings),
-                'average_quality': float(avg_quality),
-                'best_quality': float(best_quality),
-                'quality_distribution': self._analyze_quality_distribution(quality_scores),
-                'outliers_removed': len(images_base64) - len(successful_encodings) - sum(1 for r in processing_results if r['status'] != 'processed' or not r.get('face_detected', False)),
-                'processing_details': processing_results,
-                'weight_distribution': {
-                    'min_weight': float(min([e['weight'] for e in successful_encodings])),
-                    'max_weight': float(max([e['weight'] for e in successful_encodings])),
-                    'avg_weight': float(statistics.mean([e['weight'] for e in successful_encodings]))
-                }
-            }
-            
             return {
                 'success': True,
-                'message': f'Successfully registered {name} with processing',
+                'message': f'Successfully registered {name} with {len(successful_encodings)} images',
                 'photos_processed': len(successful_encodings),
-                'quality_analysis': quality_analysis
+                'avg_quality': round(avg_quality * 100, 1),
+                'best_quality': round(best_quality * 100, 1)
             }
-                
+                    
         except Exception as e:
-            conn.rollback()
-            logging.error(f"Error in person registration: {e}")
-            logging.error(f"Traceback: {traceback.format_exc()}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
+            logging.error(f"Registration error: {e}")
             return {
                 'success': False,
                 'message': f'Registration error: {str(e)}',
-                'photos_processed': 0,
-                'quality_analysis': {'error': str(e)}
+                'photos_processed': 0
             }
-        finally:
-            conn.close()
 
     def _analyze_quality_distribution(self, quality_scores):
         """Analyze quality score distribution"""
@@ -1500,6 +1379,97 @@ class EnhancedFaceRecognitionServer:
         except Exception as e:
             logging.error(f"Error removing outliers: {e}")
             return encodings  
+        
+    def get_recognition_logs(self, date=None):
+        """Get recognition logs for a specific date with proper type handling"""
+        if date is None:
+            date = datetime.now().date()
+        
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT person_name, confidence, quality_score, processing_time, 
+                    method_used, confidence_level, timestamp
+                FROM recognition_logs 
+                WHERE DATE(timestamp) = ?
+                ORDER BY timestamp DESC
+            ''', (date,))
+            
+            logs = cursor.fetchall()
+            conn.close()
+            
+            if not logs:
+                return {
+                    'logs': [],
+                    'avg_confidence': 0.0,
+                    'avg_quality': 0.0,
+                    'total_logs': 0
+                }
+            
+            processed_logs = []
+            confidences = []
+            qualities = []
+            
+            for log in logs:
+                try:
+                    person_name = log[0]
+                    if isinstance(person_name, bytes):
+                        person_name = person_name.decode('utf-8', errors='ignore')
+                    
+                    confidence = float(log[1]) if log[1] is not None else 0.0
+                    quality_score = float(log[2]) if log[2] is not None else 0.0
+                    processing_time = float(log[3]) if log[3] is not None else 0.0
+                    
+                    method_used = log[4]
+                    if isinstance(method_used, bytes):
+                        method_used = method_used.decode('utf-8', errors='ignore')
+                    
+                    confidence_level = log[5]
+                    if isinstance(confidence_level, bytes):
+                        confidence_level = confidence_level.decode('utf-8', errors='ignore')
+                    
+                    timestamp = log[6]
+                    
+                    processed_logs.append({
+                        'person_name': person_name,
+                        'confidence': confidence,
+                        'quality_score': quality_score,
+                        'processing_time': processing_time,
+                        'method_used': method_used,
+                        'confidence_level': confidence_level,
+                        'timestamp': timestamp
+                    })
+                    
+                    confidences.append(confidence)
+                    qualities.append(quality_score)
+                    
+                except (ValueError, TypeError, AttributeError) as e:
+                    print(f"Error processing log entry: {e}")
+                    print(f"Raw log data: {log}")
+                    continue
+            
+            avg_confidence = statistics.mean(confidences) if confidences else 0.0
+            avg_quality = statistics.mean(qualities) if qualities else 0.0
+            
+            return {
+                'logs': processed_logs,
+                'avg_confidence': avg_confidence,
+                'avg_quality': avg_quality,
+                'total_logs': len(processed_logs)
+            }
+            
+        except Exception as e:
+            logging.error(f"Error getting recognition logs: {e}")
+            return {
+                'logs': [],
+                'avg_confidence': 0.0,
+                'avg_quality': 0.0,
+                'total_logs': 0,
+                'error': str(e)
+            }
+
 
     def generate_daily_report(self, date=None):
         """Generate comprehensive daily analysis report"""
@@ -1522,8 +1492,15 @@ class EnhancedFaceRecognitionServer:
             if not daily_recognitions:
                 return {
                     'date': str(date),
-                    'summary': 'No recognitions recorded for this date',
-                    'total_recognitions': 0
+                    'summary': {
+                        'total_recognitions': 0,
+                        'unique_people': 0,
+                        'avg_confidence': 0.0,
+                        'avg_quality': 0.0
+                    },
+                    'people_analysis': [],
+                    'confidence_distribution': {},
+                    'performance_insights': ['No recognition data available for this date.']
                 }
             
             people_stats = defaultdict(lambda: {
@@ -1544,48 +1521,81 @@ class EnhancedFaceRecognitionServer:
             hourly_distribution = defaultdict(int)
             
             for name, confidence, quality, proc_time, method, timestamp in daily_recognitions:
-                if name: 
-                    total_recognitions += 1
-                    stats = people_stats[name]
-                    stats['count'] += 1
-                    stats['confidences'].append(confidence)
-                    stats['qualities'].append(quality)
-                    stats['processing_times'].append(proc_time)
-                    stats['methods'].append(method)
-                    
-                    if stats['first_seen'] is None:
-                        stats['first_seen'] = timestamp
-                    stats['last_seen'] = timestamp
-                    
-                    all_confidences.append(confidence)
-                    all_qualities.append(quality)
-                    all_processing_times.append(proc_time)
-                    method_counts[method] += 1
-                    
-                    hour = datetime.fromisoformat(timestamp).hour
-                    hourly_distribution[hour] += 1
+                if name:
+                    try:
+                        if isinstance(name, bytes):
+                            name = name.decode('utf-8', errors='ignore')
+                        
+                        confidence = float(confidence) if confidence is not None else 0.0
+                        quality = float(quality) if quality is not None else 0.0
+                        proc_time = float(proc_time) if proc_time is not None else 0.0
+                        
+                        if isinstance(method, bytes):
+                            method = method.decode('utf-8', errors='ignore')
+                        
+                        total_recognitions += 1
+                        stats = people_stats[name]
+                        stats['count'] += 1
+                        stats['confidences'].append(confidence)
+                        stats['qualities'].append(quality)
+                        stats['processing_times'].append(proc_time)
+                        stats['methods'].append(method)
+                        
+                        if stats['first_seen'] is None:
+                            stats['first_seen'] = timestamp
+                        stats['last_seen'] = timestamp
+                        
+                        all_confidences.append(confidence)
+                        all_qualities.append(quality)
+                        all_processing_times.append(proc_time)
+                        method_counts[method] += 1
+                        
+                        try:
+                            if isinstance(timestamp, str):
+                                hour = datetime.fromisoformat(timestamp).hour
+                            else:
+                                hour = timestamp.hour if hasattr(timestamp, 'hour') else 0
+                            hourly_distribution[hour] += 1
+                        except (ValueError, AttributeError):
+                            hourly_distribution[0] += 1
+                            
+                    except (ValueError, TypeError, AttributeError) as e:
+                        print(f"Error processing record: {e}")
+                        print(f"Raw data: name={name}, conf={confidence}, qual={quality}, time={proc_time}")
+                        continue
             
             unique_people = len(people_stats)
-            avg_confidence = statistics.mean(all_confidences) if all_confidences else 0
-            avg_quality = statistics.mean(all_qualities) if all_qualities else 0
-            avg_processing_time = statistics.mean(all_processing_times) if all_processing_times else 0
+            avg_confidence = statistics.mean(all_confidences) if all_confidences else 0.0
+            avg_quality = statistics.mean(all_qualities) if all_qualities else 0.0
+            avg_processing_time = statistics.mean(all_processing_times) if all_processing_times else 0.0
             
             top_person = max(people_stats.keys(), key=lambda x: people_stats[x]['count']) if people_stats else None
             
             people_analysis = []
             for name, stats in people_stats.items():
-                people_analysis.append({
-                    'name': name,
-                    'recognition_count': stats['count'],
-                    'avg_confidence': statistics.mean(stats['confidences']),
-                    'confidence_std': statistics.stdev(stats['confidences']) if len(stats['confidences']) > 1 else 0,
-                    'avg_quality': statistics.mean(stats['qualities']),
-                    'avg_processing_time': statistics.mean(stats['processing_times']),
-                    'most_used_method': max(set(stats['methods']), key=stats['methods'].count),
-                    'first_seen': stats['first_seen'],
-                    'last_seen': stats['last_seen'],
-                    'confidence_level': self._get_confidence_level(statistics.mean(stats['confidences']))
-                })
+                try:
+                    avg_conf = statistics.mean(stats['confidences']) if stats['confidences'] else 0.0
+                    conf_std = statistics.stdev(stats['confidences']) if len(stats['confidences']) > 1 else 0.0
+                    avg_qual = statistics.mean(stats['qualities']) if stats['qualities'] else 0.0
+                    avg_proc = statistics.mean(stats['processing_times']) if stats['processing_times'] else 0.0
+                    
+                    most_used_method = max(set(stats['methods']), key=stats['methods'].count) if stats['methods'] else 'unknown'
+                    
+                    people_analysis.append({
+                        'name': name,
+                        'recognition_count': stats['count'],
+                        'avg_confidence': avg_conf,
+                        'confidence_std': conf_std,
+                        'avg_quality': avg_qual,
+                        'avg_processing_time': avg_proc,
+                        'most_used_method': most_used_method,
+                        'first_seen': stats['first_seen'],
+                        'last_seen': stats['last_seen'],
+                        'confidence_level': self._get_confidence_level(avg_conf)
+                    })
+                except Exception as e:
+                    print(f"Error processing person stats for {name}: {e}")
+                    continue
             
             people_analysis.sort(key=lambda x: x['recognition_count'], reverse=True)
             
@@ -1602,7 +1612,7 @@ class EnhancedFaceRecognitionServer:
                 performance_insights.append("Fast processing performance")
                 
             if 'weighted_average' in method_counts and method_counts['weighted_average'] > total_recognitions * 0.5:
-                performance_insights.append(" Advanced averaging methods frequently used")
+                performance_insights.append("Advanced averaging methods frequently used")
                 
             report_data = {
                 'people_analysis': people_analysis,
@@ -1614,13 +1624,26 @@ class EnhancedFaceRecognitionServer:
             cursor.execute('''
                 INSERT OR REPLACE INTO daily_reports 
                 (report_date, total_recognitions, unique_people_count, avg_confidence, 
-                 avg_quality, avg_processing_time, top_recognized_person, report_data)
+                avg_quality, avg_processing_time, top_recognized_person, report_data)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (date, total_recognitions, unique_people, avg_confidence, avg_quality,
-                  avg_processing_time, top_person, json.dumps(report_data)))
+                avg_processing_time, top_person, json.dumps(report_data)))
             
             conn.commit()
             conn.close()
+            
+            confidence_distribution = {}
+            try:
+                confidence_distribution = {
+                    'very_high': sum(1 for c in all_confidences if c >= self.confidence_levels['very_high']),
+                    'high': sum(1 for c in all_confidences if self.confidence_levels['high'] <= c < self.confidence_levels['very_high']),
+                    'medium': sum(1 for c in all_confidences if self.confidence_levels['medium'] <= c < self.confidence_levels['high']),
+                    'low': sum(1 for c in all_confidences if self.confidence_levels['low'] <= c < self.confidence_levels['medium']),
+                    'very_low': sum(1 for c in all_confidences if c < self.confidence_levels['low'])
+                }
+            except Exception as e:
+                print(f"Error calculating confidence distribution: {e}")
+                confidence_distribution = {'very_high': 0, 'high': 0, 'medium': 0, 'low': 0, 'very_low': 0}
             
             return {
                 'date': str(date),
@@ -1629,30 +1652,25 @@ class EnhancedFaceRecognitionServer:
                     'unique_people': unique_people,
                     'avg_confidence': round(avg_confidence, 3),
                     'avg_quality': round(avg_quality, 3),
-                    'avg_processing_time': round(avg_processing_time * 1000, 1), 
+                    'avg_processing_time': round(avg_processing_time * 1000, 1),
                     'top_recognized_person': top_person
                 },
-                'people_analysis': people_analysis[:10],  
+                'people_analysis': people_analysis[:10],
                 'method_distribution': dict(method_counts),
                 'hourly_distribution': dict(hourly_distribution),
                 'performance_insights': performance_insights,
-                'confidence_distribution': {
-                    'very_high': sum(1 for c in all_confidences if c >= self.confidence_levels['very_high']),
-                    'high': sum(1 for c in all_confidences if self.confidence_levels['high'] <= c < self.confidence_levels['very_high']),
-                    'medium': sum(1 for c in all_confidences if self.confidence_levels['medium'] <= c < self.confidence_levels['high']),
-                    'low': sum(1 for c in all_confidences if self.confidence_levels['low'] <= c < self.confidence_levels['medium']),
-                    'very_low': sum(1 for c in all_confidences if c < self.confidence_levels['low'])
-                }
+                'confidence_distribution': confidence_distribution
             }
             
         except Exception as e:
             logging.error(f"Error generating daily report: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'date': str(date),
                 'error': str(e),
                 'summary': 'Error generating report'
             }
-
 face_server = EnhancedFaceRecognitionServer()
 connected_clients = {}
 
@@ -1677,6 +1695,7 @@ def health_check():
         'averaging_methods': face_server.averaging_methods,
         'confidence_levels': face_server.confidence_levels
     })
+
 
 @app.route('/api/recognize_realtime', methods=['POST'])
 def recognize_realtime():
@@ -1794,6 +1813,46 @@ def register_person_enhanced():
     except Exception as e:
         logging.error(f"Enhanced registration error: {e}")
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/analyze_person/<name>')
+def analyze_person(name):
+    """Analyze a specific person's registration quality"""
+    try:
+        conn = sqlite3.connect(face_server.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT fe.image_quality, fe.weight 
+            FROM people p 
+            JOIN face_encodings fe ON p.id = fe.person_id 
+            WHERE p.name = ?
+        """, (name,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        if not results:
+            return jsonify({'error': 'Person not found'})
+            
+        qualities = [r[0] for r in results]
+        weights = [r[1] for r in results]
+        
+        return jsonify({
+            'name': name,
+            'photo_count': len(qualities),
+            'avg_quality': sum(qualities) / len(qualities),
+            'min_quality': min(qualities),
+            'max_quality': max(qualities),
+            'qualities': qualities,
+            'weights': weights,
+            'recommendations': {
+                'should_retake_photos': max(qualities) < 0.4,
+                'needs_better_lighting': sum(q < 0.3 for q in qualities) > len(qualities) // 2,
+                'has_good_photos': any(q > 0.5 for q in qualities)
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 @app.route('/api/register', methods=['POST'])
 def register_person():
@@ -2002,47 +2061,11 @@ def get_recognition_logs():
         else:
             report_date = datetime.now().date()
         
-        conn = sqlite3.connect(face_server.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT person_name, confidence, quality_score, processing_time, method_used, timestamp
-            FROM recognition_logs 
-            WHERE DATE(timestamp) = ?
-            ORDER BY timestamp DESC
-        ''', (report_date,))
-        
-        logs = []
-        total_confidence = 0
-        total_quality = 0
-        
-        for row in cursor.fetchall():
-            person_name, confidence, quality, proc_time, method, timestamp = row
-            logs.append({
-                'person_name': person_name,
-                'confidence': confidence,
-                'quality_score': quality,
-                'processing_time': proc_time,
-                'method_used': method,
-                'timestamp': timestamp
-            })
-            total_confidence += confidence
-            total_quality += quality
-        
-        conn.close()
-        
-        avg_confidence = total_confidence / len(logs) if logs else 0
-        avg_quality = total_quality / len(logs) if logs else 0
-        
-        return jsonify({
-            'logs': logs,
-            'total_logs': len(logs),
-            'avg_confidence': avg_confidence,
-            'avg_quality': avg_quality
-        })
+        logs_data = face_server.get_recognition_logs(report_date)
+        return jsonify(logs_data)
         
     except Exception as e:
-        logging.error(f"Recognition logs error: {e}")
+        logging.error(f"Recognition logs API error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/historical_data', methods=['GET'])
@@ -2263,6 +2286,7 @@ def get_camera_frame():
         if frame is None:
             logging.info("Attempting to restart camera...")
             if face_server.start_camera():
+                start_time = time.time()
                 frame = face_server.capture_frame()
                 
             if frame is None:
@@ -2277,7 +2301,7 @@ def get_camera_frame():
 
         processed_frame = face_server.preprocess_camera_frame(frame)
         recognition_result = face_server.recognize_face_with_averaging(processed_frame)
-        
+        processing_time = time.time() - start_time
         
         response_data = {
             'recognized': recognition_result.get('recognized', False),
@@ -2321,6 +2345,9 @@ def get_camera_frame():
 def get_local_ip():
     """Get local IP address"""
     try:
+        if 'LOCAL_IP' in os.environ:
+            return os.environ['LOCAL_IP']
+        
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
@@ -2584,8 +2611,11 @@ if __name__ == '__main__':
     print("Server starting... Press Ctrl+C to stop")
     print("="*80)
 
-    if not os.path.exists('face_server_index.html'):
-        print("face_server_index.html not found!")
+    template_path = os.path.join(TEMPLATES_DIR, 'face_server_index.html')
+    if not os.path.exists(template_path):
+        print(f"face_server_index.html not found at {template_path}")
+    else:
+        print(f"Template found at {template_path}")
 
     try:
         app.run(

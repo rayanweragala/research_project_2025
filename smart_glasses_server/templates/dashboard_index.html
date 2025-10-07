@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Glasses Development Console</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</head>
+<body>
+    <div class="dashboard-header">
+        <div class="container">
+            <div class="flex items-center justify-between py-4">
+                <div>
+                    <h1 class="dashboard-title">Smart Glasses Development Console</h1>
+                    <p class="dashboard-subtitle">Development environment for smart glasses applications</p>
+                </div>
+                <div class="text-sm text-muted">
+                    <span id="currentTime"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="dashboard-nav">
+        <div class="container">
+            <div class="nav-tabs">
+                <button class="nav-tab active" onclick="showService('overview')">Overview</button>
+                <button class="nav-tab" onclick="showService('face')">Face Recognition</button>
+                <button class="nav-tab" onclick="showService('ocr')">OCR Processing</button>
+                <button class="nav-tab" onclick="showService('ultrasonic')">Distance Sensor</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="dashboard-content">
+        <div id="overview" class="service-frame active">
+            <div class="overview-container">
+                <div class="service-grid">
+                    <div class="service-card">
+                        <div class="service-header">
+                            <div class="service-icon">FR</div>
+                            <div class="flex-1">
+                                <h3 class="service-title">Face Recognition</h3>
+                            </div>
+                        </div>
+                        <p class="service-description">
+                            Real-time facial recognition system with advanced analytics and person identification capabilities for smart glasses integration.
+                        </p>
+                        <div class="service-status">
+                            <div class="status-indicator status-offline" id="faceStatusIndicator">
+                                <div class="status-dot"></div>
+                                <span id="faceStatusText">Checking connection...</span>
+                            </div>
+                            <span class="text-muted">Port 5000</span>
+                        </div>
+                        <div class="service-actions">
+                            <button class="btn btn-primary" onclick="showService('face')">Open Interface</button>
+                            <button class="btn btn-secondary" onclick="openInNew('http://localhost:5000')">New Window</button>
+                        </div>
+                    </div>
+
+                    <div class="service-card">
+                        <div class="service-header">
+                            <div class="service-icon">OCR</div>
+                            <div class="flex-1">
+                                <h3 class="service-title">OCR Processing</h3>
+                            </div>
+                        </div>
+                        <p class="service-description">
+                            Advanced optical character recognition supporting Sinhala and English text extraction with high accuracy document processing.
+                        </p>
+                        <div class="service-status">
+                            <div class="status-indicator status-offline" id="ocrStatusIndicator">
+                                <div class="status-dot"></div>
+                                <span id="ocrStatusText">Checking connection...</span>
+                            </div>
+                            <span class="text-muted">Port 5002</span>
+                        </div>
+                        <div class="service-actions">
+                            <button class="btn btn-primary" onclick="showService('ocr')">Open Interface</button>
+                            <button class="btn btn-secondary" onclick="openInNew('http://localhost:5002')">New Window</button>
+                        </div>
+                    </div>
+
+                    <div class="service-card">
+                        <div class="service-header">
+                            <div class="service-icon">US</div>
+                            <div class="flex-1">
+                                <h3 class="service-title">Distance Sensor</h3>
+                            </div>
+                        </div>
+                        <p class="service-description">
+                            Ultrasonic distance measurement system with real-time analytics, zone detection, and spatial awareness capabilities.
+                        </p>
+                        <div class="service-status">
+                            <div class="status-indicator status-offline" id="ultrasonicStatusIndicator">
+                                <div class="status-dot"></div>
+                                <span id="ultrasonicStatusText">Checking connection...</span>
+                            </div>
+                            <span class="text-muted">Port 5001</span>
+                        </div>
+                        <div class="service-actions">
+                            <button class="btn btn-primary" onclick="showService('ultrasonic')">Open Interface</button>
+                            <button class="btn btn-secondary" onclick="openInNew('http://localhost:5001')">New Window</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card p-6">
+                    <h3 class="text-lg font-semibold mb-4">System Information</h3>
+                    <div class="grid grid-cols-auto gap-4">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-primary" id="activeServices">0</div>
+                            <div class="text-sm text-muted">Active Services</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-primary" id="systemUptime">00:00:00</div>
+                            <div class="text-sm text-muted">Dashboard Uptime</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-primary">3</div>
+                            <div class="text-sm text-muted">Total Services</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <iframe id="face" class="service-frame" src="about:blank" data-src="http://localhost:5000"></iframe>
+        <iframe id="ocr" class="service-frame" src="about:blank" data-src="http://localhost:5002"></iframe>
+        <iframe id="ultrasonic" class="service-frame" src="about:blank" data-src="http://localhost:5001"></iframe>
+    </main>
+
+    <div class="quick-actions">
+        <button class="quick-action" onclick="showService('face')" title="Face Recognition">FR</button>
+        <button class="quick-action" onclick="showService('ocr')" title="OCR Processing">OCR</button>
+        <button class="quick-action" onclick="showService('ultrasonic')" title="Distance Sensor">US</button>
+    </div>
+
+    <footer class="dashboard-footer">
+        <div class="system-stats">
+            <div class="status-indicator status-offline" id="faceFooterStatus">
+                <div class="status-dot"></div>
+                <span>Face Recognition: <span id="faceFooterText">Offline</span></span>
+            </div>
+            <div class="status-indicator status-offline" id="ocrFooterStatus">
+                <div class="status-dot"></div>
+                <span>OCR Service: <span id="ocrFooterText">Offline</span></span>
+            </div>
+            <div class="status-indicator status-offline" id="ultrasonicFooterStatus">
+                <div class="status-dot"></div>
+                <span>Distance Sensor: <span id="ultrasonicFooterText">Offline</span></span>
+            </div>
+        </div>
+        <div class="text-muted">
+            Smart Glasses Development Console v1.0
+        </div>
+    </footer>
+</body>
+</html>
