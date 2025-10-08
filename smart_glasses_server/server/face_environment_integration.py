@@ -1,8 +1,3 @@
-"""
-Integration layer between face recognition and environment analysis
-Adds environment context to face recognition results
-"""
-
 import cv2
 import numpy as np
 import logging
@@ -11,6 +6,8 @@ from datetime import datetime
 from collections import defaultdict
 import sqlite3
 import json
+from flask import request, jsonify
+import base64
 
 from environment_analyzer import EnvironmentAnalyzer
 

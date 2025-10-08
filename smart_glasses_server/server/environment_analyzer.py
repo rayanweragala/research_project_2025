@@ -37,14 +37,10 @@ class EnvironmentAnalyzer:
         ]
 
         self.scene_rules = {
-            'classroom': ['chair', 'book', 'laptop', 'backpack', 'clock'],
-            'office': ['laptop', 'keyboard', 'mouse', 'chair', 'desk'],
-            'kitchen': ['refrigerator', 'microwave', 'oven', 'sink', 'dining table'],
-            'living_room': ['couch', 'tv', 'remote', 'potted plant'],
-            'bedroom': ['bed', 'clock', 'book'],
-            'dining_area': ['dining table', 'chair', 'cup', 'fork', 'knife'],
-            'outdoor': ['bicycle', 'car', 'tree', 'bench'],
-            'cafeteria': ['dining table', 'chair', 'cup', 'food items']
+            'indoor_room': ['wall', 'object', 'indoor_scene'],
+            'office': ['desk', 'laptop', 'keyboard', 'mouse', 'chair'],
+            'study_area': ['book', 'desk', 'wall'],
+            'living_space': ['chair', 'wall', 'object'],
         }
 
         self.environment_cache = {
@@ -145,55 +141,54 @@ class EnvironmentAnalyzer:
             return []
     
     def fallback_object_detection(self, frame):
-        """
-        Fallback detection using simple computer vision techniques
-        Detects basic shapes and colors when deep learning model isn't available
-        """
+        """Enhanced fallback detection"""
         try:
             detected_objects = []
-            
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            lower_white = np.array([0, 0, 200])
-            upper_white = np.array([180, 30, 255])
-            white_mask = cv2.inRange(hsv, lower_white, upper_white)
-            white_area = cv2.countNonZero(white_mask)
+            edges = cv2.Canny(gray, 30, 100)
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
-            if white_area > (frame.shape[0] * frame.shape[1] * 0.3):
+            for i, contour in enumerate(contours[:10]):  
+                area = cv2.contourArea(contour)
+                if area > 1000:  
+                    x, y, w, h = cv2.boundingRect(contour)
+                    aspect_ratio = w / float(h) if h > 0 else 0
+                    
+                    if 0.8 < aspect_ratio < 1.2 and area > 5000:
+                        obj_type = 'book'
+                    elif aspect_ratio > 2 and area > 3000:
+                        obj_type = 'desk'
+                    elif 0.3 < aspect_ratio < 0.7:
+                        obj_type = 'bottle'
+                    else:
+                        obj_type = 'object'
+                    
+                    detected_objects.append({
+                        'class': obj_type,
+                        'confidence': 0.6,
+                        'bbox': [x, y, x+w, y+h],
+                        'class_id': -1
+                    })
+            
+            if len(detected_objects) == 0:
                 detected_objects.append({
-                    'class': 'whiteboard_or_wall',
-                    'confidence': 0.7,
+                    'class': 'wall',
+                    'confidence': 0.5,
                     'bbox': [0, 0, frame.shape[1], frame.shape[0]],
                     'class_id': -1
                 })
-            
-            edges = cv2.Canny(gray, 50, 150)
-            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area > 5000:  
-                    peri = cv2.arcLength(contour, True)
-                    approx = cv2.approxPolyDP(contour, 0.04 * peri, True)
-                    
-                    if len(approx) == 4: 
-                        x, y, w, h = cv2.boundingRect(contour)
-                        aspect_ratio = w / float(h)
-                        
-                        if 0.8 < aspect_ratio < 1.2:
-                            detected_objects.append({
-                                'class': 'book_or_object',
-                                'confidence': 0.6,
-                                'bbox': [x, y, x+w, y+h],
-                                'class_id': -2
-                            })
             
             return detected_objects
             
         except Exception as e:
             logging.error(f"Fallback detection error: {e}")
-            return []
+            return [{
+                'class': 'indoor_scene',
+                'confidence': 0.4,
+                'bbox': [0, 0, 100, 100],
+                'class_id': -1
+            }]
     
     def infer_scene(self, detected_objects):
         """

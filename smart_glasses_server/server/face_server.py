@@ -1900,8 +1900,8 @@ def list_people():
                 'name': row[0],
                 'photo_count': row[1],
                 'created_at': row[2],
-                'avg_quality': round(row[3] or 0, 3),
-                'best_quality': round(row[4] or 0, 3),
+                'avg_quality': round(float(row[3]) if row[3] else 0.0, 3),
+                'best_quality': round(float(row[4]) if row[4] else 0.0, 3),
                 'registration_method': row[5] or 'standard'
             })
         
