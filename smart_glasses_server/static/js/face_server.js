@@ -111,9 +111,8 @@ function updateCapturedImagesDisplay() {
     const imageDiv = document.createElement("div");
     imageDiv.className = "captured-image";
     imageDiv.innerHTML = `
-          <img src="data:image/jpeg;base64,${image}" alt="Captured ${
-      index + 1
-    }">
+          <img src="data:image/jpeg;base64,${image}" alt="Captured ${index + 1
+      }">
           <button class="remove-btn" onclick="removeCapturedImage(${index})">&times;</button>
       `;
     container.appendChild(imageDiv);
@@ -333,64 +332,129 @@ function updateCurrentResult(data) {
     confidence = confidence / 100.0;
   }
 
+  const hasEnvironment = data.environment && data.environment.scene;
+  const hasMultipleFaces = data.all_faces && data.all_faces.length > 1;
+
   if (!data.recognized && !data.error) {
-    currentResult.innerHTML = `
-    <div style="padding: 18px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 12px; margin-top: 18px; border-left: 4px solid #6c757d;">
+    let html = `
+      <div style="padding: 18px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 12px; margin-top: 18px; border-left: 4px solid #6c757d;">
         <div style="font-weight: 600; color: #495057; font-size: 1.1em;">Unknown Person</div>
         <div style="font-size: 0.95em; margin-top: 8px; color: #6c757d;">
-            Quality: ${(data.quality_score * 100).toFixed(1)}%
-            ${
-              data.method_used
-                ? ` • Method: ${formatMethod(data.method_used)}`
-                : ""
-            }
+          Quality: ${(data.quality_score * 100).toFixed(1)}%
+          ${data.method_used ? ` • Method: ${formatMethod(data.method_used)}` : ""}
         </div>
         <div class="confidence-bar">
-            <div class="confidence-fill" style="width: ${
-              confidence * 100
-            }%; background: #ff9800;"></div>
-        </div>
-    </div>
-`;
+          <div class="confidence-fill" style="width: ${confidence * 100}%; background: #ff9800;"></div>
+        </div>`;
+
+    if (hasEnvironment) {
+      html += `
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #dee2e6;">
+          <div style="font-weight: 600; color: #6c757d; margin-bottom: 8px;">
+            Environment: ${formatSceneName(data.environment.scene.scene)}
+            <span style="font-size: 0.85em; color: #00bcd4;">
+              (${(data.environment.scene.confidence * 100).toFixed(0)}% confidence)
+            </span>
+          </div>
+          ${data.environment.environment_description ?
+          `<div style="font-size: 0.9em; color: #6c757d; font-style: italic;">
+              ${data.environment.environment_description}
+            </div>` : ''}
+        </div>`;
+    }
+
+    html += `</div>`;
+    currentResult.innerHTML = html;
+
   } else if (data.recognized) {
-    currentResult.innerHTML = `
-    <div style="padding: 18px; background: linear-gradient(135deg, #e8f5e8, #f1f8e9); border-radius: 12px; margin-top: 18px; border-left: 4px solid #4caf50;">
+    let html = `
+      <div style="padding: 18px; background: linear-gradient(135deg, #e8f5e8, #f1f8e9); border-radius: 12px; margin-top: 18px; border-left: 4px solid #4caf50;">
         <div style="font-weight: 700; color: #2e7d32; font-size: 1.2em;">
-            ${data.name}
-            <span class="confidence-level conf-${
-              data.confidence_level || "medium"
-            }">${formatConfidenceLevel(
-      data.confidence_level || "medium"
-    )}</span>
+          ${data.name}
+          <span class="confidence-level conf-${data.confidence_level || "medium"}">
+            ${formatConfidenceLevel(data.confidence_level || "medium")}
+          </span>
         </div>
         <div style="font-size: 0.95em; margin-top: 10px; color: #4caf50; font-weight: 500;">
-            Confidence: ${(confidence * 100).toFixed(1)}% • 
-            Quality: ${(data.quality_score * 100).toFixed(1)}%
-            ${data.method_used ? ` • ${formatMethod(data.method_used)}` : ""}
+          Confidence: ${(confidence * 100).toFixed(1)}% • 
+          Quality: ${(data.quality_score * 100).toFixed(1)}%
+          ${data.method_used ? ` • ${formatMethod(data.method_used)}` : ""}
         </div>
         <div class="confidence-bar">
-            <div class="confidence-fill" style="width: ${
-              confidence * 100
-            }%;"></div>
-        </div>
-    </div>
-`;
+          <div class="confidence-fill" style="width: ${confidence * 100}%;"></div>
+        </div>`;
+
+    if (hasEnvironment) {
+      const sceneConfColor = data.environment.scene.confidence > 0.7 ? '#4caf50' : data.environment.scene.confidence > 0.5 ? '#ff9800' : '#f44336';
+
+      html += `
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #c8e6c9;">
+          <div style="font-weight: 600; color: #2e7d32; margin-bottom: 8px;">
+            Location: ${formatSceneName(data.environment.scene.scene)}
+            <span style="font-size: 0.85em; color: ${sceneConfColor};">
+              (${(data.environment.scene.confidence * 100).toFixed(0)}% confidence)
+            </span>
+          </div>
+          ${data.environment.environment_description ?
+          `<div style="font-size: 0.9em; color: #4caf50; font-style: italic;">
+              ${data.environment.environment_description}
+            </div>` : ''}
+          
+          ${data.environment.object_summary && data.environment.object_summary.total_objects > 0 ?
+          `<div style="margin-top: 8px; font-size: 0.85em; color: #6c757d;">
+              ${data.environment.object_summary.total_objects} objects detected
+              ${data.environment.object_summary.primary_objects ?
+            ': ' + data.environment.object_summary.primary_objects.slice(0, 3).join(', ') : ''}
+            </div>` : ''}
+        </div>`;
+    }
+
+    if (hasMultipleFaces) {
+      const recognizedPeople = data.all_faces.filter(f => f.recognized).map(f => f.name);
+      const unknownCount = data.all_faces.filter(f => !f.recognized).length;
+
+      html += `
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #c8e6c9;">
+          <div style="font-weight: 600; color: #2e7d32; margin-bottom: 8px;">
+            Multiple People Detected (${data.all_faces.length} total)
+          </div>
+          ${recognizedPeople.length > 0 ?
+          `<div style="font-size: 0.9em; color: #4caf50;">
+              Recognized: ${recognizedPeople.join(', ')}
+            </div>` : ''}
+          ${unknownCount > 0 ?
+          `<div style="font-size: 0.9em; color: #ff9800;">
+              ${unknownCount} unknown person(s)
+            </div>` : ''}
+        </div>`;
+    }
+
+    html += `</div>`;
+    currentResult.innerHTML = html;
+
   } else if (data.error) {
     currentResult.innerHTML = `
-    <div style="padding: 18px; background: linear-gradient(135deg, #ffebee, #fce4ec); border-radius: 12px; margin-top: 18px; border-left: 4px solid #f44336;">
+      <div style="padding: 18px; background: linear-gradient(135deg, #ffebee, #fce4ec); border-radius: 12px; margin-top: 18px; border-left: 4px solid #f44336;">
         <div style="font-weight: 600; color: #c62828; font-size: 1.1em;">Error: ${data.message}</div>
-    </div>
-`;
+      </div>`;
   }
 }
+
+function formatSceneName(scene) {
+  if (!scene) return 'Unknown';
+  return scene.split('_').map(word =>
+    word.charAt(0).toUpperCase() + word.slice(1)
+  ).join(' ');
+}
+
 
 function displayResult(data) {
   let resultsDiv = document.getElementById("results");
   let resultClass = data.error
     ? "error"
     : data.recognized
-    ? "recognized"
-    : "unknown";
+      ? "recognized"
+      : "unknown";
 
   let confidence = data.confidence || 0;
   if (confidence > 1.0) {
@@ -403,8 +467,8 @@ function displayResult(data) {
   let message = data.error
     ? `${data.message}`
     : data.recognized
-    ? `${data.name}`
-    : `Unknown person`;
+      ? `${data.name}`
+      : `Unknown person`;
 
   let confidenceLevel = data.confidence_level || "unknown";
   let methodUsed = data.method_used || "standard";
@@ -413,13 +477,12 @@ function displayResult(data) {
 <div class="recognition-result ${resultClass}">
     <div class="result-header">
         ${new Date().toLocaleTimeString()} - ${message}
-        ${
-          data.recognized
-            ? `<span class="confidence-level conf-${confidenceLevel}">${formatConfidenceLevel(
-                confidenceLevel
-              )}</span>`
-            : ""
-        }
+        ${data.recognized
+      ? `<span class="confidence-level conf-${confidenceLevel}">${formatConfidenceLevel(
+        confidenceLevel
+      )}</span>`
+      : ""
+    }
     </div>
     <div class="result-details">
         Confidence: ${(confidence * 100).toFixed(1)}% • 
@@ -428,9 +491,8 @@ function displayResult(data) {
         Method: ${formatMethod(methodUsed)}
     </div>
     <div class="confidence-bar">
-        <div class="confidence-fill" style="width: ${confidence * 100}%; ${
-    !data.recognized ? "background: #ff9800;" : ""
-  }"></div>
+        <div class="confidence-fill" style="width: ${confidence * 100}%; ${!data.recognized ? "background: #ff9800;" : ""
+    }"></div>
     </div>
 </div>
 `;
@@ -478,9 +540,9 @@ function updateAnalyticsDisplay(data) {
     let rate =
       stats.total_requests > 0
         ? (
-            (stats.successful_recognitions / stats.total_requests) *
-            100
-          ).toFixed(1)
+          (stats.successful_recognitions / stats.total_requests) *
+          100
+        ).toFixed(1)
         : 0;
 
     const recognitionRateEl = document.getElementById("recognitionRate");
@@ -535,8 +597,8 @@ function updateMethodChart(methodData) {
     const methodClass = method.includes("enhanced")
       ? "enhanced"
       : method.includes("standard")
-      ? "standard"
-      : method.split("_")[0];
+        ? "standard"
+        : method.split("_")[0];
 
     html += `
       <div class="method-badge method-${methodClass}" 
@@ -665,11 +727,10 @@ function updateHourlyChart(hourlyData) {
         <div style="background: linear-gradient(135deg, #4facfe, #00f2fe); 
                     width: 100%; height: ${height}px; border-radius: 3px; 
                     margin-bottom: 8px; min-height: 3px;
-                    ${
-                      count > 0
-                        ? `title='${count} recognitions at ${hour}:00'`
-                        : ""
-                    }
+                    ${count > 0
+        ? `title='${count} recognitions at ${hour}:00'`
+        : ""
+      }
                     box-shadow: 0 2px 8px rgba(79, 172, 254, 0.3);"></div>
         <div style="font-size: 0.75em; color: #666; font-weight: 500;">${hour}</div>
     </div>
@@ -955,12 +1016,12 @@ function displayRecognitionLogs(data) {
 
   data.logs.forEach((log, index) => {
     const time = new Date(log.timestamp).toLocaleTimeString();
-    
+
     let logConfidence = log.confidence || 0;
     if (logConfidence > 1) {
       logConfidence = logConfidence / 100;
     }
-    
+
     const confidenceColor = logConfidence > 0.8 ? "#4caf50" : logConfidence > 0.6 ? "#8bc34a" : logConfidence > 0.4 ? "#ffc107" : "#f44336";
     const rowBg = index % 2 === 0 ? "background: white;" : "background: #f8f9fa;";
 
@@ -1034,12 +1095,12 @@ function displayHistoricalData(data) {
   data.days.forEach((day, index) => {
     const date = new Date(day.date).toLocaleDateString();
     const rowBg = index % 2 === 0 ? "background: white;" : "background: #f8f9fa;";
-    
+
     let dayConfidence = day.avg_confidence || 0;
     if (dayConfidence > 1) {
       dayConfidence = dayConfidence / 100;
     }
-    
+
     const confidenceColor = dayConfidence > 0.8 ? "#4caf50" : dayConfidence > 0.6 ? "#8bc34a" : dayConfidence > 0.4 ? "#ffc107" : "#f44336";
 
     html += `
@@ -1120,24 +1181,23 @@ function displayPeopleList(people) {
     <div class="stat-card performance-card">
         <h4>Total Photos</h4>
         <div class="stat-value">${people.reduce(
-          (sum, p) => sum + p.photo_count,
-          0
-        )}</div>
+    (sum, p) => sum + p.photo_count,
+    0
+  )}</div>
         <div class="stat-label">Training Images</div>
     </div>
     <div class="stat-card quality-card">
         <h4>Avg Quality</h4>
         <div class="stat-value">${(
-          (people.reduce((sum, p) => sum + p.avg_quality, 0) / people.length) *
-          100
-        ).toFixed(1)}%</div>
+      (people.reduce((sum, p) => sum + p.avg_quality, 0) / people.length) *
+      100
+    ).toFixed(1)}%</div>
         <div class="stat-label">Overall Quality</div>
     </div>
                  <div class="stat-card method-card">
          <h4>Multi-image</h4>
-         <div class="stat-value">${
-           people.filter((p) => p.registration_method === "enhanced").length
-         }</div>
+         <div class="stat-value">${people.filter((p) => p.registration_method === "enhanced").length
+    }</div>
          <div class="stat-label">Multi-image Registration</div>
      </div>
 </div>
@@ -1151,16 +1211,15 @@ function displayPeopleList(people) {
       person.avg_quality > 0.7
         ? "#4caf50"
         : person.avg_quality > 0.5
-        ? "#ff9800"
-        : "#f44336";
+          ? "#ff9800"
+          : "#f44336";
 
     html += `
     <div class="person-card">
         <div class="person-name">${person.name}</div>
         <div class="person-stats">
-            <div><strong>Photos:</strong> <span style="color: #2196f3; font-weight: 700;">${
-              person.photo_count
-            }</span></div>
+            <div><strong>Photos:</strong> <span style="color: #2196f3; font-weight: 700;">${person.photo_count
+      }</span></div>
             <div><strong>Registered:</strong> ${registrationDate}</div>
             <div><strong>Avg Quality:</strong> 
                 <span style="color: ${qualityColor}; font-weight: 700;">
@@ -1168,16 +1227,15 @@ function displayPeopleList(people) {
                 </span>
             </div>
             <div><strong>Best Quality:</strong> <span style="color: #4caf50; font-weight: 700;">${(
-              person.best_quality * 100
-            ).toFixed(1)}%</span></div>
+        person.best_quality * 100
+      ).toFixed(1)}%</span></div>
         </div>
         <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center;">
           <span class="method-badge method-${person.registration_method}">
-              ${
-                person.registration_method === "enhanced"
-                  ? "Multi-image Registration"
-                  : "Standard Registration"
-              }
+              ${person.registration_method === "enhanced"
+        ? "Multi-image Registration"
+        : "Standard Registration"
+      }
           </span>
           <div style="display: flex; gap: 10px;">
               <button class="button add-person" style="padding: 10px 18px; font-size: 0.85em; margin: 0;" 
@@ -1355,22 +1413,22 @@ function showAnalysisModal(data) {
                       <div class="stat-card quality-card">
                           <h4>Average Quality</h4>
                           <div class="stat-value">${(
-                            data.avg_quality * 100
-                          ).toFixed(1)}%</div>
+      data.avg_quality * 100
+    ).toFixed(1)}%</div>
                           <div class="stat-label">Overall Score</div>
                       </div>
                       <div class="stat-card performance-card">
                           <h4>Best Quality</h4>
                           <div class="stat-value">${(
-                            data.max_quality * 100
-                          ).toFixed(1)}%</div>
+      data.max_quality * 100
+    ).toFixed(1)}%</div>
                           <div class="stat-label">Highest Score</div>
                       </div>
                       <div class="stat-card method-card">
                           <h4>Worst Quality</h4>
                           <div class="stat-value">${(
-                            data.min_quality * 100
-                          ).toFixed(1)}%</div>
+      data.min_quality * 100
+    ).toFixed(1)}%</div>
                           <div class="stat-label">Lowest Score</div>
                       </div>
                   </div>
@@ -1379,12 +1437,12 @@ function showAnalysisModal(data) {
                       <h3 class="section-title">Photo Quality Distribution</h3>
                       <div class="photo-grid">
                           ${data.qualities
-                            .map(
-                              (quality, index) => `
+      .map(
+        (quality, index) => `
                               <div class="photo-quality-item">
                                   <div class="quality-indicator ${getQualityClass(
-                                    quality
-                                  )}">
+          quality
+        )}">
                                       Photo ${index + 1}
                                   </div>
                                   <div style="margin-top: 8px; font-weight: 600;">
@@ -1392,8 +1450,8 @@ function showAnalysisModal(data) {
                                   </div>
                               </div>
                           `
-                            )
-                            .join("")}
+      )
+      .join("")}
                       </div>
                   </div>
                   
@@ -1486,9 +1544,9 @@ function startPeriodicUpdates() {
           let rate =
             stats.total_requests > 0
               ? (
-                  (stats.successful_recognitions / stats.total_requests) *
-                  100
-                ).toFixed(1)
+                (stats.successful_recognitions / stats.total_requests) *
+                100
+              ).toFixed(1)
               : 0;
 
           const liveTab = document.getElementById("live-tab");
@@ -1570,8 +1628,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const validImages = capturedImages.filter((img) => isValidBase64(img));
       if (validImages.length !== capturedImages.length) {
         showToast(
-          `${
-            capturedImages.length - validImages.length
+          `${capturedImages.length - validImages.length
           } invalid images detected`,
           "warning"
         );
@@ -1616,8 +1673,7 @@ document.addEventListener("DOMContentLoaded", function () {
               const qa = data.quality_analysis;
               setTimeout(() => {
                 showToast(
-                  `Quality Analysis: ${qa.valid_images}/${
-                    qa.total_images
+                  `Quality Analysis: ${qa.valid_images}/${qa.total_images
                   } images processed. Average quality: ${(
                     qa.average_quality * 100
                   ).toFixed(1)}%`,
@@ -1653,3 +1709,320 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 });
+
+function loadEnhancedAnalytics() {
+  fetch('/api/environment/statistics?days=7')
+    .then(response => response.json())
+    .then(data => {
+      displayEnvironmentStats(data);
+    })
+    .catch(err => {
+      console.error('Environment stats error:', err);
+    });
+
+  fetch('/api/multi_person/statistics?days=7')
+    .then(response => response.json())
+    .then(data => {
+      displayMultiPersonStats(data);
+    })
+    .catch(err => {
+      console.error('Multi-person stats error:', err);
+    });
+}
+
+function displayEnvironmentStats(data) {
+  const container = document.getElementById('environmentStats');
+  if (!container) return;
+
+  if (!data.scenes || data.scenes.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <h3>No Environment Data</h3>
+        <p>Environment detection data will appear here once the system starts analyzing scenes.</p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = `
+    <div class="analytics-grid" style="margin-bottom: 25px;">
+      <div class="stat-card recognition-card">
+        <h4>Total Detections</h4>
+        <div class="stat-value">${data.total_detections}</div>
+        <div class="stat-label">Environment Analyses</div>
+      </div>
+      <div class="stat-card performance-card">
+        <h4>Unique Scenes</h4>
+        <div class="stat-value">${data.scenes.length}</div>
+        <div class="stat-label">Different Locations</div>
+      </div>
+      <div class="stat-card quality-card">
+        <h4>Objects Detected</h4>
+        <div class="stat-value">${Object.keys(data.most_common_objects).length}</div>
+        <div class="stat-label">Unique Object Types</div>
+      </div>
+      <div class="stat-card method-card">
+        <h4>Top Scene</h4>
+        <div class="stat-value">${data.scenes[0] ? formatSceneName(data.scenes[0].scene) : 'N/A'}</div>
+        <div class="stat-label">Most Common</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h3 class="section-title">Scene Distribution</h3>
+      <div class="scene-chart">
+  `;
+
+  const maxCount = Math.max(...data.scenes.map(s => s.occurrences));
+
+  data.scenes.forEach(scene => {
+    const percentage = (scene.occurrences / data.total_detections) * 100;
+    const barWidth = (scene.occurrences / maxCount) * 100;
+    const confidenceColor = scene.avg_confidence > 0.7 ? '#4caf50' :
+      scene.avg_confidence > 0.5 ? '#ff9800' : '#f44336';
+
+    html += `
+      <div class="scene-item">
+        <div class="scene-label">
+          <strong>${formatSceneName(scene.scene)}</strong>
+          <span style="color: ${confidenceColor}; font-size: 0.85em;">
+            ${(scene.avg_confidence * 100).toFixed(0)}% confidence
+          </span>
+        </div>
+        <div class="scene-bar-container">
+          <div class="scene-bar" style="width: ${barWidth}%; background: linear-gradient(135deg, #4facfe, #00f2fe);"></div>
+        </div>
+        <div class="scene-count">${scene.occurrences} (${percentage.toFixed(1)}%)</div>
+      </div>
+    `;
+  });
+
+  html += `
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h3 class="section-title">Most Detected Objects</h3>
+      <div class="objects-grid">
+  `;
+
+  Object.entries(data.most_common_objects)
+    .slice(0, 12)
+    .forEach(([object, count]) => {
+      html += `
+        <div class="object-badge">
+          <div class="object-name">${formatObjectName(object)}</div>
+          <div class="object-count">${count}</div>
+        </div>
+      `;
+    });
+
+  html += `
+      </div>
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
+function displayMultiPersonStats(data) {
+  const container = document.getElementById('multiPersonStats');
+  if (!container) return;
+
+  if (data.total_multi_person_sessions === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <h3>No Multi-Person Data</h3>
+        <p>Multi-person detection data will appear here when multiple people are detected together.</p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = `
+    <div class="analytics-grid" style="margin-bottom: 25px;">
+      <div class="stat-card recognition-card">
+        <h4>Multi-Person Sessions</h4>
+        <div class="stat-value">${data.total_multi_person_sessions}</div>
+        <div class="stat-label">Multiple People Detected</div>
+      </div>
+      <div class="stat-card performance-card">
+        <h4>Common Groups</h4>
+        <div class="stat-value">${data.common_combinations.length}</div>
+        <div class="stat-label">Unique Combinations</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h3 class="section-title">Common Person Combinations</h3>
+      <div class="combinations-list">
+  `;
+
+  if (data.common_combinations.length === 0) {
+    html += '<p class="text-muted">No recurring combinations detected yet.</p>';
+  } else {
+    data.common_combinations.forEach((combo, index) => {
+      html += `
+        <div class="combination-item">
+          <div class="combination-rank">#${index + 1}</div>
+          <div class="combination-people">${combo.people}</div>
+          <div class="combination-count">${combo.occurrences} times</div>
+        </div>
+      `;
+    });
+  }
+
+  html += `
+      </div>
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
+function loadEnhancedLogs(date = null) {
+  const logsDiv = document.getElementById('enhancedLogs');
+  if (!logsDiv) return;
+
+  logsDiv.innerHTML = '<div style="text-align: center; padding: 40px;"><span class="loading-spinner"></span>Loading enhanced logs...</div>';
+
+  const url = date ? `/api/enhanced_logs?date=${date}&limit=100` : '/api/enhanced_logs?limit=100';
+
+  fetch(url)
+    .then(response => response.json())
+    .then(data => {
+      displayEnhancedLogs(data.logs);
+    })
+    .catch(err => {
+      logsDiv.innerHTML = `
+        <div class="empty-state">
+          <h3>Error Loading Logs</h3>
+          <p>${err.message}</p>
+        </div>
+      `;
+    });
+}
+
+function displayEnhancedLogs(logs) {
+  const logsDiv = document.getElementById('enhancedLogs');
+  if (!logsDiv) return;
+
+  if (!logs || logs.length === 0) {
+    logsDiv.innerHTML = `
+      <div class="empty-state">
+        <h3>No Enhanced Logs</h3>
+        <p>Enhanced recognition logs will appear here once you start using the enhanced recognition system.</p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = `
+    <div style="max-height: 600px; overflow-y: auto; border: 2px solid #e0e0e0; border-radius: 15px; padding: 20px; background: #fafafa;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: linear-gradient(135deg, #f8f9fa, #e9ecef); font-weight: 700;">
+            <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Time</th>
+            <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">People</th>
+            <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Environment</th>
+            <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Objects</th>
+            <th style="padding: 15px; text-align: left; border-bottom: 3px solid #dee2e6;">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  logs.forEach((log, index) => {
+    const time = new Date(log.timestamp).toLocaleTimeString();
+    const rowBg = index % 2 === 0 ? 'background: white;' : 'background: #f8f9fa;';
+
+    const peopleText = log.people_detected > 0
+      ? (log.all_people && log.all_people.length > 0
+        ? log.all_people.filter(p => p).join(', ')
+        : `${log.people_detected} person(s)`)
+      : 'No faces';
+
+    const sceneText = log.scene_type !== 'unknown'
+      ? formatSceneName(log.scene_type)
+      : 'Unknown';
+
+    const sceneConfColor = log.scene_confidence > 0.7 ? '#4caf50' :
+      log.scene_confidence > 0.5 ? '#ff9800' : '#f44336';
+
+    const envDesc = log.environment_description || 'No environment data';
+
+    html += `
+      <tr style="${rowBg} border-bottom: 1px solid #e9ecef; transition: all 0.3s ease;" 
+          onmouseover="this.style.background='#e3f2fd'" 
+          onmouseout="this.style.background='${index % 2 === 0 ? 'white' : '#f8f9fa'}'">
+        <td style="padding: 12px 15px; font-weight: 500;">${time}</td>
+        <td style="padding: 12px 15px; font-weight: 600; color: #333;">
+          ${peopleText}
+          ${log.people_detected > 1 ? '<span style="color: #2196f3; font-size: 0.85em;"> (Multi)</span>' : ''}
+        </td>
+        <td style="padding: 12px 15px;">
+          <div style="font-weight: 600;">${sceneText}</div>
+          <div style="font-size: 0.85em; color: ${sceneConfColor};">
+            ${(log.scene_confidence * 100).toFixed(0)}% confidence
+          </div>
+        </td>
+        <td style="padding: 12px 15px; font-size: 0.9em;">
+          ${log.object_count || 0} objects
+        </td>
+        <td style="padding: 12px 15px;">
+          <span style="color: #4caf50; font-weight: 700;">
+            ${(log.confidence * 100).toFixed(1)}%
+          </span>
+        </td>
+      </tr>
+      <tr style="${rowBg}">
+        <td colspan="5" style="padding: 8px 15px; font-size: 0.9em; color: #666; border-bottom: 1px solid #e9ecef;">
+          <em>${envDesc}</em>
+        </td>
+      </tr>
+    `;
+  });
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  logsDiv.innerHTML = html;
+}
+
+function formatSceneName(scene) {
+  if (!scene) return 'Unknown';
+  return scene.split('_').map(word =>
+    word.charAt(0).toUpperCase() + word.slice(1)
+  ).join(' ');
+}
+
+function formatObjectName(object) {
+  if (!object) return 'Unknown';
+  return object.split('_').map(word =>
+    word.charAt(0).toUpperCase() + word.slice(1)
+  ).join(' ');
+}
+
+function switchToEnhancedTab(event, tabName) {
+  switchTab(event, tabName);
+
+  if (tabName === 'enhanced-analytics') {
+    loadEnhancedAnalytics();
+  } else if (tabName === 'enhanced-logs') {
+    loadEnhancedLogs();
+  }
+}
+
+setInterval(() => {
+  const enhancedAnalyticsTab = document.getElementById('enhanced-analytics-tab');
+  if (enhancedAnalyticsTab && enhancedAnalyticsTab.classList.contains('active')) {
+    loadEnhancedAnalytics();
+  }
+}, 30000);
+
+window.loadEnhancedAnalytics = loadEnhancedAnalytics;
+window.loadEnhancedLogs = loadEnhancedLogs;
+window.switchToEnhancedTab = switchToEnhancedTab;

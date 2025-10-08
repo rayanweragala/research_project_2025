@@ -22,15 +22,17 @@ import threading
 import socket
 from collections import defaultdict, deque
 
+from environment_analyzer import EnvironmentAnalyzer
+from face_environment_integration import EnhancedRecognitionResult, create_enhanced_endpoints
+
 try:
     from picamera2 import Picamera2
     from libcamera import controls
 
     RPI_CAMERA_AVAILABLE = True;
-    print("Picamera2 available - Raspberry Pi camera support enabled")
 except ImportError:
     RPI_CAMERA_AVAILABLE = False
-    print("Picamera2 not available - falling back to OpenCV")
+    print("Picamera2 not available")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1672,6 +1674,13 @@ class EnhancedFaceRecognitionServer:
                 'summary': 'Error generating report'
             }
 face_server = EnhancedFaceRecognitionServer()
+enhanced_recognition = EnhancedRecognitionResult(
+    face_server,
+    enable_environment=True, 
+    enable_multi_person=True  
+)
+
+logging.info("Enhanced recognition system initialized")
 connected_clients = {}
 
 @app.route('/')
@@ -2254,7 +2263,7 @@ def stop_camera():
     
 @app.route('/api/camera/frame', methods=['GET'])
 def get_camera_frame():
-    """Get current camera frame with face recognition"""
+    """Get current camera frame with face recognition - FIXED VERSION"""
     try:
         include_image = request.args.get('include_image', 'true').lower() == 'true'
         image_quality = int(request.args.get('quality', '85'))
@@ -2286,7 +2295,6 @@ def get_camera_frame():
         if frame is None:
             logging.info("Attempting to restart camera...")
             if face_server.start_camera():
-                start_time = time.time()
                 frame = face_server.capture_frame()
                 
             if frame is None:
@@ -2300,20 +2308,83 @@ def get_camera_frame():
                 }), 500
 
         processed_frame = face_server.preprocess_camera_frame(frame)
-        recognition_result = face_server.recognize_face_with_averaging(processed_frame)
-        processing_time = time.time() - start_time
+        recognition_result = enhanced_recognition.recognize_with_environment(
+            processed_frame, 
+            session_id=f"camera_{int(time.time())}"
+        )
+        
+        if recognition_result.get('faces'):
+            primary_face = recognition_result['faces'][0] if recognition_result['faces'] else None
+            recognition_result = {
+                'recognized': primary_face['recognized'] if primary_face else False,
+                'name': primary_face['name'] if primary_face else None,
+                'confidence': primary_face['confidence'] if primary_face else 0.0,
+                'quality_score': primary_face.get('quality', 0.0) if primary_face else 0.0,
+                'message': recognition_result.get('summary', 'Processing...'),
+                'environment': recognition_result.get('environment'),
+                'all_faces': recognition_result.get('faces', [])
+            }
+        
+        def safe_convert(obj):
+            """Convert all types to JSON-serializable native Python types"""
+            if obj is None:
+                return None
+            elif isinstance(obj, (bool, np.bool_)):
+                return bool(obj)
+            elif isinstance(obj, (int, np.integer)):
+                return int(obj)
+            elif isinstance(obj, (float, np.floating)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {key: safe_convert(value) for key, value in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [safe_convert(item) for item in obj]
+            elif isinstance(obj, str):
+                return str(obj)
+            else:
+                return str(obj)
         
         response_data = {
-            'recognized': recognition_result.get('recognized', False),
-            'message': recognition_result.get('message', 'Processing...'),
-            'confidence': recognition_result.get('confidence', 0.0),
-            'confidence_level': recognition_result.get('confidence_level', 'unknown'),
-            'quality_score': recognition_result.get('quality_score', 0.0),
-            'processing_time': recognition_result.get('processing_time', 0.0),
-            'method_used': recognition_result.get('method_used', 'unknown'),
-            'name': recognition_result.get('name', None),
+            'recognized': bool(recognition_result.get('recognized', False)),
+            'message': str(recognition_result.get('message', 'Processing...')),
+            'confidence': float(recognition_result.get('confidence', 0.0)),
+            'confidence_level': str(recognition_result.get('confidence_level', 'unknown')),
+            'quality_score': float(recognition_result.get('quality_score', 0.0)),
+            'processing_time': float(recognition_result.get('processing_time', 0.0)),
+            'method_used': str(recognition_result.get('method_used', 'unknown')),
+            'name': str(recognition_result.get('name')) if recognition_result.get('name') else None,
             'timestamp': datetime.now().isoformat()
         }
+        
+        if recognition_result.get('environment'):
+            env = recognition_result['environment']
+            response_data['environment'] = {
+                'scene': {
+                    'scene': str(env.get('scene', {}).get('scene', 'unknown')),
+                    'confidence': float(env.get('scene', {}).get('confidence', 0.0)),
+                    'reasoning': safe_convert(env.get('scene', {}).get('reasoning', [])),
+                    'object_count': int(env.get('scene', {}).get('object_count', 0))
+                },
+                'objects': safe_convert(env.get('objects', [])),
+                'object_summary': safe_convert(env.get('object_summary', {})),
+                'environment_description': str(env.get('environment_description', ''))
+            }
+        
+        if recognition_result.get('all_faces'):
+            response_data['all_faces'] = []
+            for face in recognition_result['all_faces']:
+                safe_face = {
+                    'name': str(face.get('name')) if face.get('name') else None,
+                    'recognized': bool(face.get('recognized', False)),
+                    'confidence': float(face.get('confidence', 0.0)),
+                    'quality': float(face.get('quality', 0.0)),
+                    'position': str(face.get('position', 'unknown'))
+                }
+                if face.get('bbox'):
+                    safe_face['bbox'] = [float(x) for x in face['bbox']]
+                response_data['all_faces'].append(safe_face)
 
         if include_image and not recognition_only:
             frame_base64 = face_server.frame_to_base64_quality(frame, image_quality)
@@ -2325,8 +2396,6 @@ def get_camera_frame():
             response_data['image'] = frame_base64
         elif include_image:
             response_data['image'] = ''
-        else:
-            pass
             
         return jsonify(response_data)
         
@@ -2341,6 +2410,7 @@ def get_camera_frame():
             'confidence': 0.0,
             'timestamp': datetime.now().isoformat()
         }), 500
+
 
 def get_local_ip():
     """Get local IP address"""
@@ -2535,6 +2605,7 @@ def get_camera_frame_add_friend():
         return jsonify({'success': False, 'error': str(e)}), 500
     
 
+create_enhanced_endpoints(app, face_server, enhanced_recognition)
 
 if __name__ == '__main__':
     print("="*80)

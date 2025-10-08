@@ -592,3 +592,124 @@
     border-radius: 8px;
     border: 2px solid var(--border-color);
 }
+
+.scene-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 20px 0;
+}
+
+.scene-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.scene-label {
+    min-width: 150px;
+    font-weight: 600;
+}
+
+.scene-bar-container {
+    flex: 1;
+    height: 30px;
+    background: var(--background-tertiary);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.scene-bar {
+    height: 100%;
+    border-radius: var(--radius-sm);
+    transition: width 0.3s ease;
+}
+
+.scene-count {
+    min-width: 80px;
+    text-align: right;
+    font-weight: 500;
+}
+
+.objects-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    margin: 15px 0;
+}
+
+.object-badge {
+    background: var(--background-tertiary);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.object-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-sm);
+}
+
+.object-name {
+    font-weight: 600;
+    font-size: 0.9em;
+    margin-bottom: 5px;
+}
+
+.object-count {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
+.combinations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.combination-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--background-tertiary);
+    padding: 12px 15px;
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--primary-color);
+}
+
+.combination-rank {
+    background: var(--primary-color);
+    color: white;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85em;
+}
+
+.combination-people {
+    flex: 1;
+    margin: 0 15px;
+    font-weight: 600;
+}
+
+.combination-count {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+}
+
+.empty-state h3 {
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
