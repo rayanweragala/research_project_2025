@@ -3,6 +3,19 @@ let recognitionInterval;
 let currentStats = {};
 let capturedImages = [];
 let previewInterval;
+let socket = null;
+let useWebSocket = true; 
+let wsReconnectAttempts = 0;
+let wsMaxReconnectAttempts = 3;
+
+let streamConfig = {
+  frameRate: 25, 
+  quality: 70,  
+  lastFrameTime: 0,
+  avgLatency: 0,
+  latencyCount: 0,
+  drawBoxes: true
+};
 
 function openAddPersonModal() {
   const modal = document.getElementById("addPersonModal");
@@ -221,7 +234,13 @@ function startRecognition() {
           document.getElementById("status").innerHTML =
             "Recognition System Active";
           document.getElementById("status").className = "status success";
-          recognitionInterval = setInterval(getServerFrame, 1000);
+          
+          if (useWebSocket) {
+            initWebSocketStream();
+          } else {
+            initHTTPStream();
+          }
+
           showToast(
             "Camera system initialized successfully",
             "success",
@@ -248,13 +267,164 @@ function startRecognition() {
   }
 }
 
+function initWebSocketStream() {
+  try {
+    if (typeof io === 'undefined') {
+      console.log("Socket.IO library not loaded, falling back to HTTP");
+      useWebSocket = false;
+      initHTTPStream();
+      return;
+    }
+    
+    console.log("Initializing WebSocket stream...");
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = window.location.port ? `:${window.location.port}` : '';
+    const wsUrl = `${window.location.protocol}//${host}${port}`;
+    
+    socket = io(wsUrl, {
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: wsMaxReconnectAttempts,
+      transports: ['websocket', 'polling'],
+      upgrade: true,
+      path: '/socket.io/',
+      timeout: 20000,
+      query: {
+        transport: 'websocket'
+      }
+    });
+    
+    socket.on('connect', function() {
+      console.log('✓ WebSocket connected:', socket.id);
+      wsReconnectAttempts = 0;
+      
+      const statusEl = document.getElementById("status");
+      if (statusEl) {
+        statusEl.innerHTML = "Recognition System Active (WebSocket)";
+        statusEl.className = "status success";
+      }
+      
+      showToast("Connected via WebSocket (faster)", "success", "Stream Mode");
+    });
+    
+    socket.on('connected', function(data) {
+      console.log('✓ Server responded:', data);
+    });
+    
+    socket.on('frame_update', function(data) {
+      if (!recognitionActive) return;
+      
+      const cameraFeed = document.getElementById("cameraFeed");
+      if (cameraFeed && data.image) {
+        cameraFeed.src = "data:image/jpeg;base64," + data.image;
+      }
+      
+      displayResult(data);
+      updateCurrentResult(data);
+    });
+    
+    socket.on('disconnect', function(reason) {
+      console.log('WebSocket disconnected. Reason:', reason);
+      
+      if (reason === 'io server disconnect') {
+        console.log("Server disconnected, attempting reconnect...");
+        socket.connect();
+      } else if (recognitionActive && wsReconnectAttempts < wsMaxReconnectAttempts) {
+        wsReconnectAttempts++;
+        showToast(
+          `WebSocket disconnected. Reconnecting... (${wsReconnectAttempts}/${wsMaxReconnectAttempts})`,
+          "warning",
+          "Connection"
+        );
+      } else if (recognitionActive) {
+        console.log("Max reconnection attempts reached, falling back to HTTP");
+        useWebSocket = false;
+        if (socket) {
+          socket.disconnect();
+          socket = null;
+        }
+        initHTTPStream();
+        showToast("Switched to HTTP mode (polling)", "info", "Stream Mode");
+      }
+    });
+    
+    socket.on('connect_error', function(error) {
+      console.error('✗ WebSocket connection error:', error);
+      wsReconnectAttempts++;
+      
+      if (wsReconnectAttempts >= wsMaxReconnectAttempts) {
+        console.log("WebSocket failed after max retries, using HTTP fallback");
+        useWebSocket = false;
+        if (socket) {
+          socket.disconnect();
+          socket = null;
+        }
+        initHTTPStream();
+        showToast("Using HTTP mode (slower)", "warning", "Stream Mode");
+      }
+    });
+    
+    socket.on('error', function(error) {
+      console.error('✗ WebSocket error event:', error);
+      if (recognitionActive) {
+        showToast("WebSocket error, retrying...", "warning", "Connection");
+      }
+    });
+    
+    socket.on('connect_timeout', function() {
+      console.error('✗ WebSocket connection timeout');
+      wsReconnectAttempts++;
+      if (wsReconnectAttempts >= wsMaxReconnectAttempts) {
+        useWebSocket = false;
+        if (socket) {
+          socket.disconnect();
+          socket = null;
+        }
+        initHTTPStream();
+      }
+    });
+    
+  } catch (error) {
+    console.error("✗ WebSocket initialization error:", error);
+    useWebSocket = false;
+    if (socket) {
+      try {
+        socket.disconnect();
+      } catch (e) {}
+      socket = null;
+    }
+    initHTTPStream();
+    showToast("WebSocket unavailable, using HTTP", "info", "Stream Mode");
+  }
+}
+
+
+function initHTTPStream() {
+  streamConfig.frameRate = 2;  
+  recognitionInterval = setInterval(getServerFrame, 1000 / streamConfig.frameRate);
+  
+  const statusEl = document.getElementById("status");
+  if (statusEl) {
+    statusEl.innerHTML = "Recognition System Active (HTTP)";
+  }
+}
+
 function stopRecognition() {
   recognitionActive = false;
   document.getElementById("status").innerHTML =
     '<span class="loading-spinner"></span>Terminating camera system...';
 
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  
   if (recognitionInterval) {
     clearInterval(recognitionInterval);
+    recognitionInterval = null;
   }
 
   fetch("/api/camera/stop", { method: "POST" })
@@ -272,18 +442,16 @@ function stopRecognition() {
       document.getElementById("status").innerHTML =
         "Recognition System Terminated";
       document.getElementById("status").className = "status warning";
-      showToast(
-        "Recognition system terminated (connection lost)",
-        "warning",
-        "System Stopped"
-      );
     });
 }
 
 function getServerFrame() {
   if (!recognitionActive) return;
 
-  fetch("/api/camera/frame")
+  const requestStart = Date.now();
+  const url = `/api/camera/frame?quality=${streamConfig.quality}&draw_boxes=${streamConfig.drawBoxes}`;
+
+  fetch(url)
     .then((response) => {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -291,24 +459,67 @@ function getServerFrame() {
       return response.json();
     })
     .then((data) => {
+      const requestEnd = Date.now();
+      const latency = requestEnd - requestStart;
+      
+      streamConfig.latencyCount++;
+      streamConfig.avgLatency = 
+        (streamConfig.avgLatency * (streamConfig.latencyCount - 1) + latency) / streamConfig.latencyCount;
+      
+      if (streamConfig.latencyCount % 10 === 0) {  
+        if (streamConfig.avgLatency > 1500) {  
+          streamConfig.quality = Math.max(50, streamConfig.quality - 5);
+          streamConfig.frameRate = Math.max(1, streamConfig.frameRate - 0.5);
+          console.log(`High latency detected (${streamConfig.avgLatency.toFixed(0)}ms). Reducing quality to ${streamConfig.quality}%`);
+          
+          if (recognitionInterval) {
+            clearInterval(recognitionInterval);
+            recognitionInterval = setInterval(getServerFrame, 1000 / streamConfig.frameRate);
+          }
+        } else if (streamConfig.avgLatency < 500) {  
+          streamConfig.quality = Math.min(85, streamConfig.quality + 5);
+          streamConfig.frameRate = Math.min(4, streamConfig.frameRate + 0.5);
+          console.log(`Low latency (${streamConfig.avgLatency.toFixed(0)}ms). Increasing quality to ${streamConfig.quality}%`);
+          
+          if (recognitionInterval) {
+            clearInterval(recognitionInterval);
+            recognitionInterval = setInterval(getServerFrame, 1000 / streamConfig.frameRate);
+          }
+        }
+      }
+
       if (data.image) {
         const cameraFeed = document.getElementById("cameraFeed");
         if (cameraFeed) {
           cameraFeed.src = "data:image/jpeg;base64," + data.image;
         }
-        displayResult(data);
-        updateCurrentResult(data);
-      } else if (data.error) {
-        displayResult({
-          recognized: false,
-          name: null,
-          confidence: 0,
-          message: data.error,
-          quality_score: 0,
-          processing_time: 0,
-          error: true,
-        });
       }
+      
+      displayResult({
+        recognized: data.recognized || false,
+        name: data.name || null,
+        confidence: data.confidence || 0,
+        quality_score: data.quality_score || 0,
+        processing_time: data.processing_time || 0,
+        method_used: data.method_used || 'http',
+        message: data.message || (data.recognized ? `Recognized ${data.name}` : 'Unknown person'),
+        error: data.error || false,
+        confidence_level: data.confidence_level || 'unknown',
+        environment: data.environment,
+        all_faces: data.all_faces
+      });
+      
+      updateCurrentResult({
+        recognized: data.recognized || false,
+        name: data.name || null,
+        confidence: data.confidence || 0,
+        quality_score: data.quality_score || 0,
+        message: data.message || '',
+        environment: data.environment,
+        all_faces: data.all_faces,
+        method_used: data.method_used || 'http',
+        confidence_level: data.confidence_level || 'unknown'
+      });
     })
     .catch((err) => {
       console.error("Frame error:", err);
@@ -323,6 +534,92 @@ function getServerFrame() {
       });
     });
 }
+function toggleStreamMode() {
+  if (!recognitionActive) {
+    showToast("Start recognition first", "warning", "Stream Mode");
+    return;
+  }
+  
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  if (recognitionInterval) {
+    clearInterval(recognitionInterval);
+    recognitionInterval = null;
+  }
+  
+  useWebSocket = !useWebSocket;
+  
+  if (useWebSocket) {
+    initWebSocketStream();
+  } else {
+    initHTTPStream();
+  }
+  
+  const modeBtn = document.getElementById('toggleStreamModeBtn');
+  if (modeBtn) {
+    modeBtn.textContent = useWebSocket ? 'Use HTTP' : 'Use WebSocket';
+  }
+}
+
+
+function toggleBoundingBoxes() {
+  streamConfig.drawBoxes = !streamConfig.drawBoxes;
+  const button = document.getElementById('toggleBoxesBtn');
+  if (button) {
+    button.textContent = streamConfig.drawBoxes ? 'Hide Boxes' : 'Show Boxes';
+    button.className = streamConfig.drawBoxes ? 'button start' : 'button stop';
+  }
+  showToast(
+    `Bounding boxes ${streamConfig.drawBoxes ? 'enabled' : 'disabled'}`,
+    'info',
+    'Display Settings'
+  );
+}
+
+function increaseQuality() {
+  streamConfig.quality = Math.min(95, streamConfig.quality + 10);
+  showToast(`Quality increased to ${streamConfig.quality}%`, 'info', 'Quality Control');
+}
+
+function decreaseQuality() {
+  streamConfig.quality = Math.max(40, streamConfig.quality - 10);
+  showToast(`Quality decreased to ${streamConfig.quality}%`, 'info', 'Quality Control');
+}
+
+function increaseFrameRate() {
+  streamConfig.frameRate = Math.min(5, streamConfig.frameRate + 0.5);
+  if (recognitionInterval && recognitionActive) {
+    clearInterval(recognitionInterval);
+    recognitionInterval = setInterval(getServerFrame, 1000 / streamConfig.frameRate);
+  }
+  showToast(`Frame rate increased to ${streamConfig.frameRate.toFixed(1)} FPS`, 'info', 'Frame Rate');
+}
+
+function decreaseFrameRate() {
+  streamConfig.frameRate = Math.max(0.5, streamConfig.frameRate - 0.5);
+  if (recognitionInterval && recognitionActive) {
+    clearInterval(recognitionInterval);
+    recognitionInterval = setInterval(getServerFrame, 1000 / streamConfig.frameRate);
+  }
+  showToast(`Frame rate decreased to ${streamConfig.frameRate.toFixed(1)} FPS`, 'info', 'Frame Rate');
+}
+
+function updateStreamInfo() {
+  const infoElement = document.getElementById('streamInfo');
+  if (infoElement && recognitionActive) {
+    infoElement.innerHTML = `
+      <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 10px;">
+        Stream: ${streamConfig.frameRate.toFixed(1)} FPS | 
+        Quality: ${streamConfig.quality}% | 
+        Latency: ${streamConfig.avgLatency.toFixed(0)}ms
+      </div>
+    `;
+  }
+}
+
+setInterval(updateStreamInfo, 2000);
 
 function updateCurrentResult(data) {
   const currentResult = document.getElementById("currentResult");
@@ -1599,6 +1896,12 @@ function startPeriodicUpdates() {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
+  if (typeof io === 'undefined') {
+    console.warn("Socket.IO not loaded - WebSocket will be disabled");
+    useWebSocket = false;
+  } else {
+    console.log("Socket.IO library loaded");
+  }
   initializeDashboard();
   startPeriodicUpdates();
 
@@ -2033,3 +2336,9 @@ setInterval(() => {
 window.loadEnhancedAnalytics = loadEnhancedAnalytics;
 window.loadEnhancedLogs = loadEnhancedLogs;
 window.switchToEnhancedTab = switchToEnhancedTab;
+window.toggleBoundingBoxes = toggleBoundingBoxes;
+window.increaseQuality = increaseQuality;
+window.decreaseQuality = decreaseQuality;
+window.increaseFrameRate = increaseFrameRate;
+window.decreaseFrameRate = decreaseFrameRate;
+window.toggleStreamMode = toggleStreamMode;
