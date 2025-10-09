@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 import threading
 import time
+import os
 
 logging.basicConfig(level=logging.INFO)
 
@@ -60,35 +61,53 @@ class EnvironmentAnalyzer:
 
     def init_model(self):
         """
-        Initialize MobileNet SSD model 
+        Initialize MobileNet SSD model from local files
         """
         try:
             logging.info("Initializing MobileNet SSD for environment analysis...")
             
-            model_file = "frozen_inference_graph.pb"
-            config_file = "ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt"
-            
-            try:
-                self.net = cv2.dnn.readNetFromTensorflow(model_file, config_file)
-            except:
-                logging.info("Local model not found, using OpenCV's built-in model...")
-                model_url = "http://download.tensorflow.org/models/object_detection/ssd_mobilenet_v2_coco_2018_03_29.tar.gz"
+            model_paths = [
+                ("/opt/research_project/models/frozen_inference_graph.pb",
+                "/opt/research_project/models/ssd_mobilenet_v2_coco_2018_03_29.pbtxt"),
 
-                self.net = None
-                logging.warning("Model not loaded - using fallback detection")
+            ]
+            
+            model_loaded_successfully = False
+            
+            for model_file, config_file in model_paths:
+                if os.path.exists(model_file) and os.path.exists(config_file):
+                    logging.info(f"Found model files: {model_file}")
+                    logging.info(f"Model size: {os.path.getsize(model_file) / (1024*1024):.2f} MB")
+                    try:
+                        self.net = cv2.dnn.readNetFromTensorflow(model_file, config_file)
+                        model_loaded_successfully = True
+                        logging.info("✓ MobileNet SSD loaded successfully!")
+                        break
+                    except Exception as e:
+                        logging.error(f"Failed to load from {model_file}: {e}")
+                        continue
+                else:
+                    logging.debug(f"Model not found at: {model_file}")
+            
+            if model_loaded_successfully:
+                self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+                self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+                self.classes = self.coco_classes
+                self.model_loaded = True
+                logging.info(f"✓ Environment analyzer ready with {len(self.coco_classes)} object classes")
+                logging.info("✓ Will detect: person, chair, laptop, book, cup, bottle, etc.")
+            else:
+                logging.warning("="*60)
+                logging.warning(" MODEL FILES NOT FOUND!")
+                logging.warning("="*60)
                 self.model_loaded = False
-                return
-            
-            self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-            self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-            
-            self.classes = self.coco_classes
-            self.model_loaded = True
-            logging.info("Environment analyzer initialized successfully")
+                self.net = None
             
         except Exception as e:
-            logging.error(f"Failed to initialize environment analyzer: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
             self.model_loaded = False
+            self.net = None
 
     def detect_objects(self, frame):
         """
@@ -149,9 +168,9 @@ class EnvironmentAnalyzer:
             edges = cv2.Canny(gray, 30, 100)
             contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
-            for i, contour in enumerate(contours[:10]):  
+            for i, contour in enumerate(contours[:15]):  
                 area = cv2.contourArea(contour)
-                if area > 1000:  
+                if area > 500:  
                     x, y, w, h = cv2.boundingRect(contour)
                     aspect_ratio = w / float(h) if h > 0 else 0
                     
@@ -159,8 +178,10 @@ class EnvironmentAnalyzer:
                         obj_type = 'book'
                     elif aspect_ratio > 2 and area > 3000:
                         obj_type = 'desk'
-                    elif 0.3 < aspect_ratio < 0.7:
+                    elif 0.3 < aspect_ratio < 0.7 and 500 < area < 2000:
                         obj_type = 'bottle'
+                    elif 1.5 < aspect_ratio < 3 and 1000 < area < 5000:
+                        obj_type = 'accessory'  
                     else:
                         obj_type = 'object'
                     

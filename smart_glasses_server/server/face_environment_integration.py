@@ -34,9 +34,10 @@ class EnhancedRecognitionResult:
         logging.info(f"Enhanced Recognition initialized - Environment: {enable_environment}, Multi-person: {enable_multi_person}")
     
     def init_enhanced_database(self):
-        """Create enhanced database tables for environment and multi-person logging"""
+        """Create database tables for environment and multi-person logging"""
         try:
-            conn = sqlite3.connect(self.face_server.db_path)
+            conn = sqlite3.connect(self.face_server.db_path, timeout=10.0)
+            conn.execute('PRAGMA journal_mode=WAL')  
             cursor = conn.cursor()
             
             cursor.execute('''
@@ -258,54 +259,72 @@ class EnhancedRecognitionResult:
     
     def log_enhanced_recognition(self, result):
         """Log enhanced recognition result to database"""
-        try:
-            conn = sqlite3.connect(self.face_server.db_path)
-            cursor = conn.cursor()
-            
-            people_detected = len(result['faces'])
-            recognized_people = [f['name'] for f in result['faces'] if f['recognized']]
-            primary_person = recognized_people[0] if recognized_people else None
-            all_people_json = json.dumps([f['name'] for f in result['faces']])
-            
-            env = result.get('environment', {})
-            scene_type = env.get('scene', {}).get('scene', 'unknown')
-            scene_confidence = env.get('scene', {}).get('confidence', 0.0)
-            env_description = env.get('environment_description', '')
-            objects_json = json.dumps([obj['class'] for obj in env.get('objects', [])])
-            object_count = len(env.get('objects', []))
-            
-            avg_confidence = sum(f['confidence'] for f in result['faces']) / len(result['faces']) if result['faces'] else 0.0
-            avg_quality = sum(f.get('quality', 0) for f in result['faces']) / len(result['faces']) if result['faces'] else 0.0
-            
-            cursor.execute('''
-                INSERT INTO enhanced_recognition_logs 
-                (session_id, people_detected, primary_person, all_people, 
-                 scene_type, scene_confidence, environment_description, 
-                 detected_objects, object_count, confidence, quality_score, processing_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                result['session_id'], people_detected, primary_person, all_people_json,
-                scene_type, scene_confidence, env_description,
-                objects_json, object_count, avg_confidence, avg_quality, result['processing_time']
-            ))
-            
-            for face in result['faces']:
-                if face['recognized']:
-                    cursor.execute('''
-                        INSERT INTO multi_person_logs 
-                        (session_id, person_name, position_in_frame, confidence, face_size, quality_score)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (
-                        result['session_id'], face['name'], face['position'],
-                        face['confidence'], face.get('bbox', [0,0,100,100])[2] - face.get('bbox', [0,0,100,100])[0],
-                        face.get('quality', 0.0)
-                    ))
-            
-            conn.commit()
-            conn.close()
-            
-        except Exception as e:
-            logging.error(f"Enhanced logging error: {e}")
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                conn = sqlite3.connect(self.face_server.db_path, timeout=10.0) 
+                conn.execute('PRAGMA journal_mode=WAL')  
+                cursor = conn.cursor()
+                
+                people_detected = len(result['faces'])
+                recognized_people = [f['name'] for f in result['faces'] if f['recognized']]
+                primary_person = recognized_people[0] if recognized_people else None
+                all_people_json = json.dumps([f['name'] for f in result['faces']])
+                
+                env = result.get('environment', {})
+                scene_type = env.get('scene', {}).get('scene', 'unknown')
+                scene_confidence = env.get('scene', {}).get('confidence', 0.0)
+                env_description = env.get('environment_description', '')
+                objects_json = json.dumps([obj['class'] for obj in env.get('objects', [])])
+                object_count = len(env.get('objects', []))
+                
+                avg_confidence = sum(f['confidence'] for f in result['faces']) / len(result['faces']) if result['faces'] else 0.0
+                avg_quality = sum(f.get('quality', 0) for f in result['faces']) / len(result['faces']) if result['faces'] else 0.0
+                
+                cursor.execute('''
+                    INSERT INTO enhanced_recognition_logs 
+                    (session_id, people_detected, primary_person, all_people, 
+                    scene_type, scene_confidence, environment_description, 
+                    detected_objects, object_count, confidence, quality_score, processing_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    result['session_id'], people_detected, primary_person, all_people_json,
+                    scene_type, scene_confidence, env_description,
+                    objects_json, object_count, avg_confidence, avg_quality, result['processing_time']
+                ))
+                
+                for face in result['faces']:
+                    if face['recognized']:
+                        cursor.execute('''
+                            INSERT INTO multi_person_logs 
+                            (session_id, person_name, position_in_frame, confidence, face_size, quality_score)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ''', (
+                            result['session_id'], face['name'], face['position'],
+                            face['confidence'], face.get('bbox', [0,0,100,100])[2] - face.get('bbox', [0,0,100,100])[0],
+                            face.get('quality', 0.0)
+                        ))
+                
+                conn.commit()
+                conn.close()
+                break 
+                
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower():
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        time.sleep(0.1 * retry_count)  
+                        continue
+                    else:
+                        logging.error(f"Enhanced logging failed after {max_retries} retries: {e}")
+                else:
+                    logging.error(f"Enhanced logging error: {e}")
+                    break
+            except Exception as e:
+                logging.error(f"Enhanced logging error: {e}")
+                break
     
     def get_environment_statistics(self, days=7):
         """Get environment statistics for the last N days"""
@@ -477,9 +496,9 @@ def create_enhanced_endpoints(app, face_server, enhanced_recognition):
             if date_str:
                 cursor.execute('''
                     SELECT session_id, timestamp, people_detected, primary_person, 
-                           all_people, scene_type, scene_confidence, 
-                           environment_description, object_count, confidence, 
-                           quality_score, processing_time
+                        all_people, scene_type, scene_confidence, 
+                        environment_description, object_count, confidence, 
+                        quality_score, processing_time
                     FROM enhanced_recognition_logs
                     WHERE DATE(timestamp) = ?
                     ORDER BY timestamp DESC
@@ -488,9 +507,9 @@ def create_enhanced_endpoints(app, face_server, enhanced_recognition):
             else:
                 cursor.execute('''
                     SELECT session_id, timestamp, people_detected, primary_person, 
-                           all_people, scene_type, scene_confidence, 
-                           environment_description, object_count, confidence, 
-                           quality_score, processing_time
+                        all_people, scene_type, scene_confidence, 
+                        environment_description, object_count, confidence, 
+                        quality_score, processing_time
                     FROM enhanced_recognition_logs
                     ORDER BY timestamp DESC
                     LIMIT ?
@@ -498,19 +517,25 @@ def create_enhanced_endpoints(app, face_server, enhanced_recognition):
             
             logs = []
             for row in cursor.fetchall():
+                # DECODE BYTES TO STRING
+                def safe_decode(value):
+                    if isinstance(value, bytes):
+                        return value.decode('utf-8', errors='ignore')
+                    return value
+                
                 logs.append({
-                    'session_id': row[0],
-                    'timestamp': row[1],
-                    'people_detected': row[2],
-                    'primary_person': row[3],
-                    'all_people': json.loads(row[4]) if row[4] else [],
-                    'scene_type': row[5],
-                    'scene_confidence': row[6],
-                    'environment_description': row[7],
-                    'object_count': row[8],
-                    'confidence': row[9],
-                    'quality_score': row[10],
-                    'processing_time': row[11]
+                    'session_id': safe_decode(row[0]),
+                    'timestamp': safe_decode(row[1]),
+                    'people_detected': int(row[2]) if row[2] else 0,
+                    'primary_person': safe_decode(row[3]),
+                    'all_people': json.loads(safe_decode(row[4])) if row[4] else [],
+                    'scene_type': safe_decode(row[5]),
+                    'scene_confidence': float(row[6]) if row[6] else 0.0,
+                    'environment_description': safe_decode(row[7]),
+                    'object_count': int(row[8]) if row[8] else 0,
+                    'confidence': float(row[9]) if row[9] else 0.0,
+                    'quality_score': float(row[10]) if row[10] else 0.0,
+                    'processing_time': float(row[11]) if row[11] else 0.0
                 })
             
             conn.close()

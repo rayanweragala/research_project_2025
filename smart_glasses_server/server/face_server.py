@@ -303,7 +303,8 @@ class EnhancedFaceRecognitionServer:
     def init_database(self):
         """Initialize SQLite database with tables"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=10.0)
+            conn.execute('PRAGMA journal_mode=WAL') 
             cursor = conn.cursor()
             
             cursor.execute('''
@@ -361,7 +362,7 @@ class EnhancedFaceRecognitionServer:
             
             conn.commit()
             conn.close()
-            logging.info("Enhanced database initialized successfully")
+            logging.info(" database initialized successfully")
             
         except Exception as e:
             logging.error(f"Database initialization error: {e}")
@@ -383,7 +384,18 @@ class EnhancedFaceRecognitionServer:
             results = cursor.fetchall()
             
             for name, encoding_blob, quality, weight, is_outlier in results:
+                if isinstance(name, bytes):
+                    name = name.decode('utf-8', errors='ignore')
+                
                 encoding = np.frombuffer(encoding_blob, dtype=np.float32)
+                
+                try:
+                    quality = float(quality) if quality is not None else 0.5
+                    weight = float(weight) if weight is not None else 1.0
+                except (ValueError, TypeError):
+                    quality = 0.5
+                    weight = 1.0
+                
                 if name not in self.face_encodings:
                     self.face_encodings[name] = []
                 
@@ -397,10 +409,15 @@ class EnhancedFaceRecognitionServer:
             logging.info(f"Loaded {len(self.face_encodings)} people from database")
             
             for name in self.face_encodings:
-                self.face_encodings[name].sort(key=lambda x: x['quality'], reverse=True)
-                
+                try:
+                    self.face_encodings[name].sort(key=lambda x: float(x['quality']), reverse=True)
+                except Exception as e:
+                    logging.warning(f"Error sorting encodings for {name}: {e}")
+                    
         except Exception as e:
             logging.error(f"Error loading face database: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
 
     def extract_face_encoding(self, image):
         """face encoding extraction with better quality assessment"""
@@ -626,7 +643,7 @@ class EnhancedFaceRecognitionServer:
 
     
     def recognize_face_with_averaging(self, image):
-        """Enhanced recognition with better matching"""
+        """ recognition with better matching"""
         start_time = time.time()
         
         try:
@@ -641,11 +658,13 @@ class EnhancedFaceRecognitionServer:
                     'processing_time': float(time.time() - start_time),
                     'confidence_level': 'unknown',
                     'quality_score': 0.0,
-                    'method_used': 'enhanced_matching'
+                    'method_used': 'no_face_detected'
                 }
             
             best_match = None
             best_confidence = 0.0
+
+            
             
             for name, stored_data in self.face_encodings.items():
                 confidences = []
@@ -697,7 +716,6 @@ class EnhancedFaceRecognitionServer:
                         best_match = name
             
             processing_time = time.time() - start_time
-            
             confidence_level = self.get_confidence_level(best_confidence)
             
             if best_confidence > 0.40: 
@@ -718,10 +736,10 @@ class EnhancedFaceRecognitionServer:
                     'recognized': False,
                     'name': None,
                     'confidence': float(best_confidence),
-                    'message': "Unknown person",
+                    'message': "Confidence too low for recognition", 
                     'quality_score': float(quality),
                     'processing_time': float(processing_time),
-                    'method_used': 'enhanced_matching',
+                    'method_used': 'low_confidence',
                     'confidence_level': confidence_level
                 }
                 
@@ -921,19 +939,38 @@ class EnhancedFaceRecognitionServer:
             logging.error(f"Cache store error: {e}")
 
     def log_recognition(self, person_name, confidence, quality_score, processing_time, method_used):
-        """ recognition logging"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO recognition_logs 
-                (person_name, confidence, quality_score, processing_time, method_used)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (person_name, confidence, quality_score, processing_time, method_used))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            logging.error(f"Error logging recognition: {e}")
+        """Recognition logging with retry logic"""
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=10.0)
+                conn.execute('PRAGMA journal_mode=WAL')
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    INSERT INTO recognition_logs 
+                    (person_name, confidence, quality_score, processing_time, method_used)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (person_name, confidence, quality_score, processing_time, method_used))
+                
+                conn.commit()
+                conn.close()
+                break
+                
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower():
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        time.sleep(0.05 * retry_count)
+                        continue
+                    else:
+                        logging.warning(f"Recognition log skipped after {max_retries} retries")
+                break
+            except Exception as e:
+                logging.error(f"Error logging recognition: {e}")
+                break
 
     def start_camera(self):
         """ camera initialization with Rpi camera priority"""

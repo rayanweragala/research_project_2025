@@ -1307,9 +1307,16 @@ function formatMethod(method) {
     'enhanced_matching': 'Enhanced Matching',
     'outlier_removed': 'Outlier Filtered',
     'weighted_average': 'Weighted Average',
-    'adaptive': 'Adaptive'
+    'adaptive': 'Adaptive',
+    'low_confidence': 'Low Confidence',
+    'no_face_detected': 'No Face',
+    'error': 'Error'
   };
 
+  if (!method || method === 'unknown') {
+    return 'Standard';
+  }
+  
   if (method.includes('_')) {
     const parts = method.split('_');
     if (methodMap[method]) {
