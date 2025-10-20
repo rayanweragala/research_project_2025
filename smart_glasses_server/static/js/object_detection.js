@@ -1,5 +1,4 @@
 // Object Detection JavaScript
-const API_BASE_URL = 'http://localhost:5005/api';
 let detectionInterval = null;
 let isDetecting = false;
 
@@ -12,7 +11,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function checkHealth() {
     try {
-        const response = await fetch(`${API_BASE_URL}/health`);
+        const response = await fetch("/api/health");
         const data = await response.json();
         console.log('Health check:', data);
         
@@ -33,7 +32,7 @@ async function startDetection() {
     try {
         updateStatus('offline', 'Starting camera...');
         
-        const response = await fetch(`${API_BASE_URL}/camera/start`, {
+        const response = await fetch("api/camera/start", {
             method: 'POST'
         });
         const result = await response.json();
@@ -60,7 +59,7 @@ async function stopDetection() {
             detectionInterval = null;
         }
         
-        await fetch(`${API_BASE_URL}/camera/stop`, {
+        await fetch("/api/camera/stop", {
             method: 'POST'
         });
         
@@ -79,7 +78,7 @@ async function stopDetection() {
 
 async function getDetection() {
     try {
-        const response = await fetch(`${API_BASE_URL}/camera/detect`);
+        const response = await fetch("/api/camera/detect");
         const data = await response.json();
         
         if (data.success && data.image) {
@@ -121,7 +120,7 @@ function displayDetections(detections) {
 
 async function loadStatistics() {
     try {
-        const response = await fetch(`${API_BASE_URL}/statistics`);
+        const response = await fetch("/statistics");
         const data = await response.json();
         
         if (data.stats) {
@@ -139,7 +138,7 @@ async function loadStatistics() {
 
 async function loadTranslations() {
     try {
-        const response = await fetch(`${API_BASE_URL}/translations`);
+        const response = await fetch("/translations");
         const data = await response.json();
         
         if (data.translations) {
