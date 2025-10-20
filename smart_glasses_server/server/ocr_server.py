@@ -33,13 +33,13 @@ except ImportError:
 
 from flask_cors import CORS
 
-BASE_DIR = '/opt/research_project'
-TEMPLATES_DIR = '/opt/research_project/templates'
-STATIC_DIR = '/opt/research_project/static'
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
+STATIC_DIR = os.path.join(BASE_DIR,'static')
 app = Flask(
     __name__,
-    template_folder=TEMPLATES_DIR,
-    static_folder=STATIC_DIR
+     template_folder=os.path.abspath(TEMPLATES_DIR),
+    static_folder=os.path.abspath(STATIC_DIR)
 )
 CORS(app)
 

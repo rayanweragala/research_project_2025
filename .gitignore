@@ -42,3 +42,7 @@ Thumbs.db
 *.rar
 *.kotlin_module
 
+smart_glasses_server/models/detect.tflite
+smart_glasses_server/models/frozen_inference_graph.pb
+smart_glasses_server/models/labelmap.txt
+smart_glasses_server/models/ssd_mobilenet_v2_coco_2018_03_29.pbtxt
