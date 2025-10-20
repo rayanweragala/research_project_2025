@@ -21,9 +21,6 @@ import atexit
 import threading
 import socket
 from collections import defaultdict, deque
-from flask_socketio import SocketIO, emit, disconnect
-import threading
-import queue
 
 from environment_analyzer import EnvironmentAnalyzer
 from face_environment_integration import EnhancedRecognitionResult, create_enhanced_endpoints
@@ -53,146 +50,7 @@ app = Flask(
 )
 CORS(app)
 
-socketio = SocketIO(
-    app, 
-    cors_allowed_origins="*", 
-    async_mode='threading',
-    ping_timeout=10, 
-    ping_interval=5,
-    engineio_logger=False, 
-    logger=False,
-    transports=['websocket', 'polling']
-)
 
-@socketio.on('connect', namespace='/')
-def handle_websocket_connect():
-    """Handle WebSocket connection"""
-    try:
-        logging.info(f"Client connected: {request.sid}")
-        emit('connected', {'data': 'Connected to face recognition server', 'status': 'ok'})
-        return True
-    except Exception as e:
-        logging.error(f"WebSocket connect error: {e}")
-        return False
-
-@socketio.on('start_stream', namespace='/')
-def handle_start_stream():
-    """Start streaming frames over WebSocket"""
-    try:
-        logging.info(f"Stream requested by {request.sid}")
-        socketio.start_background_task(send_frames_to_client, request.sid)
-        emit('stream_started', {'status': 'ok'})
-    except Exception as e:
-        logging.error(f"Stream start error: {e}")
-        emit('error', {'message': str(e)})
-
-
-@socketio.on('stop_stream', namespace='/')
-def handle_stop_stream():
-    """Stop streaming frames"""
-    try:
-        logging.info(f"Stream stopped by {request.sid}")
-        emit('stream_stopped', {'status': 'ok'})
-    except Exception as e:
-        logging.error(f"Stream stop error: {e}")
-
-
-@socketio.on('disconnect', namespace='/')
-def handle_websocket_disconnect():
-    """Handle WebSocket disconnection"""
-    try:
-        logging.info(f"Client disconnected: {request.sid}")
-    except Exception as e:
-        logging.error(f"WebSocket disconnect error: {e}")
-
-def send_frames_to_client(session_id):
-    """Send frames to a specific client over WebSocket"""
-    frame_count = 0
-    last_send_time = time.time()
-    target_fps = 5  
-    frame_interval = 1.0 / target_fps
-    
-    logging.info(f"Starting frame stream for {session_id}")
-    
-    try:
-        while True:
-            try:
-                if not face_server.camera_active:
-                    break
-                
-                now = time.time()
-                if now - last_send_time < frame_interval:
-                    time.sleep(0.01)
-                    continue
-                
-                frame = face_server.capture_frame()
-                if frame is None:
-                    continue
-                
-                processed_frame = face_server.preprocess_camera_frame(frame)
-                
-                recognition_result = enhanced_recognition.recognize_with_environment(
-                    processed_frame,
-                    session_id=f"ws_{session_id}_{frame_count}"
-                )
-                
-                display_frame = frame.copy()
-                if recognition_result.get('faces'):
-                    for face in recognition_result['faces']:
-                        if face.get('bbox'):
-                            bbox = face['bbox']
-                            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                            
-                            x1 = max(0, min(x1, display_frame.shape[1]))
-                            y1 = max(0, min(y1, display_frame.shape[0]))
-                            x2 = max(0, min(x2, display_frame.shape[1]))
-                            y2 = max(0, min(y2, display_frame.shape[0]))
-                            
-                            if x2 > x1 and y2 > y1:
-                                color = (0, 255, 0) if face['recognized'] else (0, 165, 255)
-                                cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
-                
-                frame_base64 = face_server.frame_to_base64_quality(display_frame, 70)
-                
-                if frame_base64:
-                    primary_face = recognition_result.get('faces', [{}])[0] if recognition_result.get('faces') else {}
-                    
-                    socketio.emit(
-                        'frame_update',
-                        {
-                            'image': frame_base64,
-                            'recognized': primary_face.get('recognized', False),
-                            'name': primary_face.get('name'),
-                            'confidence': primary_face.get('confidence', 0.0),
-                            'quality_score': primary_face.get('quality', 0.0),
-                            'processing_time': primary_face.get('processing_time', 0.0),
-                            'method_used': primary_face.get('method_used', 'websocket'),
-                            'confidence_level': primary_face.get('confidence_level', 'unknown'),
-                            'message': recognition_result.get('summary', ''),
-                            'all_faces': recognition_result.get('faces', []),
-                            'environment': recognition_result.get('environment'),
-                            'timestamp': datetime.now().isoformat()
-                        },
-                        to=session_id,
-                        skip_sid=False
-                    )
-                    
-                    frame_count += 1
-                    last_send_time = now
-                    
-                    if frame_count % 50 == 0:
-                        logging.info(f"WebSocket: Sent {frame_count} frames to {session_id}")
-                
-            except Exception as e:
-                logging.error(f"Error in frame streaming loop: {e}")
-                time.sleep(0.1)
-                continue
-                
-    except GeneratorExit:
-        logging.info(f"Frame stream ended for {session_id}")
-    except Exception as e:
-        logging.error(f"Frame streaming error: {e}")
-        logging.error(traceback.format_exc())
 class EnhancedFaceRecognitionServer:
     def __init__(self):
         self.model = None
@@ -385,7 +243,6 @@ class EnhancedFaceRecognitionServer:
         except Exception as e:
             logging.error(f"USB camera initialization error: {e}")
             return False
-        
 
     def init_face_model(self):
         """Initialize InsightFace model with error handling"""
@@ -2443,14 +2300,14 @@ def stop_camera():
     
 @app.route('/api/camera/frame', methods=['GET'])
 def get_camera_frame():
-    """Get camera frame with face recognition and bounding boxes"""
+    """Get current camera frame with face recognition - FIXED VERSION"""
     try:
         include_image = request.args.get('include_image', 'true').lower() == 'true'
-        image_quality = int(request.args.get('quality', '75')) 
+        image_quality = int(request.args.get('quality', '85'))
         recognition_only = request.args.get('recognition_only', 'false').lower() == 'true'
-        draw_boxes = request.args.get('draw_boxes', 'true').lower() == 'true'  
         
         if not face_server.camera_active:
+            logging.warning("Camera not active")
             return jsonify({
                 'error': 'Camera not active',
                 'image': '',
@@ -2460,19 +2317,34 @@ def get_camera_frame():
                 'timestamp': datetime.now().isoformat()
             }), 500
         
-        frame = face_server.capture_frame()
-        if frame is None:
+        if face_server.camera_error:
+            logging.error(f"Camera error: {face_server.camera_error}")
             return jsonify({
-                'error': 'Failed to capture frame',
+                'error': face_server.camera_error,
                 'image': '',
                 'recognized': False,
-                'message': 'Frame capture failed',
+                'message': 'Camera error',
                 'confidence': 0.0,
                 'timestamp': datetime.now().isoformat()
             }), 500
+        
+        frame = face_server.capture_frame()
+        if frame is None:
+            logging.info("Attempting to restart camera...")
+            if face_server.start_camera():
+                frame = face_server.capture_frame()
+                
+            if frame is None:
+                return jsonify({
+                    'error': 'Failed to capture frame',
+                    'image': '',
+                    'recognized': False,
+                    'message': 'Frame capture failed',
+                    'confidence': 0.0,
+                    'timestamp': datetime.now().isoformat()
+                }), 500
 
         processed_frame = face_server.preprocess_camera_frame(frame)
-        
         recognition_result = enhanced_recognition.recognize_with_environment(
             processed_frame, 
             session_id=f"camera_{int(time.time())}"
@@ -2480,7 +2352,7 @@ def get_camera_frame():
         
         if recognition_result.get('faces'):
             primary_face = recognition_result['faces'][0] if recognition_result['faces'] else None
-            response_data = {
+            recognition_result = {
                 'recognized': primary_face['recognized'] if primary_face else False,
                 'name': primary_face['name'] if primary_face else None,
                 'confidence': primary_face['confidence'] if primary_face else 0.0,
@@ -2489,55 +2361,9 @@ def get_camera_frame():
                 'environment': recognition_result.get('environment'),
                 'all_faces': recognition_result.get('faces', [])
             }
-        else:
-            response_data = {
-                'recognized': False,
-                'name': None,
-                'confidence': 0.0,
-                'quality_score': 0.0,
-                'message': 'No faces detected',
-                'environment': recognition_result.get('environment'),
-                'all_faces': []
-            }
-        
-        if draw_boxes and frame is not None:
-            annotated_frame = frame.copy()
-            
-            if recognition_result.get('faces'):
-                for face in recognition_result['faces']:
-                    if face.get('bbox'):
-                        bbox = face['bbox']
-                        x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                        
-                        x1 = max(0, min(x1, frame.shape[1]))
-                        y1 = max(0, min(y1, frame.shape[0]))
-                        x2 = max(0, min(x2, frame.shape[1]))
-                        y2 = max(0, min(y2, frame.shape[0]))
-                        
-                        if x2 > x1 and y2 > y1: 
-                            if face['recognized']:
-                                color = (0, 255, 0) 
-                                label = f"{face['name']} ({face['confidence']*100:.0f}%)"
-                            else:
-                                color = (0, 165, 255)  
-                                label = f"Unknown ({face['confidence']*100:.0f}%)"
-                            
-                            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                            
-                            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-                            cv2.rectangle(annotated_frame, (x1, y1-25), (x1+label_size[0]+10, y1), color, -1)
-                            cv2.putText(annotated_frame, label, (x1+5, y1-8), 
-                                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            
-            if recognition_result.get('environment', {}).get('scene'):
-                scene = recognition_result['environment']['scene']
-                scene_text = f"{scene['scene'].replace('_', ' ')} ({scene['confidence']*100:.0f}%)"
-                cv2.putText(annotated_frame, scene_text, (10, 30),
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            
-            frame = annotated_frame
         
         def safe_convert(obj):
+            """Convert all types to JSON-serializable native Python types"""
             if obj is None:
                 return None
             elif isinstance(obj, (bool, np.bool_)):
@@ -2558,20 +2384,44 @@ def get_camera_frame():
                 return str(obj)
         
         response_data = {
-            'recognized': bool(response_data.get('recognized', False)),
-            'message': str(response_data.get('message', 'Processing...')),
-            'confidence': float(response_data.get('confidence', 0.0)),
-            'quality_score': float(response_data.get('quality_score', 0.0)),
-            'name': str(response_data.get('name')) if response_data.get('name') else None,
+            'recognized': bool(recognition_result.get('recognized', False)),
+            'message': str(recognition_result.get('message', 'Processing...')),
+            'confidence': float(recognition_result.get('confidence', 0.0)),
+            'confidence_level': str(recognition_result.get('confidence_level', 'unknown')),
+            'quality_score': float(recognition_result.get('quality_score', 0.0)),
+            'processing_time': float(recognition_result.get('processing_time', 0.0)),
+            'method_used': str(recognition_result.get('method_used', 'unknown')),
+            'name': str(recognition_result.get('name')) if recognition_result.get('name') else None,
             'timestamp': datetime.now().isoformat()
         }
         
-        if response_data.get('environment'):
-            env = safe_convert(response_data['environment'])
-            response_data['environment'] = env
+        if recognition_result.get('environment'):
+            env = recognition_result['environment']
+            response_data['environment'] = {
+                'scene': {
+                    'scene': str(env.get('scene', {}).get('scene', 'unknown')),
+                    'confidence': float(env.get('scene', {}).get('confidence', 0.0)),
+                    'reasoning': safe_convert(env.get('scene', {}).get('reasoning', [])),
+                    'object_count': int(env.get('scene', {}).get('object_count', 0))
+                },
+                'objects': safe_convert(env.get('objects', [])),
+                'object_summary': safe_convert(env.get('object_summary', {})),
+                'environment_description': str(env.get('environment_description', ''))
+            }
         
-        if response_data.get('all_faces'):
-            response_data['all_faces'] = safe_convert(response_data['all_faces'])
+        if recognition_result.get('all_faces'):
+            response_data['all_faces'] = []
+            for face in recognition_result['all_faces']:
+                safe_face = {
+                    'name': str(face.get('name')) if face.get('name') else None,
+                    'recognized': bool(face.get('recognized', False)),
+                    'confidence': float(face.get('confidence', 0.0)),
+                    'quality': float(face.get('quality', 0.0)),
+                    'position': str(face.get('position', 'unknown'))
+                }
+                if face.get('bbox'):
+                    safe_face['bbox'] = [float(x) for x in face['bbox']]
+                response_data['all_faces'].append(safe_face)
 
         if include_image and not recognition_only:
             frame_base64 = face_server.frame_to_base64_quality(frame, image_quality)
@@ -2597,6 +2447,7 @@ def get_camera_frame():
             'confidence': 0.0,
             'timestamp': datetime.now().isoformat()
         }), 500
+
 
 def get_local_ip():
     """Get local IP address"""
@@ -2875,13 +2726,11 @@ if __name__ == '__main__':
         print(f"Template found at {template_path}")
 
     try:
-        socketio.run(
-            app,
+        app.run(
             host='0.0.0.0',
             port=port,
             debug=False,
-            use_reloader=False,
-            log_output=False
+            threaded=True
         )
     except KeyboardInterrupt:
         print("\n\nShutting down face server...")
