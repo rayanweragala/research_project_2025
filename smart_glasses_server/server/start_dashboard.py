@@ -43,6 +43,12 @@ SERVICES = {
         'port': 5000,
         'url': f'http://{LOCAL_IP}:5000'
     },
+    'object': {
+        'name': 'Object Detection Service',
+        'script': 'object_detection_server.py',
+        'port': 5005,
+        'url': f'http://{LOCAL_IP}:5005'
+    },
     'ocr': {
         'name': 'OCR Processing Service',
         'script': 'ocr_server.py',
@@ -87,7 +93,7 @@ class ServiceManager:
 
     def check_required_files(self):
         """Check if all required files exist"""
-        required_files = ['face_server.py', 'ocr_server.py', 'ultrasonic_sensor.py']
+        required_files = ['face_server.py', 'object_detection_server.py', 'ocr_server.py', 'ultrasonic_sensor.py']
         missing_files = []
         
         for file in required_files:
@@ -265,7 +271,7 @@ service_manager = ServiceManager()
 @app.route('/')
 def dashboard():
     """Serve the main dashboard"""
-    return render_template('dashboard_index.html')
+    return render_template('dashboard.html')
 
 @app.route('/api/services/status')
 def get_services_status():
