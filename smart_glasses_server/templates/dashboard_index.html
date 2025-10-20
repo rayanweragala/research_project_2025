@@ -28,6 +28,7 @@
             <div class="nav-tabs">
                 <button class="nav-tab active" onclick="showService('overview')">Overview</button>
                 <button class="nav-tab" onclick="showService('face')">Face Recognition</button>
+                <button class="nav-tab" onclick="showService('object')">Object Detection</button>
                 <button class="nav-tab" onclick="showService('ocr')">OCR Processing</button>
                 <button class="nav-tab" onclick="showService('ultrasonic')">Distance Sensor</button>
             </div>
@@ -58,6 +59,29 @@
                         <div class="service-actions">
                             <button class="btn btn-primary" onclick="showService('face')">Open Interface</button>
                             <button class="btn btn-secondary" onclick="openInNew('http://localhost:5000')">New Window</button>
+                        </div>
+                    </div>
+
+                    <div class="service-card">
+                        <div class="service-header">
+                            <div class="service-icon">OD</div>
+                            <div class="flex-1">
+                                <h3 class="service-title">Object Detection</h3>
+                            </div>
+                        </div>
+                        <p class="service-description">
+                            Real-time object detection with Sinhala translation supporting 80+ common objects using TensorFlow Lite.
+                        </p>
+                        <div class="service-status">
+                            <div class="status-indicator status-offline" id="objectStatusIndicator">
+                                <div class="status-dot"></div>
+                                <span id="objectStatusText">Checking connection...</span>
+                            </div>
+                            <span class="text-muted">Port 5005</span>
+                        </div>
+                        <div class="service-actions">
+                            <button class="btn btn-primary" onclick="showService('object')">Open Interface</button>
+                            <button class="btn btn-secondary" onclick="openInNew('http://localhost:5005')">New Window</button>
                         </div>
                     </div>
 
@@ -120,7 +144,7 @@
                             <div class="text-sm text-muted">Dashboard Uptime</div>
                         </div>
                         <div class="text-center">
-                            <div class="text-2xl font-bold text-primary">3</div>
+                            <div class="text-2xl font-bold text-primary">4</div>
                             <div class="text-sm text-muted">Total Services</div>
                         </div>
                     </div>
@@ -129,12 +153,14 @@
         </div>
 
         <iframe id="face" class="service-frame" src="about:blank" data-src="http://localhost:5000"></iframe>
+        <iframe id="object" class="service-frame" src="about:blank" data-src="http://localhost:5005"></iframe>
         <iframe id="ocr" class="service-frame" src="about:blank" data-src="http://localhost:5002"></iframe>
         <iframe id="ultrasonic" class="service-frame" src="about:blank" data-src="http://localhost:5001"></iframe>
     </main>
 
     <div class="quick-actions">
         <button class="quick-action" onclick="showService('face')" title="Face Recognition">FR</button>
+        <button class="quick-action" onclick="showService('object')" title="Object Detection">OD</button>
         <button class="quick-action" onclick="showService('ocr')" title="OCR Processing">OCR</button>
         <button class="quick-action" onclick="showService('ultrasonic')" title="Distance Sensor">US</button>
     </div>
@@ -144,6 +170,10 @@
             <div class="status-indicator status-offline" id="faceFooterStatus">
                 <div class="status-dot"></div>
                 <span>Face Recognition: <span id="faceFooterText">Offline</span></span>
+            </div>
+            <div class="status-indicator status-offline" id="objectFooterStatus">
+                <div class="status-dot"></div>
+                <span>Object Detection: <span id="objectFooterText">Offline</span></span>
             </div>
             <div class="status-indicator status-offline" id="ocrFooterStatus">
                 <div class="status-dot"></div>
