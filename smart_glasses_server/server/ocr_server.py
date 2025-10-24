@@ -47,7 +47,17 @@ logging.basicConfig(level=logging.INFO)
 
 class SinhalaOCRServer:
     def __init__(self):
-        self.keras_model_path = '/opt/research_project/server/best_document_classifier_model.keras'
+        self.keras_model_path = os.path.join(BASE_DIR, 'server', 'best_document_classifier_model.keras')
+
+        # Verify the model file exists
+        if not os.path.exists(self.keras_model_path):
+            logging.error(f"Model file not found at: {self.keras_model_path}")
+            logging.info(f"Current BASE_DIR: {BASE_DIR}")
+            logging.info(f"Looking for model at: {self.keras_model_path}")
+            raise FileNotFoundError(f"Model file not found: {self.keras_model_path}")
+        
+        logging.info(f"Model path set to: {self.keras_model_path}")
+
         self.document_classifier = None
         self.ocr_reader = None
         self.tts_engine = None
