@@ -42,3 +42,5 @@ Thumbs.db
 *.rar
 *.kotlin_module
 
+website/node_modules
+website/.next
