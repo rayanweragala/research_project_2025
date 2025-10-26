@@ -237,7 +237,7 @@ export default function Team() {
                 <div>
                   <p className="font-medium text-slate-900 mb-1">Department</p>
                   <p className="text-slate-600">
-                    Computer Systems and Engineering
+                    Information Technology
                   </p>
                 </div>
                 <div>
