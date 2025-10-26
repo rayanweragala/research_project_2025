@@ -22,7 +22,7 @@ Key Features
 
 - Smart Glasses Integration - Designed to work with wearable smart glasses
 
-**Live Demo:** [https://researchproject2025-6lg5t6q8u.vercel.app/]
+**Live Demo:** [https://researchproject2025.vercel.app/]
 
 ## Technical Architecture
 
