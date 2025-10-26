@@ -297,15 +297,17 @@ function getServerFrame() {
         if (cameraFeed) {
           cameraFeed.src = "data:image/jpeg;base64," + data.image;
         }
+        
         displayResult(data);
         updateCurrentResult(data);
+        
       } else if (data.error) {
         displayResult({
           recognized: false,
-          name: null,
-          confidence: 0,
+          face_count: 0,
+          recognized_count: 0,
+          unknown_count: 0,
           message: data.error,
-          quality_score: 0,
           processing_time: 0,
           error: true,
         });
@@ -315,10 +317,10 @@ function getServerFrame() {
       console.error("Frame error:", err);
       displayResult({
         recognized: false,
-        name: null,
-        confidence: 0,
+        face_count: 0,
+        recognized_count: 0,
+        unknown_count: 0,
         message: `Connection error: ${err.message}`,
-        quality_score: 0,
         processing_time: 0,
         error: true,
       });
@@ -328,112 +330,107 @@ function getServerFrame() {
 function updateCurrentResult(data) {
   const currentResult = document.getElementById("currentResult");
 
-  let confidence = data.confidence;
-  if (confidence > 1.0) {
-    confidence = confidence / 100.0;
-  }
+  if (data.face_count > 0 && data.faces && data.faces.length > 0) {
+    let html = `
+    <div style="padding: 18px; background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-radius: 12px; margin-top: 18px; border-left: 4px solid #2196f3;">
+        <div style="font-weight: 700; color: #1565c0; font-size: 1.2em; margin-bottom: 12px;">
+            ${data.message}
+        </div>
+        <div style="font-size: 0.95em; margin-bottom: 12px; color: #1976d2;">
+            Total Faces: ${data.face_count} • 
+            Recognized: ${data.recognized_count} • 
+            Unknown: ${data.unknown_count}
+        </div>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; margin-top: 15px;">`;
 
-  if (!data.recognized && !data.error) {
-    currentResult.innerHTML = `
-    <div style="padding: 18px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 12px; margin-top: 18px; border-left: 4px solid #6c757d;">
-        <div style="font-weight: 600; color: #495057; font-size: 1.1em;">Unknown Person</div>
-        <div style="font-size: 0.95em; margin-top: 8px; color: #6c757d;">
-            Quality: ${(data.quality_score * 100).toFixed(1)}%
-            ${
-              data.method_used
-                ? ` • Method: ${formatMethod(data.method_used)}`
-                : ""
-            }
+    data.faces.forEach((face, index) => {
+      let confidence = face.confidence || 0;
+      const borderColor = face.recognized ? '#4caf50' : '#ff9800';
+      const bgGradient = face.recognized 
+        ? 'linear-gradient(135deg, #e8f5e9, #f1f8e9)' 
+        : 'linear-gradient(135deg, #fff3e0, #ffe0b2)';
+      
+      html += `
+      <div style="background: ${bgGradient}; border-radius: 12px; padding: 15px; border-left: 4px solid ${borderColor};">
+        <div style="font-size: 0.85em; color: #666; margin-bottom: 8px;">Face ${index + 1}</div>
+        <div style="font-weight: 700; color: #333; font-size: 1.1em; margin-bottom: 8px;">
+          ${face.recognized ? face.name : 'Unknown'}
+          ${face.confidence_level ? `<span class="confidence-level conf-${face.confidence_level}">${formatConfidenceLevel(face.confidence_level)}</span>` : ''}
         </div>
-        <div class="confidence-bar">
-            <div class="confidence-fill" style="width: ${
-              confidence * 100
-            }%; background: #ff9800;"></div>
+        <div style="font-size: 0.9em; color: #666;">
+          Confidence: <strong>${(confidence * 100).toFixed(1)}%</strong><br>
+          Quality: <strong>${(face.quality_score * 100).toFixed(1)}%</strong>
         </div>
-    </div>
-`;
-  } else if (data.recognized) {
-    currentResult.innerHTML = `
-    <div style="padding: 18px; background: linear-gradient(135deg, #e8f5e8, #f1f8e9); border-radius: 12px; margin-top: 18px; border-left: 4px solid #4caf50;">
-        <div style="font-weight: 700; color: #2e7d32; font-size: 1.2em;">
-            ${data.name}
-            <span class="confidence-level conf-${
-              data.confidence_level || "medium"
-            }">${formatConfidenceLevel(
-      data.confidence_level || "medium"
-    )}</span>
+        <div class="confidence-bar" style="margin-top: 8px;">
+          <div class="confidence-fill" style="width: ${confidence * 100}%; background: ${face.recognized ? '#4caf50' : '#ff9800'};"></div>
         </div>
-        <div style="font-size: 0.95em; margin-top: 10px; color: #4caf50; font-weight: 500;">
-            Confidence: ${(confidence * 100).toFixed(1)}% • 
-            Quality: ${(data.quality_score * 100).toFixed(1)}%
-            ${data.method_used ? ` • ${formatMethod(data.method_used)}` : ""}
-        </div>
-        <div class="confidence-bar">
-            <div class="confidence-fill" style="width: ${
-              confidence * 100
-            }%;"></div>
-        </div>
-    </div>
-`;
+      </div>`;
+    });
+
+    html += '</div>';
+    currentResult.innerHTML = html;
+
   } else if (data.error) {
     currentResult.innerHTML = `
     <div style="padding: 18px; background: linear-gradient(135deg, #ffebee, #fce4ec); border-radius: 12px; margin-top: 18px; border-left: 4px solid #f44336;">
         <div style="font-weight: 600; color: #c62828; font-size: 1.1em;">Error: ${data.message}</div>
-    </div>
-`;
+    </div>`;
+  } else {
+    currentResult.innerHTML = `
+    <div style="padding: 18px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 12px; margin-top: 18px; border-left: 4px solid #6c757d;">
+        <div style="font-weight: 600; color: #495057; font-size: 1.1em;">No Faces Detected</div>
+        <div style="font-size: 0.95em; margin-top: 8px; color: #6c757d;">
+            ${data.message || 'Waiting for faces...'}
+        </div>
+    </div>`;
   }
 }
 
+
 function displayResult(data) {
   let resultsDiv = document.getElementById("results");
-  let resultClass = data.error
-    ? "error"
-    : data.recognized
-    ? "recognized"
-    : "unknown";
+  
+  let resultClass = data.error ? "error" : 
+                    (data.recognized_count > 0) ? "recognized" : "unknown";
 
-  let confidence = data.confidence || 0;
-  if (confidence > 1.0) {
-    confidence = confidence / 100.0;
+  let message = data.message || 'Processing...';
+  
+  let detailsText = '';
+  if (data.face_count > 0) {
+    detailsText = `Faces: ${data.face_count} • Recognized: ${data.recognized_count} • Unknown: ${data.unknown_count}`;
   }
-
-  let quality = data.quality_score || 0;
+  
   let processingTime = data.processing_time || 0;
-
-  let message = data.error
-    ? `${data.message}`
-    : data.recognized
-    ? `${data.name}`
-    : `Unknown person`;
-
-  let confidenceLevel = data.confidence_level || "unknown";
   let methodUsed = data.method_used || "standard";
 
   let resultHtml = `
 <div class="recognition-result ${resultClass}">
     <div class="result-header">
         ${new Date().toLocaleTimeString()} - ${message}
-        ${
-          data.recognized
-            ? `<span class="confidence-level conf-${confidenceLevel}">${formatConfidenceLevel(
-                confidenceLevel
-              )}</span>`
-            : ""
-        }
     </div>
     <div class="result-details">
-        Confidence: ${(confidence * 100).toFixed(1)}% • 
-        Quality: ${(quality * 100).toFixed(1)}% • 
+        ${detailsText}
+        ${detailsText ? ' • ' : ''}
         Processing: ${(processingTime * 1000).toFixed(0)}ms • 
         Method: ${formatMethod(methodUsed)}
-    </div>
-    <div class="confidence-bar">
-        <div class="confidence-fill" style="width: ${confidence * 100}%; ${
-    !data.recognized ? "background: #ff9800;" : ""
-  }"></div>
-    </div>
-</div>
-`;
+    </div>`;
+
+  if (data.faces && data.faces.length > 0) {
+    resultHtml += '<div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">';
+    data.faces.forEach((face, index) => {
+      let confidence = face.confidence || 0;
+      let faceColor = face.recognized ? '#4caf50' : '#ff9800';
+      resultHtml += `
+        <span style="background: ${faceColor}20; color: ${faceColor}; padding: 4px 10px; border-radius: 6px; font-size: 0.85em; font-weight: 600;">
+          ${face.recognized ? face.name : 'Unknown'} (${(confidence * 100).toFixed(0)}%)
+        </span>`;
+    });
+    resultHtml += '</div>';
+  }
+
+  resultHtml += '</div>';
 
   resultsDiv.innerHTML = resultHtml + resultsDiv.innerHTML;
 
@@ -442,6 +439,7 @@ function displayResult(data) {
     resultsDiv.removeChild(results[results.length - 1]);
   }
 }
+
 
 function loadAnalytics() {
   fetch("/api/analytics_enhanced")
