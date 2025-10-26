@@ -1,14 +1,13 @@
-Blind Assistant – Mobile App and Smart Glasses Server
-Project Overview
+# Blind Assistant – Mobile App and Smart Glasses Server
+## Project Overview
 
 An assistive technology system designed to help people with visual impairments through real-time face recognition, text reading, and obstacle detection using smart glasses and a mobile application.
 System Architecture
 
 The Blind Assistant system consists of two integrated components:
 
-    Android Mobile Application - Provides voice feedback and user interaction
-    
-    Python Server - Runs on Raspberry Pi or laptop for computer vision and sensor processing
+- Android Mobile Application - Provides voice feedback and user interaction
+- Python Server - Runs on Raspberry Pi or laptop for computer vision and sensor processing
 
 The system enables users to identify people, read text in Sinhala/English, and detect obstacles through intuitive voice feedback.
 Key Features
@@ -22,6 +21,8 @@ Key Features
 - Voice Feedback - Clear audio responses through the mobile app
 
 - Smart Glasses Integration - Designed to work with wearable smart glasses
+
+**Live Demo:** [https://researchproject2025-6lg5t6q8u.vercel.app/]
 
 ## Technical Architecture
 
