@@ -254,7 +254,7 @@ export default function Documentation() {
                 sensing.
               </p>
               <a
-                href="/documents/README.md"
+                href="https://github.com/rayanweragala/Research_project-RE_25-012.git"
                 className="inline-flex items-center gap-2 text-teal-600 font-medium hover:text-teal-700 transition-colors"
               >
                 Read Full README <ExternalLink size={16} />

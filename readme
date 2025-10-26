@@ -1,89 +1,235 @@
-Project: Blind Assistant – Mobile App and Smart Glasses Server
+Blind Assistant – Mobile App and Smart Glasses Server
+Project Overview
 
-Overview
-This project aims to assist people with visual impairments using two parts that work together:
-- An Android mobile application that connects to smart glasses and provides voice feedback.
-- A Python server that runs on a small computer (like a Raspberry Pi) or a laptop. It handles face recognition, text reading (OCR), and an ultrasonic distance sensor.
+An assistive technology system designed to help people with visual impairments through real-time face recognition, text reading, and obstacle detection using smart glasses and a mobile application.
+System Architecture
 
-How it works (high level)
-- The Android app captures audio, uses the raspberrypi camera via the server, and sends requests to the server.
-- The server offers several web APIs (HTTP):
-  • Face recognition service (default port 5000)
-  • Ultrasonic distance sensor service (default port 5001)
-  • Sinhala/English text reading (OCR) service (default port 5002)
-- The app receives results (for example: who is in front of the user, what text is on a sign, or how close an obstacle is) and speaks them out.
+The Blind Assistant system consists of two integrated components:
 
-Repository structure
-- mobile_application: Native Android app (Java) with Activities and Services.
-- smart_glasses_server: Python Flask servers for face recognition, OCR, and sensors.
+    Android Mobile Application - Provides voice feedback and user interaction
+    
+    Python Server - Runs on Raspberry Pi or laptop for computer vision and sensor processing
 
-Technologies used
-Mobile application (Android):
-- Language: Java (Java 11), Android SDK (minSdk 27, target/compile 35)
-- Libraries: AndroidX (AppCompat, Material, ConstraintLayout), Google ML Kit (Face Detection), Volley (HTTP networking)
-- Features: Foreground service, Boot receiver, Bluetooth access, Camera/Microphone permissions, Notifications
+The system enables users to identify people, read text in Sinhala/English, and detect obstacles through intuitive voice feedback.
+Key Features
 
-Server side (Python):
-- Framework: Flask with CORS enabled
-- Computer vision and ML: OpenCV, InsightFace, scikit-learn, TensorFlow, EasyOCR, Tesseract (pytesseract)
-- Text-to-speech: pyttsx3
-- Data: SQLite for storing face data and analytics
-- Camera support: Picamera2 (Raspberry Pi camera) with fallback to USB cameras
+- Face Recognition - Identify familiar people in real-time
 
-Main server components and default ports
-- Face recognition server (face_server.py):
-  • Runs by default on port 5000
-  • Example endpoints: /api/recognize, /api/recognize_realtime, /api/register_enhanced, /api/people, /api/health
-- Ultrasonic sensor server (ultrasonic_sensor.py):
-  • Runs by default on port 5001
-  • Provides distance readings via HTTP
-- OCR server (ocr_server.py):
-  • Runs by default on port 5002
-  • Example endpoints: /api/ocr/process, /api/ocr/results, /api/ocr/health
-- A simple dashboard (start_dashboard.py) is also available for web-based monitoring.
+- Text Reading (OCR) - Extract and read text from signs and documents in Sinhala and English
 
-Network configuration
-- Make sure the phone and the server machine are on the same Wi‑Fi network.
-- The Android app currently uses hardcoded server addresses. Update these to match your server’s IP:
-  • Face recognition and registration (port 5000):
-    - mobile_application/app/src/main/java/com/research/blindassistant/EnhancedFaceRecognitionActivity.java
-    - mobile_application/app/src/main/java/com/research/blindassistant/FaceRecognitionService.java
-    - mobile_application/app/src/main/java/com/research/blindassistant/SmartGlassesForegroundService.java
-    - mobile_application/app/src/main/java/com/research/blindassistant/AddFriendActivity.java
-    - mobile_application/app/src/main/java/com/research/blindassistant/MockSmartGlassesConnector.java
-  • Ultrasonic distance (port 5001):
-    - mobile_application/app/src/main/java/com/research/blindassistant/DistanceSensorService.java
-- Tip: Search in the Android code for "http://" and replace the IP with your server’s IP (for example: http://192.168.1.100:5000).
+- Obstacle Detection - Ultrasonic distance sensing for navigation assistance
 
-Quick start – Server
-1) Install Python 3.10+ and (optionally) create a virtual environment.
-2) Install dependencies:
-   cd smart_glasses_server
-   pip install -r docs/requirements.txt
-3) Start the services in separate terminals (as needed):
-   python server/face_server.py      # Face recognition on port 5000
-   python server/ultrasonic_sensor.py # Ultrasonic sensor on port 5001
-   python server/ocr_server.py       # OCR service on port 5002
-4) Check the console output. Each service prints its local IP and a list of endpoints. Keep these terminals running while using the app.
+- Voice Feedback - Clear audio responses through the mobile app
 
-Quick start – Android app
-1) Open mobile_application in Android Studio (Giraffe/Koala or newer).
-2) Ensure Java 11 is used by the Gradle toolchain.
-3) Update server IPs in the Java files (see Network configuration above).
-4) Build and run on a real device (recommended) with camera, microphone, and Bluetooth permissions granted.
+- Smart Glasses Integration - Designed to work with wearable smart glasses
 
-Hardware notes
-- Cameras: If running on a Raspberry Pi with a Pi Camera, Picamera2 will be used. Otherwise, the servers will try a USB camera.
-- Sensors: The ultrasonic sensor server expects a sensor connected to the server machine (e.g., Raspberry Pi GPIO with a small HTTP layer).
-- Smart glasses: The Android app has components to communicate with smart glasses, including a Foreground Service and Bluetooth accesses.
+## Technical Architecture
 
-Data and privacy
-- Face data is stored in a local SQLite database on the server (face_database.db).
+```bash
+Android Mobile App (Java) 
+        ⇅
+    Wi-Fi Network
+        ⇅
+Python Flask Servers (Raspberry Pi)
+├── Face Recognition (Port 5000)
+├── OCR Service (Port 5002)  
+└── Distance Sensor (Port 5001)
+```
 
-Troubleshooting tips
-- If the app can’t connect, verify the server IP/ports and that phone and server are on the same network.
-- On the server, watch the terminal logs for errors when starting cameras or loading models. Some models (e.g., TensorFlow/EasyOCR) may require additional packages or CPU/GPU support.
-- If Picamera2 is not available, ensure a USB camera is plugged in and accessible to OpenCV.
+## Repository Structure
 
-Summary
-This repository provides a simple end‑to‑end system: an Android app for user interaction and a Python server for computer vision and sensing. It demonstrates face recognition, text reading in Sinhala/English, and distance sensing for assistive smart glasses.
+```tex
+blind-assistant-platform/
+├── mobile_application/             
+│   ├── app/src/main/java/
+│   │   └── com/company/blindassistant/
+│   │       ├── EnhancedFaceRecognitionActivity.java
+│   │       ├── FaceRecognitionService.java
+│   │       ├── SmartGlassesForegroundService.java
+│   │       ├── AddFriendActivity.java
+│   │       ├── BootReceiver.java
+│   │       └── DistanceSensorService.java
+|   |       └── FaceQualityAnalyzer.java
+|   |       └── ...
+│   ├── app/src/main/res/           
+│   ├── build.gradle             
+│   └── proguard-rules.pro       
+│
+├── smart_glasses_server/           
+│   ├── server/
+│   │   ├── face_server.py        
+│   │   ├── ocr_server.py           
+│   │   ├── ultrasonic_sensor.py 
+│   │  
+│   ├── database/
+│   │   ├── user_management.db      
+│   │   ├── face_database.db         
+│   │   └── analytics.db          
+│   ├── docs/
+│   │   ├── requirements.txt
+│   │   ├── api_documentation.md
+│   │   └── deployment_guide.md
+│
+├── web_dashboard/                  
+│   ├── app/
+│   │   ├── page.tsx                 
+│   │   ├── layout.tsx               
+│   │   ├── team/                  
+│   │   ├── documentation/                
+│   │   ├── about/             
+│   │   └── scope/                
+│   ├── components/
+│   │   ├── footer.tsx     
+│   │   ├── navigation.tsx         
+│   │   └── video-hero.tsx        
+│   ├── lib/
+│   │   ├── raspberry-pi-5-single-board-computer.jpg                
+│   │   ├── raspberry-pi-camera-module-2-high-resolution.jpg           
+│   │   └── smart-glasses-demo.mp4             
+│   └── package.json
+```
+
+## Technology Stack
+
+### Mobile Application (Android)
+
+- **Language**: Java (Java 11)
+- **Android SDK**: minSdk 27, target/compile 35
+- **Libraries**: AndroidX (AppCompat, Material, ConstraintLayout), Google ML Kit (Face Detection), Volley (HTTP networking)
+- **Features**: Foreground service, Boot receiver, Bluetooth access, Camera/Microphone permissions, Notifications
+
+### Server Side (Python)
+
+- **Framework**: Flask with CORS enabled
+- **Computer Vision**: OpenCV, InsightFace, scikit-learn, TensorFlow, EasyOCR, Tesseract (pytesseract)
+- **Text-to-Speech**: pyttsx3
+- **Database**: SQLite for storing face data and analytics
+- **Camera Support**: Picamera2 (Raspberry Pi camera) with fallback to USB cameras
+
+## Server Components and Ports
+
+- **Face Recognition Server** (face_server.py) - Port 5000
+  - Endpoints: /api/recognize, /api/recognize_realtime, /api/register_enhanced, /api/people, /api/health
+- **Ultrasonic Sensor Server** (ultrasonic_sensor.py) - Port 5001
+  - Provides distance readings via HTTP
+- **OCR Server** (ocr_server.py) - Port 5002
+  - Endpoints: /api/ocr/process, /api/ocr/results, /api/ocr/health
+- **Dashboard** (start_dashboard.py) - Web-based monitoring interface
+
+## Installation and Setup
+
+## Server Setup
+
+**1. Prerequisites**
+
+- Python 3.10 or higher
+- Raspberry Pi or laptop with camera support
+
+**2. Installation Steps**
+
+```bas
+cd smart_glasses_server
+pip install -r docs/requirements.txt
+```
+
+**3. Starting Services**
+
+```bas
+# Terminal 1 - Face Recognition
+python server/face_server.py
+
+# Terminal 2 - Ultrasonic Sensor
+python server/ultrasonic_sensor.py
+
+# Terminal 3 - OCR Service
+python server/ocr_server.py
+```
+
+**4. Verification**
+
+- Check console output for each service
+- Verify local IP addresses and endpoint lists
+- Ensure all services remain running during app usage
+
+### Android Application Setup
+
+1. **Development Environment**
+   - Android Studio (Giraffe/Koala or newer)
+   - Java 11 for Gradle toolchain
+   - Real Android device recommended
+2. **Configuration**
+   - Open `mobile_application` in Android Studio
+   - Update server IP addresses in the following files:
+     - `EnhancedFaceRecognitionActivity.java`
+     - `FaceRecognitionService.java`
+     - `SmartGlassesForegroundService.java`
+     - `AddFriendActivity.java`
+     - `MockSmartGlassesConnector.java`
+     - `DistanceSensorService.java`
+3. **Network Configuration**
+   - Ensure phone and server are on the same Wi-Fi network
+   - Search for "http://" in Android code and replace IP addresses
+   - Example: `http://192.168.1.100:5000`
+4. **Permissions**
+   - Grant camera, microphone, and Bluetooth permissions
+   - Build and deploy to device
+
+## Hardware Requirements
+
+### Server Hardware
+
+- **Primary**: Raspberry Pi with Pi Camera module
+- **Alternative**: Laptop/desktop with USB camera
+- **Sensors**: Ultrasonic sensor connected to server machine GPIO
+- **Network**: Wi-Fi connectivity for mobile app communication
+
+### Mobile Requirements
+
+- Android device with camera, microphone, and Bluetooth
+- Wi-Fi connectivity for server communication
+
+## Data Management and Privacy
+
+- Face data stored locally in SQLite database (`face_database.db`)
+- No external data transmission unless explicitly configured
+- All processing occurs on local servers
+- User data remains within the system boundary
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Connection Problems**
+   - Verify server IP addresses in Android code
+   - Confirm phone and server are on same network
+   - Check firewall settings on server machine
+2. **Camera Issues**
+   - Raspberry Pi: Ensure Picamera2 is properly installed
+   - USB cameras: Verify OpenCV can access the camera
+   - Check server logs for camera initialization errors
+3. **Model Loading Errors**
+   - Some models (TensorFlow, EasyOCR) may require additional dependencies
+   - Verify all requirements from `docs/requirements.txt` are installed
+   - Check available CPU/GPU resources
+4. **Service Startup**
+   - Monitor terminal output for each service
+   - Address any missing dependency errors immediately
+   - Ensure ports 5000, 5001, and 5002 are available
+
+### Debugging Steps
+
+1. Server-side: Check terminal logs for error messages
+2. Client-side: Use Android Studio Logcat to monitor app behavior
+3. Network: Verify HTTP requests reach the server endpoints
+4. Hardware: Confirm camera and sensor connectivity
+
+## Maintenance and Support
+
+- Regular updates to dependency versions recommended
+- Monitor storage usage for face database growth
+- Regular testing of all service endpoints
+- Backup face database before system updates
+
+## License and Attribution
+
+This project is designed for research and assistive technology applications. Please ensure compliance with local regulations regarding privacy and  data protection when deploying in production environments.
