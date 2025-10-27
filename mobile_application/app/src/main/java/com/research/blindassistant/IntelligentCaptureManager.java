@@ -7,8 +7,9 @@ import java.util.*;
 
 import android.os.Handler;
 import android.util.Log;
+import androidx.appcompat.app.AppCompatActivity;
 
-public class IntelligentCaptureManager {
+public class IntelligentCaptureManager extends AppCompatActivity {
     private static final String TAG = "IntelligentCaptureManager";
 
     private static final int MIN_CAPTURES = 5;

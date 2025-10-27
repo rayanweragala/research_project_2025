@@ -2,11 +2,13 @@ package com.research.blindassistant;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.RecognitionListener;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.ImageView;
@@ -33,6 +35,19 @@ public class MainActivity extends AppCompatActivity {
     private TextToSpeech textToSpeech;
     private boolean isListening = false;
     private boolean isTtsReady = false;
+
+    // Volume key double-press detection
+    private long lastVolumeKeyPressTime = 0;
+    private static final long DOUBLE_PRESS_INTERVAL = 500; // 500ms for double press
+    private int volumeKeyPressCount = 0;
+    private Handler volumeKeyHandler = new Handler();
+
+    private Runnable resetVolumeKeyCount = new Runnable() {
+        @Override
+        public void run() {
+            volumeKeyPressCount = 0;
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,7 +106,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void speak(String text) {
         if (isTtsReady && textToSpeech != null) {
-            textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "MainActivity");
+            textToSpeech.speak(text, TextToSpeech.QUEUE_ADD, null, "MainActivity");
         } else {
             Log.w(TAG, "TTS not ready, cannot speak: " + text);
         }
@@ -256,8 +271,8 @@ public class MainActivity extends AppCompatActivity {
     private void setupButtonListeners() {
         btnStopSmartGlasses.setOnClickListener(v -> {
             speak("නවතමින්");  // "Stopping" in Sinhala
-            stopAllServices();
             Toast.makeText(this, "Smart Glasses Stopped", Toast.LENGTH_SHORT).show();
+            stopAllServices();
         });
 
         btnPeopleRecognition.setOnClickListener(v -> {
@@ -299,6 +314,59 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    // Override volume key events for double-press detection
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Check if it's a volume key
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+                keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+
+            long currentTime = System.currentTimeMillis();
+
+            // Check if this press is within the double-press interval
+            if (currentTime - lastVolumeKeyPressTime < DOUBLE_PRESS_INTERVAL) {
+                volumeKeyPressCount++;
+
+                // If double press detected
+                if (volumeKeyPressCount >= 2) {
+                    // Remove any pending resets
+                    volumeKeyHandler.removeCallbacks(resetVolumeKeyCount);
+                    volumeKeyPressCount = 0;
+
+                    // Activate speech recognition
+                    runOnUiThread(() -> {
+                        startVoiceRecognition();
+
+                        // Optional: Provide haptic feedback
+                        android.os.Vibrator vibrator = (android.os.Vibrator) getSystemService(VIBRATOR_SERVICE);
+                        if (vibrator != null && vibrator.hasVibrator()) {
+                            vibrator.vibrate(100); // Vibrate for 100ms
+                        }
+
+                        Toast.makeText(this, "🎤 Voice activated by volume key", Toast.LENGTH_SHORT).show();
+                    });
+
+                    // Consume the event to prevent volume change
+                    return true;
+                }
+            } else {
+                // Reset count for new press sequence
+                volumeKeyPressCount = 1;
+            }
+
+            lastVolumeKeyPressTime = currentTime;
+
+            // Schedule a reset of the counter
+            volumeKeyHandler.removeCallbacks(resetVolumeKeyCount);
+            volumeKeyHandler.postDelayed(resetVolumeKeyCount, DOUBLE_PRESS_INTERVAL + 100);
+
+            // Consume the event to prevent volume change on first press
+            return true;
+        }
+
+        return super.onKeyDown(keyCode, event);
+    }
+
     private void startVoiceRecognition() {
         if (speechRecognizer == null) return;
 
@@ -325,7 +393,7 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "Voice command received: " + command);
         Toast.makeText(this, "Command: " + command, Toast.LENGTH_SHORT).show();
 
-        // English commands
+        // English commands for face recognition
         if (command.contains("face") || command.contains("people") ||
                 command.contains("recognition") || command.contains("person")) {
             btnPeopleRecognition.performClick();
@@ -335,50 +403,56 @@ public class MainActivity extends AppCompatActivity {
                 command.contains("හඳුනාගන්න") || command.contains("පුද්ගල")) {
             btnPeopleRecognition.performClick();
         }
-        // English text commands
+        // English text/OCR commands - EXPANDED
         else if (command.contains("text") || command.contains("read") ||
-                command.contains("ocr") || command.contains("sinhala")) {
+                command.contains("ocr") || command.contains("sinhala") ||
+                command.contains("document") || command.contains("scan") ||
+                command.contains("letter") || command.contains("paper")) {
             btnTextRecognition.performClick();
         }
-        // Sinhala commands for text: පෙළ, කියවන්න, කියවන, ලියන
+        // Sinhala commands for text/OCR: පෙළ, කියවන්න, කියවන, ලියන, ලේඛන, ඕ සී ආර්
         else if (command.contains("පෙළ") || command.contains("කියවන") ||
-                command.contains("කියවන්න") || command.contains("ලියන")) {
+                command.contains("කියවන්න") || command.contains("ලියන") ||
+                command.contains("ලේඛන") || command.contains("ඕ සී ආර්") ||
+                command.contains("ඕසීආර්") || command.contains("ලියන්න")) {
             btnTextRecognition.performClick();
         }
         // English describe commands
         else if (command.contains("describe") || command.contains("scene") ||
                 command.contains("field") || command.contains("view") ||
-                command.contains("capture")) {
+                command.contains("capture") || command.contains("what") ||
+                command.contains("see")) {
             btnFieldDescribe.performClick();
         }
-        // Sinhala commands for describe: විස්තර, දර්ශන, බලන්න
+        // Sinhala commands for describe: විස්තර, දර්ශන, බලන්න, මොකද
         else if (command.contains("විස්තර") || command.contains("දර්ශන") ||
-                command.contains("බලන්න") || command.contains("බලන")) {
+                command.contains("බලන්න") || command.contains("බලන") ||
+                command.contains("මොකද") || command.contains("දකින්නේ")) {
             btnFieldDescribe.performClick();
         }
         // English navigation commands
         else if (command.contains("navigate") || command.contains("navigation") ||
-                command.contains("direction")) {
+                command.contains("direction") || command.contains("where")) {
             btnNavigation.performClick();
         }
-        // Sinhala navigation: මග, දිශාව, යන්න
+        // Sinhala navigation: මග, දිශාව, යන්න, කොහෙද
         else if (command.contains("මග") || command.contains("දිශාව") ||
-                command.contains("යන්න")) {
+                command.contains("යන්න") || command.contains("කොහෙද")) {
             btnNavigation.performClick();
         }
         // English stop commands
         else if (command.contains("stop") || command.contains("exit") ||
-                command.contains("quit")) {
+                command.contains("quit") || command.contains("close")) {
             btnStopSmartGlasses.performClick();
         }
-        // Sinhala stop: නවතන්න, නවත, වසන්න
+        // Sinhala stop: නවතන්න, නවත, වසන්න, වහන්න
         else if (command.contains("නවතන්න") || command.contains("නවත") ||
-                command.contains("වසන්න")) {
+                command.contains("වසන්න") || command.contains("වහන්න")) {
             btnStopSmartGlasses.performClick();
         }
         // English settings commands
         else if (command.contains("settings") || command.contains("setting") ||
-                command.contains("configuration")) {
+                command.contains("configuration") || command.contains("config")) {
             btnSettings.performClick();
         }
         // Sinhala settings: සැකසුම්, සැකසුම
@@ -386,16 +460,19 @@ public class MainActivity extends AppCompatActivity {
             btnSettings.performClick();
         }
         // English help commands
-        else if (command.contains("help") || command.contains("tutorial")) {
+        else if (command.contains("help") || command.contains("tutorial") ||
+                command.contains("guide")) {
             btnHelp.performClick();
         }
-        // Sinhala help: උදව්, උදව
-        else if (command.contains("උදව්") || command.contains("උදව")) {
+        // Sinhala help: උදව්, උදව, මඟ පෙන්වීම
+        else if (command.contains("උදව්") || command.contains("උදව") ||
+                command.contains("මඟ පෙන්වීම")) {
             btnHelp.performClick();
         }
         // Distance sensor commands
         else if (command.contains("distance") || command.contains("sensor") ||
-                command.contains("දුර") || command.contains("සංවේදකය")) {
+                command.contains("දුර") || command.contains("සංවේදකය") ||
+                command.contains("how far")) {
             String currentDistance = distanceValueText.getText().toString();
             String currentZone = distanceZoneText.getText().toString();
             speak(currentDistance + ", " + currentZone);
@@ -412,7 +489,7 @@ public class MainActivity extends AppCompatActivity {
         }
         else {
             speak("විධානය හඳුනාගත නොහැක");  // "Command not recognized" in Sinhala
-            Toast.makeText(this, "Command not recognized. Try: 'face', 'text', 'describe'",
+            Toast.makeText(this, "Command not recognized. Try: 'face', 'text', 'describe', 'ocr'",
                     Toast.LENGTH_LONG).show();
         }
     }
@@ -486,6 +563,11 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
 
         Log.d(TAG, "MainActivity onDestroy - cleaning up all services");
+
+        // Cleanup volume key handler
+        if (volumeKeyHandler != null) {
+            volumeKeyHandler.removeCallbacks(resetVolumeKeyCount);
+        }
 
         // Stop and cleanup distance sensor
         if (distanceSensorService != null) {

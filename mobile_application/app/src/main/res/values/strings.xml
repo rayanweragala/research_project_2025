@@ -1,13 +1,13 @@
 <resources>
     <string name="app_name">Blind Assistant</string>
     <string name="app_name_description" translatable="false">Blind Assistant app title</string>
-
+    
     <!-- Add Friend Activity -->
     <string name="waiting_for_name" translatable="false">Waiting for name</string>
     <string name="cancel" translatable="false">Cancel</string>
     <string name="cancel_desc" translatable="false">Cancel face registration</string>
     <string name="start_over_desc" translatable="false">Start the registration process over</string>
-
+    
     <!-- Main Activity -->
     <string name="ready_status">Ready</string>
     <string name="people_recognition_desc">Start people recognition feature</string>
@@ -15,7 +15,7 @@
     <string name="navigation_desc">Open navigation feature</string>
     <string name="settings_desc">Open app settings</string>
     <string name="main_instructions">Tap a feature to get started. Use voice commands or touch gestures to navigate.</string>
-
+    
     <!-- Main Activity Strings -->
     <string name="control_hub_subtitle">Smart Glasses Control Hub</string>
     <string name="face_recognition_btn">FACE RECOGNITION</string>
@@ -36,7 +36,7 @@
     <string name="help_tutorials_desc">Help and tutorials</string>
     <string name="voice_commands_available_desc">Voice commands available</string>
     <string name="voice_listening_indicator_desc">Voice listening indicator</string>
-
+    
     <!-- Enhanced Face Recognition Activity Strings -->
     <string name="connecting_smart_glasses">Connecting to Smart Glasses...</string>
     <string name="mobile_interface_subtitle">Mobile Interface for Smart Glasses</string>
@@ -63,7 +63,7 @@
     <string name="stop_smart_glasses_recognition_desc">Stop smart glasses recognition</string>
     <string name="register_new_face_desc">Register new face</string>
     <string name="return_to_main_menu_desc">Return to main menu</string>
-
+    
     <!-- Add Friend Enhanced Activity Strings -->
     <string name="smart_glasses_face_registration">Smart Glasses Face Registration</string>
     <string name="person_registration_title">👤 Person Registration</string>
@@ -84,9 +84,8 @@
     <string name="start_face_registration_desc">Start face registration</string>
     <string name="stop_face_registration_desc">Stop face registration</string>
     <string name="connection_status_desc">Connection status</string>
-
-    <!-- Add to sinhala text reader -->
-
+    
+    <!-- Sinhala Text Reader -->
     <string name="current_voice_prompt_desc">Current voice instruction</string>
     <string name="start_reading">Start Reading</string>
     <string name="stop_reading">Stop Reading</string>
@@ -103,8 +102,30 @@
     <string name="new_scan_desc">Start new document scan</string>
     <string name="recognition_text_results_title">🔍 Document type: Processing…</string>
     <string name="Doc_type">Document Type :</string>
-
-
+    
+    <!-- NEW: Missing OCR Activity Strings -->
+    <string name="ocr_status_connecting">Connecting to OCR System</string>
+    <string name="ocr_subtitle">Sinhala Text Recognition</string>
+    <string name="ocr_system_status_desc">OCR system status indicator</string>
+    <string name="current_ocr_status_desc">Current OCR status</string>
+    <string name="document_camera_feed_desc">Document camera feed from smart glasses</string>
+    <string name="document_feed_placeholder">📄</string>
+    <string name="connecting_ocr_camera">Connecting to\nOCR Camera Feed</string>
+    <string name="ocr_confidence_default">📊 Confidence: -- | Quality: -- | Detection: --</string>
+    <string name="ocr_results_title">📝 OCR Results</string>
+    <string name="start_ocr_instruction">Press start to begin text extraction</string>
+    <string name="connecting_ocr_server">Connecting to OCR processing server...</string>
+    <string name="btn_start_ocr">START OCR</string>
+    <string name="btn_stop_ocr">STOP OCR</string>
+    <string name="btn_speak_text">SPEAK TEXT</string>
+    <string name="btn_back">BACK</string>
+    <string name="voice_commands_ocr">Voice Commands: \'START\', \'STOP\', \'SPEAK\', \'BACK\'</string>
+    <string name="start_ocr_scanning_desc">Start OCR text scanning</string>
+    <string name="stop_ocr_scanning_desc">Stop OCR text scanning</string>
+    <string name="read_extracted_text_desc">Read extracted text aloud</string>
+    <string name="ocr_extraction_results_desc">OCR text extraction results</string>
+    
+    <!-- Connection Status -->
     <string name="smart_glasses_disconnected">Smart Glasses Disconnected</string>
     <string name="smart_glasses_connected">Smart Glasses Connected</string>
     <string name="connection_failed">Connection Failed</string>
@@ -112,31 +133,31 @@
     <string name="establishing_connection">Establishing connection...</string>
     <string name="ready_for_recognition">Ready for face recognition</string>
     <string name="check_connection_retry">Check connection and retry</string>
-
+    
     <string name="status_idle">Ready</string>
     <string name="ready_to_start">Ready to start</string>
-
+    
     <string name="waiting_for_input">Waiting for input</string>
     <string name="speak_to_continue">Speak to continue</string>
-
+    
     <string name="checking_server">Checking server</string>
     <string name="verifying_system">Verifying face recognition system</string>
-
+    
     <string name="ready_to_capture">Ready to capture</string>
     <string name="position_for_capture">Position person for capture</string>
-
+    
     <string name="capturing_face_data">Capturing face data</string>
     <string name="taking_photos">Taking photos automatically</string>
-
+    
     <string name="processing_ai_model">Processing with AI</string>
     <string name="saving_face_data">Processing and saving face data</string>
-
+    
     <string name="registration_completed">Registration completed!</string>
     <string name="person_registered_successfully">Person registered successfully</string>
-
+    
     <string name="system_active">System active</string>
     <string name="ready_for_operation">Ready for operation</string>
-
+    
     <!-- Settings Activity Strings -->
     <string name="settings_title">Settings</string>
     <string name="settings_subtitle">Application Preferences</string>
@@ -148,7 +169,7 @@
     <string name="settings_screen_open">Settings screen opened. Select your preferred language.</string>
     <string name="settings_back_to_main">Going back to main menu</string>
     <string name="voice_commands_settings">Voice Commands: \'SINHALA\', \'ENGLISH\'</string>
-
+    
     <string name="navigation_ready_status">GPS Ready</string>
     <string name="navigation_status_indicator_desc">Navigation status indicator</string>
 
