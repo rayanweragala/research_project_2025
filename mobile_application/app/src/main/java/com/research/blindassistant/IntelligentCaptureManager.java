@@ -7,8 +7,9 @@ import java.util.*;
 
 import android.os.Handler;
 import android.util.Log;
+import androidx.appcompat.app.AppCompatActivity;
 
-public class IntelligentCaptureManager {
+public class IntelligentCaptureManager extends AppCompatActivity {
     private static final String TAG = "IntelligentCaptureManager";
 
     private static final int MIN_CAPTURES = 5;
@@ -16,12 +17,12 @@ public class IntelligentCaptureManager {
     private static final int TARGET_HIGH_QUALITY = 3;
     private static final long CAPTURE_COOLDOWN_MS = 1200;
     private static final long MIN_TIME_BETWEEN_ANGLES = 2000;
-    private static final float HIGH_QUALITY_THRESHOLD = 0.85f;
-    private static final float ACCEPTABLE_QUALITY_THRESHOLD = 0.65f;
-    private static final float EMERGENCY_QUALITY_THRESHOLD = 0.45f;
+    private static final float HIGH_QUALITY_THRESHOLD = 0.7f;
+    private static final float ACCEPTABLE_QUALITY_THRESHOLD = 0.5f;
+    private static final float EMERGENCY_QUALITY_THRESHOLD = 0.3f;
 
-    private static final float MIN_POSE_DIFFERENCE = 8f;
-    private static final float MIN_POSITION_DIFFERENCE = 0.15f;
+    private static final float MIN_POSE_DIFFERENCE = 5f;
+    private static final float MIN_POSITION_DIFFERENCE = 0.1f;
     private FaceQualityAnalyzer qualityAnalyzer;
     private android.os.Handler mainHandler;
     private CaptureProgressCallback callback;
@@ -40,6 +41,8 @@ public class IntelligentCaptureManager {
     private boolean emergencyMode;
     private static final int MAX_CONSECUTIVE_REJECTIONS = 15;
     private static final long EMERGENCY_MODE_TIMEOUT = 20000;
+    private volatile boolean isProcessingFrame = false;
+    private static final long FRAME_PROCESSING_TIMEOUT = 500;
 
     public IntelligentCaptureManager() {
         qualityAnalyzer = new FaceQualityAnalyzer();
@@ -53,7 +56,7 @@ public class IntelligentCaptureManager {
 
     private void setupRequiredAngles() {
         requiredAngles.add("frontal");
-        requiredAngles.add("slight_left");
+//        requiredAngles.add("slight_left");
         requiredAngles.add("slight_right");
 
 //        requiredAngles.add("left_profile");
@@ -94,10 +97,18 @@ public class IntelligentCaptureManager {
             return;
         }
 
-        Log.d(TAG, String.format("Processing frame - Quality threshold: %.2f, Emergency mode: %b",
-                currentQualityThreshold, emergencyMode));
+        if (isProcessingFrame) {
+            return;
+        }
 
-        qualityAnalyzer.analyzeFaceQuality(frame, this::handleQualityResult);
+        checkEmergencyMode(currentTime);
+
+        isProcessingFrame = true;
+
+        qualityAnalyzer.analyzeFaceQuality(frame, (result) -> {
+            isProcessingFrame = false;
+            handleQualityResult(result);
+        });
     }
 
     private void checkEmergencyMode(long currentTime) {
@@ -119,38 +130,51 @@ public class IntelligentCaptureManager {
     private void handleQualityResult(FaceQualityAnalyzer.FaceQualityResult result) {
         if (!isCapturing) return;
 
-        Log.d(TAG, String.format(
-                "Quality analysis - Score: %.2f, Good: %b, Angle: %s, Technical: %s",
-                result.qualityScore, result.isGoodQuality, result.faceAngle, result.technicalFeedback
-        ));
-
         mainHandler.post(() -> {
-            if (callback != null) {
-                callback.onRealTimeFeedback(result.feedback, result.qualityScore);
-                callback.onTechnicalFeedback(result.technicalFeedback, result.metrics);
-            }
+            try {
+                if (callback != null) {
+                    callback.onRealTimeFeedback(result.feedback, result.qualityScore);
+                    if (Math.random() < 0.3) {
+                        callback.onTechnicalFeedback(result.technicalFeedback, result.metrics);
+                    }
+                }
 
-            boolean shouldCapture = evaluateCaptureDecision(result);
+                boolean shouldCapture = evaluateCaptureDecision(result);
 
-            if (shouldCapture) {
-                performCapture(result);
-                consecutiveRejections = 0;
-            } else {
-                consecutiveRejections++;
-                handleRejection(result);
-            }
+                if (shouldCapture) {
+                    performCapture(result);
+                    consecutiveRejections = 0;
+                } else {
+                    consecutiveRejections++;
+                    handleRejection(result);
+                }
 
-            if (shouldCompleteCapture()) {
-                completeCapture();
+                if (shouldCompleteCapture()) {
+                    completeCapture();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error handling quality result", e);
             }
         });
     }
 
     private boolean evaluateCaptureDecision(FaceQualityAnalyzer.FaceQualityResult result) {
+        if (capturedFaces.size() < 2) {
+            Log.d(TAG, "Accepted: Need at least 2 images for server");
+            return true;
+        }
+
         if (result.qualityScore < currentQualityThreshold) {
             Log.d(TAG, String.format("Rejected: Quality %.2f below threshold %.2f",
                     result.qualityScore, currentQualityThreshold));
             return false;
+        }
+
+        if ("frontal".equals(result.faceAngle)) {
+            if (result.qualityScore >= 0.4f) {
+                Log.d(TAG, "Accepted: Frontal face with acceptable quality");
+                return true;
+            }
         }
 
         Long lastAngleCapture = lastCaptureByAngle.get(result.faceAngle);
@@ -161,38 +185,15 @@ public class IntelligentCaptureManager {
             return false;
         }
 
-        if (!isPoseDiverse(result)) {
-            Log.d(TAG, "Rejected: Pose not diverse enough");
-            return false;
+        if (capturedFaces.size() >= MIN_CAPTURES) {
+            if (!isPoseDiverse(result)) {
+                Log.d(TAG, "Rejected: Pose not diverse enough");
+                return false;
+            }
         }
 
-        if (!isPositionDiverse(result.facePosition)) {
-            Log.d(TAG, "Rejected: Position not diverse enough");
-            return false;
-        }
-
-        if (result.qualityScore >= HIGH_QUALITY_THRESHOLD) {
-            Log.d(TAG, "Accepted: High quality image");
-            return true;
-        }
-
-        if (capturedFaces.size() < MIN_CAPTURES) {
-            Log.d(TAG, "Accepted: Need more minimum captures");
-            return true;
-        }
-
-        if (requiredAngles.contains(result.faceAngle) && !hasAngle(result.faceAngle)) {
-            Log.d(TAG, "Accepted: Required angle not yet captured");
-            return true;
-        }
-
-        if (highQualityCount < TARGET_HIGH_QUALITY && result.qualityScore >= ACCEPTABLE_QUALITY_THRESHOLD) {
-            Log.d(TAG, "Accepted: Need more high-quality images");
-            return true;
-        }
-
-        Log.d(TAG, "Rejected: Sufficient quality and diversity achieved");
-        return false;
+        Log.d(TAG, "Accepted: Passed all checks");
+        return true;
     }
 
     private boolean isPoseDiverse(FaceQualityAnalyzer.FaceQualityResult result) {
@@ -374,36 +375,18 @@ public class IntelligentCaptureManager {
         }
     }
     private boolean shouldCompleteCapture() {
-        if (capturedFaces.size() < MIN_CAPTURES) {
+        if (capturedFaces.size() < 2) {
             return false;
         }
 
-        if (capturedFaces.size() >= MAX_CAPTURES) {
-            Log.d(TAG, "Completing capture: reached maximum captures");
-            return true;
-        }
-
-        boolean hasGoodQuality = highQualityCount >= TARGET_HIGH_QUALITY;
-        boolean hasRequiredAngles = hasMinimumAngleCoverage();
-
-        if (hasGoodQuality && hasRequiredAngles) {
-            Log.d(TAG, "Completing: Quality and angle requirements satisfied");
+        if (capturedFaces.size() >= MIN_CAPTURES) {
+            Log.d(TAG, "Completing capture: reached minimum captures");
             return true;
         }
 
         long totalTime = System.currentTimeMillis() - captureStartTime;
-        long timeSinceLastCapture = System.currentTimeMillis() - lastCaptureTime;
-
-        long maxTotalTime = emergencyMode ? 45000 : 35000;
-        long maxIdleTime = emergencyMode ? 12000 : 8000;
-
-        if (totalTime > maxTotalTime) {
-            Log.d(TAG, "Completing: Total time limit reached");
-            return true;
-        }
-
-        if (timeSinceLastCapture > maxIdleTime && capturedFaces.size() >= MIN_CAPTURES) {
-            Log.d(TAG, "Completing: Idle timeout after minimum captures");
+        if (totalTime > 15000 && capturedFaces.size() >= 2) {
+            Log.d(TAG, "Completing: timeout with minimum images");
             return true;
         }
 
@@ -411,16 +394,7 @@ public class IntelligentCaptureManager {
     }
 
     private boolean hasMinimumAngleCoverage() {
-        Set<String> capturedAngles = new HashSet<>();
-        capturedFaces.forEach(face -> capturedAngles.add(face.faceAngle));
-
-        boolean hasFrontal = capturedAngles.contains("frontal");
-        boolean hasSideAngle = capturedAngles.contains("slight_left") ||
-                capturedAngles.contains("slight_right") ||
-                capturedAngles.contains("left_profile") ||
-                capturedAngles.contains("right_profile");
-
-        return (hasFrontal && hasSideAngle) || capturedAngles.size() >= 3;
+        return capturedFaces.size() >= 2;
     }
 
     private void completeCapture() {

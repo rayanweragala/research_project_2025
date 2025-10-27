@@ -15,7 +15,7 @@ import java.io.ByteArrayOutputStream;
 public class FaceRecognitionService {
 
     private static final String TAG = "FaceRecognitionService";
-    private static final String SERVER_URL = "http://10.72.250.126:5000";
+    private static final String SERVER_URL = "http://10.91.73.126:5000";
 
     private RequestQueue requestQueue;
 

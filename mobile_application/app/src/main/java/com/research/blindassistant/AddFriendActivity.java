@@ -33,7 +33,7 @@ import static com.research.blindassistant.StringResources.AddFriend;
 public class AddFriendActivity extends AppCompatActivity implements TextToSpeech.OnInitListener, RecognitionListener,IntelligentCaptureManager.CaptureProgressCallback,SmartGlassesConnector.SmartGlassesCallback,FaceRecognitionService.FaceRecognitionCallback {
 
     private static final String TAG = "AddFriendActivity";
-    private static final String SERVER_URL = "http://10.231.176.126:5000";
+    private static final String SERVER_URL = "http://10.91.73.126:5000";
     private TextView statusText, instructionsText, nameDisplayText,progressText;
     private Button btnStart,btnStartOver,btnCancel;
     private ImageView captureIndicator,qualityIndicator;
@@ -60,7 +60,8 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     private static final int TONE_QUALITY_GOOD = ToneGenerator.TONE_DTMF_1;
     private static final int TONE_COMPLETE = ToneGenerator.TONE_CDMA_CONFIRM;
     private static final int TONE_ERROR = ToneGenerator.TONE_CDMA_ABBR_ALERT;
-
+    private static final int TARGET_FPS = 10;
+    private static final long FRAME_INTERVAL = 1000 / TARGET_FPS;
     private long lastPreviewUpdate = 0;
     private static final long PREVIEW_UPDATE_INTERVAL = 150;
 
@@ -513,9 +514,9 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
 
     @Override
     public void onRealTimeFeedback(String feedback, float qualityScore) {
-        Log.d(TAG, String.format("Real-time feedback: score=%.2f, feedback='%s'", qualityScore, feedback));
-        int qualityLevel = (int) (qualityScore * 5);
-        if (System.currentTimeMillis() - lastPreviewUpdate > 200) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastPreviewUpdate > 200) {
+            int qualityLevel = (int) (qualityScore * 5);
             runOnUiThread(() -> {
                 switch (qualityLevel) {
                     case 0:
@@ -529,7 +530,7 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                     case 4:
                     case 5:
                         qualityIndicator.setImageResource(R.drawable.ic_quality_good);
-                        if (qualityScore > 0.8f) {
+                        if (qualityScore > 0.8f && Math.random() < 0.5) {
                             playTone(TONE_QUALITY_GOOD);
                         }
                         break;
@@ -537,10 +538,9 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
             });
         }
 
-        if (qualityScore < 0.5f && Math.random() < 0.1) {
+        if (qualityScore < 0.5f && Math.random() < 0.05) {
             speak(feedback);
         }
-
     }
 
     @Override
@@ -674,11 +674,22 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
     @Override
     public void onFrameReceived(Bitmap frame, long timestamp, double confidence) {
         long currentTime = System.currentTimeMillis();
-        if (currentTime - lastPreviewUpdate < PREVIEW_UPDATE_INTERVAL) {
-            if (captureManager != null && captureManager.isCapturing()) {
-                captureManager.processCandidateFrame(frame);
-            }
 
+        if (currentTime - lastPreviewUpdate < FRAME_INTERVAL) {
+            return;
+        }
+
+        if (captureManager !=null && captureManager.isCapturing()){
+            backgroundHandler.post(() -> {
+                captureManager.processCandidateFrame(frame.copy(frame.getConfig(),false));
+            });
+        }
+
+        updatePreviewAsync(frame,currentTime);
+    }
+
+    private void updatePreviewAsync(Bitmap frame, long currentTime) {
+        if(currentTime - lastPreviewUpdate < 300){
             return;
         }
 
@@ -687,9 +698,9 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
 
             Bitmap displayFrame = null;
             if (liveFeedPreview.getWidth() > 0 && liveFeedPreview.getHeight() > 0) {
-                int displayWidth = liveFeedPreview.getWidth() / 2;
-                int displayHeight = liveFeedPreview.getHeight() / 2;
-                displayFrame = Bitmap.createScaledBitmap(frame, displayWidth, displayHeight, true);
+                int displayWidth = Math.min(liveFeedPreview.getWidth() / 3, 320);
+                int displayHeight = Math.min(liveFeedPreview.getHeight() / 3, 240);
+                displayFrame = Bitmap.createScaledBitmap(frame, displayWidth, displayHeight, false);
             }
 
             final Bitmap finalDisplayFrame = displayFrame;
@@ -703,10 +714,6 @@ public class AddFriendActivity extends AppCompatActivity implements TextToSpeech
                     liveFeedPreview.setImageBitmap(finalDisplayFrame);
                 }
             });
-
-            if (captureManager != null && captureManager.isCapturing()) {
-                captureManager.processCandidateFrame(frame);
-            }
         });
 
         lastPreviewUpdate = currentTime;

@@ -3,7 +3,6 @@ package com.research.blindassistant;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
@@ -11,23 +10,19 @@ import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 import org.json.JSONException;
 import org.json.JSONObject;
-import java.util.Locale;
 
 public class DistanceSensorService {
 
     private static final String TAG = "DistanceSensorService";
-    private static final String SERVER_URL = "http://10.72.250.126:5001";
-    private static final double OBSTACLE_THRESHOLD = 15.0; // 15cm threshold
-    private static final String SINHALA_WARNING = "නවතන්න ඉදිරියෙන් බාධකයක්"; // "Stop, obstacle ahead"
+    private static final String SERVER_URL = "http://10.91.73.126:5001";
+    private static final double OBSTACLE_THRESHOLD = 20.0; // Changed to 20cm threshold
     private static final int MONITORING_INTERVAL = 4000; // 4 seconds to match server
 
     private RequestQueue requestQueue;
     private Handler monitoringHandler;
     private Runnable monitoringRunnable;
-    private TextToSpeech textToSpeech;
     private DistanceSensorCallback callback;
     private boolean isMonitoring = false;
-    private boolean isTtsReady = false;
     private long lastWarningTime = 0;
     private static final long WARNING_COOLDOWN = 3000; // 3 seconds cooldown between warnings
 
@@ -42,32 +37,12 @@ public class DistanceSensorService {
         requestQueue = Volley.newRequestQueue(context);
         monitoringHandler = new Handler(Looper.getMainLooper());
 
-        // Initialize Text-to-Speech
-        initTextToSpeech(context);
-
         // Auto-start the server and monitoring
         autoStartService();
     }
 
     public void setCallback(DistanceSensorCallback callback) {
         this.callback = callback;
-    }
-
-    private void initTextToSpeech(Context context) {
-        textToSpeech = new TextToSpeech(context, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                // Set language to Sinhala
-                int result = textToSpeech.setLanguage(new Locale("si", "LK"));
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.w(TAG, "Sinhala language not supported, using default language");
-                    textToSpeech.setLanguage(Locale.getDefault());
-                }
-                isTtsReady = true;
-                Log.d(TAG, "Text-to-Speech initialized successfully");
-            } else {
-                Log.e(TAG, "Text-to-Speech initialization failed");
-            }
-        });
     }
 
     private void autoStartService() {
@@ -216,31 +191,19 @@ public class DistanceSensorService {
             if (currentTime - lastWarningTime > WARNING_COOLDOWN) {
                 Log.w(TAG, String.format("OBSTACLE DETECTED! Distance: %.2f cm", distance));
 
-                // Trigger callback
+                // Trigger callback - MainActivity will handle TTS
                 if (callback != null) {
                     callback.onObstacleDetected(distance);
                 }
-
-                // Speak warning in Sinhala
-                speakWarning();
 
                 lastWarningTime = currentTime;
             }
         }
     }
 
-    private void speakWarning() {
-        if (isTtsReady && textToSpeech != null) {
-            Log.d(TAG, "Speaking warning: " + SINHALA_WARNING);
-            textToSpeech.speak(SINHALA_WARNING, TextToSpeech.QUEUE_FLUSH, null, "obstacle_warning");
-        } else {
-            Log.w(TAG, "TTS not ready, cannot speak warning");
-        }
-    }
-
     public void setObstacleThreshold(double threshold) {
         // Allow dynamic threshold adjustment if needed
-        Log.d(TAG, "Obstacle threshold would be set to: " + threshold + " cm (currently fixed at 15cm)");
+        Log.d(TAG, "Obstacle threshold would be set to: " + threshold + " cm (currently fixed at 20cm)");
     }
 
     public boolean isMonitoringActive() {
@@ -264,11 +227,6 @@ public class DistanceSensorService {
 
         if (requestQueue != null) {
             requestQueue.cancelAll(TAG);
-        }
-
-        if (textToSpeech != null) {
-            textToSpeech.stop();
-            textToSpeech.shutdown();
         }
 
         if (monitoringHandler != null) {

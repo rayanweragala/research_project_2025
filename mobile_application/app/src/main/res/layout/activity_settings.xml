@@ -49,43 +49,43 @@
                 android:layout_marginBottom="12dp"
                 android:alpha="0.8" />
 
-        <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:background="@drawable/status_card_background"
-                android:padding="12dp"
-                android:elevation="4dp">
+<!--        <LinearLayout-->
+<!--                android:layout_width="match_parent"-->
+<!--                android:layout_height="wrap_content"-->
+<!--                android:orientation="horizontal"-->
+<!--                android:gravity="center_vertical"-->
+<!--                android:background="@drawable/status_card_background"-->
+<!--                android:padding="12dp"-->
+<!--                android:elevation="4dp">-->
 
-            <ImageView
-                    android:id="@+id/voiceStatusIcon"
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_mic_premium"
-                    android:layout_marginEnd="10dp"
-                    android:contentDescription="@string/voice_status_indicator_desc"
-                    app:tint="@color/status_icon_active" />
+<!--            <ImageView-->
+<!--                    android:id="@+id/voiceStatusIcon"-->
+<!--                    android:layout_width="20dp"-->
+<!--                    android:layout_height="20dp"-->
+<!--                    android:src="@drawable/ic_mic_premium"-->
+<!--                    android:layout_marginEnd="10dp"-->
+<!--                    android:contentDescription="@string/voice_status_indicator_desc"-->
+<!--                    app:tint="@color/status_icon_active" />-->
 
-            <TextView
-                    android:id="@+id/statusText"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/ready_status"
-                    android:textColor="@color/status_text_primary"
-                    android:textSize="14sp"
-                    android:textStyle="normal"
-                    android:fontFamily="sans-serif-medium" />
+<!--            <TextView-->
+<!--                    android:id="@+id/statusText"-->
+<!--                    android:layout_width="0dp"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:layout_weight="1"-->
+<!--                    android:text="@string/ready_status"-->
+<!--                    android:textColor="@color/status_text_primary"-->
+<!--                    android:textSize="14sp"-->
+<!--                    android:textStyle="normal"-->
+<!--                    android:fontFamily="sans-serif-medium" />-->
 
-            <View
-                    android:id="@+id/statusIndicator"
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
-                    android:background="@drawable/pulse_indicator"
-                    android:layout_marginStart="10dp" />
+<!--            <View-->
+<!--                    android:id="@+id/statusIndicator"-->
+<!--                    android:layout_width="10dp"-->
+<!--                    android:layout_height="10dp"-->
+<!--                    android:background="@drawable/pulse_indicator"-->
+<!--                    android:layout_marginStart="10dp" />-->
 
-        </LinearLayout>
+<!--        </LinearLayout>-->
     </LinearLayout>
 
     <ScrollView

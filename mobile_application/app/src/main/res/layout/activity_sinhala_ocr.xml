@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              xmlns:tools="http://schemas.android.com/tools"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:padding="16dp"
+              android:background="@color/background_color"
+              tools:context=".SinhalaOCRActivity">
+    
+    <!-- Header with Status -->
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="8dp"
+            android:id="@+id/headerLayout"
+            android:background="@color/header_background">
+        
+        <FrameLayout
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="12dp">
+            
+            <View
+                    android:id="@+id/statusIndicatorBackground"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/status_indicator_background_disconnected"/>
+            
+            <ImageView
+                    android:id="@+id/statusIndicator"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_text_fields"
+                    android:contentDescription="@string/ocr_system_status_desc"
+                    app:tint="@color/status_disconnected"/>
+        
+        </FrameLayout>
+        
+        <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+            
+            <TextView
+                    android:id="@+id/statusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ocr_status_connecting"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/primary_text"
+                    android:contentDescription="@string/current_ocr_status_desc" />
+            
+            <TextView
+                    android:id="@+id/statusSubtext"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ocr_subtitle"
+                    android:textSize="12sp"
+                    android:textColor="@color/secondary_text"
+                    android:layout_marginTop="2dp" />
+        
+        </LinearLayout>
+        
+        <View
+                android:id="@+id/connectionPulse"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/connection_pulse_indicator"
+                android:visibility="gone" />
+    
+    </LinearLayout>
+    
+    <!-- Document Camera Feed -->
+    <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_margin="8dp"
+            android:background="@color/camera_background">
+        
+        <ImageView
+                android:id="@+id/documentFeedView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:contentDescription="@string/document_camera_feed_desc"
+                android:background="#f0f0f0" />
+        
+        <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/smart_glasses_overlay_border" />
+        
+        <LinearLayout
+                android:id="@+id/noFeedMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="visible">
+            
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/document_feed_placeholder"
+                    android:textSize="48sp"
+                    android:alpha="0.3" />
+            
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/connecting_ocr_camera"
+                    android:textSize="14sp"
+                    android:textColor="@color/secondary_text"
+                    android:textAlignment="center"
+                    android:alpha="0.7"
+                    android:layout_marginTop="8dp" />
+        
+        </LinearLayout>
+        
+        <!-- OCR Confidence Indicator -->
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:orientation="vertical"
+                android:background="#CC000000"
+                android:padding="8dp">
+            
+            <TextView
+                    android:id="@+id/ocrConfidenceText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/ocr_confidence_default"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace"
+                    android:gravity="center" />
+        
+        </LinearLayout>
+    
+    </FrameLayout>
+    
+    <!-- Results Display -->
+    <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:layout_margin="8dp"
+            android:background="@color/results_background"
+            android:padding="8dp">
+        
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+            
+            <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="4dp">
+                
+                <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/ocr_results_title"
+                        android:textSize="12sp"
+                        android:textColor="@color/accent_text"
+                        android:textStyle="bold" />
+            
+            </LinearLayout>
+            
+            <TextView
+                    android:id="@+id/resultsText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/start_ocr_instruction"
+                    android:textSize="14sp"
+                    android:textColor="@color/secondary_text"
+                    android:contentDescription="@string/ocr_extraction_results_desc"
+                    android:layout_marginBottom="8dp" />
+            
+            <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/divider_color"
+                    android:layout_marginVertical="4dp" />
+            
+            <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/performance_metrics_title"
+                    android:textSize="11sp"
+                    android:textColor="@color/accent_text"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="2dp" />
+            
+            <TextView
+                    android:id="@+id/performanceText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/performance_stats_default"
+                    android:textSize="11sp"
+                    android:textColor="@color/performance_text"
+                    android:fontFamily="monospace"
+                    android:contentDescription="@string/performance_statistics_desc" />
+        
+        </LinearLayout>
+    
+    </ScrollView>
+    
+    <!-- Instructions -->
+    <TextView
+            android:id="@+id/instructionsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="8dp"
+            android:padding="12dp"
+            android:text="@string/connecting_ocr_server"
+            android:textSize="14sp"
+            android:textColor="@color/instruction_text"
+            android:background="@color/instruction_background"
+            android:contentDescription="@string/current_instructions_desc"
+            android:drawableStart="@drawable/ic_info"
+            android:drawablePadding="8dp"
+            android:gravity="center_vertical" />
+    
+    <!-- Control Buttons -->
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_margin="8dp">
+        
+        <!-- Start / Stop OCR Buttons -->
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+            
+            <Button
+                    android:id="@+id/btnStartOCR"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="@string/btn_start_ocr"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/button_primary"
+                    android:textColor="@color/button_text_primary"
+                    android:contentDescription="@string/start_ocr_scanning_desc" />
+            
+            <Button
+                    android:id="@+id/btnStopOCR"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="@string/btn_stop_ocr"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/button_secondary"
+                    android:textColor="@color/button_text_secondary"
+                    android:visibility="gone"
+                    android:contentDescription="@string/stop_ocr_scanning_desc"
+                    android:drawableTop="@drawable/ic_stop"
+                    android:drawablePadding="4dp" />
+        
+        </LinearLayout>
+        
+        <!-- Capture Button with Dot Overlay -->
+        <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp">
+            
+            <Button
+                    android:id="@+id/btnCapture"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="Capture / ග්‍රහණය"
+                    android:textSize="14sp"
+                    android:background="@drawable/button_accent"
+                    android:textColor="@color/button_text_accent"
+                    android:contentDescription="Capture single photo for OCR" />
+            
+            <!-- The Dot Overlay - Using existing recording_dot_on drawable -->
+            <View
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:background="@drawable/recording_dot_on"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginEnd="6dp" />
+        
+        </FrameLayout>
+        
+        <!-- Speak / Back Buttons -->
+        <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+            
+            <Button
+                    android:id="@+id/btnSpeak"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="@string/btn_speak_text"
+                    android:textSize="12sp"
+                    android:background="@drawable/button_accent"
+                    android:textColor="@color/button_text_accent"
+                    android:contentDescription="@string/read_extracted_text_desc"
+                    android:drawableStart="@drawable/ic_mic"
+                    android:drawablePadding="6dp"
+                    android:gravity="center"
+                    android:visibility="gone" />
+            
+            <Button
+                    android:id="@+id/btnBack"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="@string/btn_back"
+                    android:textSize="12sp"
+                    android:background="@drawable/button_neutral"
+                    android:textColor="@color/button_text_neutral"
+                    android:contentDescription="@string/return_to_main_menu_desc"
+                    android:drawableStart="@drawable/ic_arrow_back"
+                    android:drawablePadding="6dp"
+                    android:gravity="center" />
+        
+        </LinearLayout>
+    
+    </LinearLayout>
+    
+    <!-- Voice Commands Helper -->
+    <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/voice_helper_background"
+            android:padding="8dp"
+            android:gravity="center_vertical">
+        
+        <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginEnd="8dp"
+                android:src="@drawable/ic_mic"
+                android:contentDescription="@string/voice_commands_available_desc" />
+        
+        <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/voice_commands_ocr"
+                android:textSize="10sp"
+                android:textColor="@color/voice_helper_text" />
+        
+        <ImageView
+                android:id="@+id/voiceIndicator"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:src="@drawable/voice_listening_indicator"
+                android:contentDescription="@string/voice_listening_indicator_desc"
+                android:visibility="gone" />
+    
+    </LinearLayout>
+
+</LinearLayout>

@@ -21,7 +21,7 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
 
     private static final String TAG = "MockSmartGlasses";
 
-    private static final String CAMERA_SERVER_URL = "http://10.72.250.126:5000";
+    private static final String CAMERA_SERVER_URL = "http://10.91.73.126:5000";
 
     private RequestQueue requestQueue;
     private Handler mainHandler;
@@ -281,7 +281,7 @@ public class MockSmartGlassesConnector implements SmartGlassesConnector {
     }
 
     private void registerPersonWithBase64Images(String name, String[] imagesBase64) {
-        String url = "http://10.231.176.126:5000";
+        String url = "http://10.91.73.126:5000";
 
         try {
             Log.d(TAG, "Preparing registration request for: " + name);

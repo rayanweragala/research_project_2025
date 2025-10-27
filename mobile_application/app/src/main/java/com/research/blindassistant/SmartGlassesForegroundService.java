@@ -46,8 +46,10 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
     private static final String TAG = "SGForegroundService";
     private static final String CHANNEL_ID = "smart_glasses_monitor";
     private static final int NOTIF_ID = 1011;
-
-    private static final String SERVER_URL = "http://10.72.250.126:5000";
+    private String lastRecognizedPerson = null;
+    private long lastRecognitionTime = 0;
+    private static final long RECOGNITION_ANNOUNCEMENT_INTERVAL = 3000;
+    private static final String SERVER_URL = "http://10.91.73.126:5000";
 
     private Handler handler;
     private RequestQueue requestQueue;
@@ -231,6 +233,11 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
                         boolean cameraActive = response.optBoolean("camera_active", false);
 
                         this.peopleCount = count;
+
+                        if (healthy && cameraActive) {
+                            checkForRecognizedFaces();
+                        }
+
                         if (cameraStoppedByAddFriend && !cameraActive && cameraWasActiveBeforeStop) {
                             Log.d(TAG, "Camera was stopped by AddFriend but should be active, attempting restart");
                             startCamera();
@@ -251,6 +258,82 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
         requestQueue.add(request);
     }
 
+    private void checkForRecognizedFaces() {
+        boolean uiActive = getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                .getBoolean("ui_recognition_active", false);
+
+        if (uiActive || cameraStoppedByAddFriend) {
+            return;
+        }
+
+        String url = SERVER_URL + "/api/camera/frame";
+        JsonObjectRequest request = new JsonObjectRequest(
+                Request.Method.GET, url, null,
+                response -> {
+                    try {
+                        if (response.has("error")) {
+                            return;
+                        }
+
+                        boolean serverRecognized = response.optBoolean("recognized", false);
+                        String recognizedName = response.optString("name", null);
+                        double serverConfidence = response.optDouble("confidence", 0.0);
+
+                        if (serverRecognized && recognizedName != null && serverConfidence > 0.7) {
+                            long currentTime = System.currentTimeMillis();
+                            boolean shouldAnnounce = !recognizedName.equals(lastRecognizedPerson) ||
+                                    (currentTime - lastRecognitionTime > RECOGNITION_ANNOUNCEMENT_INTERVAL);
+
+                            if (shouldAnnounce) {
+                                announceRecognizedPerson(recognizedName);
+                                lastRecognizedPerson = recognizedName;
+                                lastRecognitionTime = currentTime;
+                            }
+                        }
+
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error parsing background recognition response", e);
+                    }
+                },
+                error -> {
+                }
+        );
+        request.setRetryPolicy(new DefaultRetryPolicy(2000, 0, 1f));
+        requestQueue.add(request);
+    }
+
+    private void announceRecognizedPerson(String personName) {
+        if (tts == null || !ttsReady) return;
+
+        try {
+            String langCode = getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                    .getString("selected_language", "en");
+
+            Locale targetLocale = langCode.equals("si") ?
+                    StringResources.LOCALE_SINHALA : StringResources.LOCALE_ENGLISH;
+
+            int result = tts.setLanguage(targetLocale);
+            if (result == TextToSpeech.LANG_MISSING_DATA ||
+                    result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                tts.setLanguage(Locale.ENGLISH);
+            }
+
+            String announcementText;
+            if (langCode.equals("si")) {
+                announcementText = personName;
+            } else {
+                announcementText = personName;
+            }
+
+            tts.speak(announcementText, TextToSpeech.QUEUE_FLUSH, null, "BG_RECOGNITION");
+
+            Log.d(TAG, "Announced recognized person: " + personName + " in " +
+                    (langCode.equals("si") ? "Sinhala" : "English"));
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error announcing recognized person", e);
+        }
+    }
     private void updateState(boolean healthyAndActive, int count, boolean announce) {
         String text;
         if (healthyAndActive) {
@@ -497,27 +580,46 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
             stopSelf();
         }
     }
-
     private void speakThrottled(String message) {
         long now = System.currentTimeMillis();
         if (now - lastTtsAtMs < TTS_THROTTLE_MS) return;
         lastTtsAtMs = now;
         try {
-            if (tts != null) {
-                Locale loc = StringResources.getCurrentLocale();
-                if (loc != null) tts.setLanguage(loc);
+            if (tts != null && ttsReady) {
+                String langCode = getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                        .getString("selected_language", "en");
+
+                Locale targetLocale = langCode.equals("si") ?
+                        StringResources.LOCALE_SINHALA : StringResources.LOCALE_ENGLISH;
+
+                int result = tts.setLanguage(targetLocale);
+                if (result == TextToSpeech.LANG_MISSING_DATA ||
+                        result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts.setLanguage(Locale.ENGLISH);
+                }
+
                 tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "SG_FG_TTS");
             }
         } catch (Exception ignored) {}
     }
-
     @Override
     public void onInit(int status) {
         if (status == TextToSpeech.SUCCESS) {
             ttsReady = true;
             try {
-                Locale loc = StringResources.getCurrentLocale();
-                if (loc != null && tts != null) tts.setLanguage(loc);
+                String langCode = getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
+                        .getString("selected_language", "en");
+
+                Locale targetLocale = langCode.equals("si") ?
+                        StringResources.LOCALE_SINHALA : StringResources.LOCALE_ENGLISH;
+
+                if (tts != null) {
+                    int result = tts.setLanguage(targetLocale);
+                    if (result == TextToSpeech.LANG_MISSING_DATA ||
+                            result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        tts.setLanguage(Locale.ENGLISH);
+                    }
+                }
             } catch (Exception ignored) {}
         }
     }
