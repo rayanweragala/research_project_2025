@@ -119,13 +119,23 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onObstacleDetected(double distance) {
                 runOnUiThread(() -> {
+                    // Visual feedback
                     distanceValueText.setTextColor(getResources().getColor(android.R.color.holo_red_dark));
                     distanceValueText.setTextSize(28);
 
+                    // TTS Warning in Sinhala - "Stop, obstacle ahead"
+                    String warningMessage = "නවතන්න ඉදිරියෙන් බාධකයක්";
+                    speak(warningMessage);
+
+                    // Toast notification
                     Toast.makeText(MainActivity.this,
                             String.format(Locale.US, "⚠️ OBSTACLE! %.1f cm", distance),
                             Toast.LENGTH_SHORT).show();
 
+                    // Log the warning
+                    Log.w(TAG, String.format("OBSTACLE WARNING: Distance %.1f cm - TTS spoken", distance));
+
+                    // Reset visual feedback after 2 seconds
                     distanceValueText.postDelayed(() -> {
                         distanceValueText.setTextColor(getResources().getColor(R.color.primary_text));
                         distanceValueText.setTextSize(24);
@@ -412,6 +422,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void stopAllServices() {
+        Log.d(TAG, "Stopping all services...");
+
         if (distanceSensorService != null) {
             distanceSensorService.cleanup();
         }
@@ -421,12 +433,18 @@ public class MainActivity extends AppCompatActivity {
             isListening = false;
         }
 
+        if (textToSpeech != null && textToSpeech.isSpeaking()) {
+            textToSpeech.stop();
+        }
+
         if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.GONE);
 
         distanceValueText.setText("Distance: -- cm");
         distanceZoneText.setText("Zone: --");
         navigationStatusText.setText("Services Stopped");
         featureStatusText.setText("All services stopped");
+
+        Log.d(TAG, "All services stopped successfully");
     }
 
     @Override
@@ -445,25 +463,77 @@ public class MainActivity extends AppCompatActivity {
             isListening = false;
             if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.GONE);
         }
+
+        // Stop TTS when app goes to background
+        if (textToSpeech != null && textToSpeech.isSpeaking()) {
+            textToSpeech.stop();
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+
+        // Stop distance sensor monitoring when app is not visible
+        if (distanceSensorService != null) {
+            distanceSensorService.stopContinuousMonitoring();
+            Log.d(TAG, "Distance sensor stopped - app not visible");
+        }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
 
+        Log.d(TAG, "MainActivity onDestroy - cleaning up all services");
+
+        // Stop and cleanup distance sensor
         if (distanceSensorService != null) {
             distanceSensorService.cleanup();
+            distanceSensorService = null;
         }
 
+        // Stop and destroy speech recognizer
         if (speechRecognizer != null) {
+            if (isListening) {
+                speechRecognizer.stopListening();
+            }
             speechRecognizer.destroy();
             speechRecognizer = null;
         }
 
+        // Stop and shutdown text to speech
         if (textToSpeech != null) {
-            textToSpeech.stop();
+            if (textToSpeech.isSpeaking()) {
+                textToSpeech.stop();
+            }
             textToSpeech.shutdown();
             textToSpeech = null;
         }
+
+        isTtsReady = false;
+        isListening = false;
+    }
+
+    @Override
+    public void finish() {
+        // Ensure cleanup when activity is finishing
+        stopAllServices();
+        super.finish();
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Show confirmation dialog before exiting
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Exit Application")
+                .setMessage("Are you sure you want to exit? All services will be stopped.")
+                .setPositiveButton("Yes, Exit", (dialog, which) -> {
+                    stopAllServices();
+                    finish();
+                    super.onBackPressed();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 }

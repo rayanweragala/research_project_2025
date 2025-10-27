@@ -49,7 +49,7 @@ public class SmartGlassesForegroundService extends Service implements TextToSpee
     private String lastRecognizedPerson = null;
     private long lastRecognitionTime = 0;
     private static final long RECOGNITION_ANNOUNCEMENT_INTERVAL = 3000;
-    private static final String SERVER_URL = "http://10.72.250.126:5000";
+    private static final String SERVER_URL = "http://10.91.73.126:5000";
 
     private Handler handler;
     private RequestQueue requestQueue;

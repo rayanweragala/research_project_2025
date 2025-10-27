@@ -33,7 +33,7 @@ import static com.research.blindassistant.StringResources.AddFriend;
 public class AddFriendActivity extends AppCompatActivity implements TextToSpeech.OnInitListener, RecognitionListener,IntelligentCaptureManager.CaptureProgressCallback,SmartGlassesConnector.SmartGlassesCallback,FaceRecognitionService.FaceRecognitionCallback {
 
     private static final String TAG = "AddFriendActivity";
-    private static final String SERVER_URL = "http://10.231.176.126:5000";
+    private static final String SERVER_URL = "http://10.91.73.126:5000";
     private TextView statusText, instructionsText, nameDisplayText,progressText;
     private Button btnStart,btnStartOver,btnCancel;
     private ImageView captureIndicator,qualityIndicator;

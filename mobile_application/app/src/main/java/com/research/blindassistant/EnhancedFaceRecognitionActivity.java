@@ -47,7 +47,7 @@ public class EnhancedFaceRecognitionActivity extends AppCompatActivity
 
     private static final String TAG = "EnhancedFaceRecognition";
     private static final int AUDIO_PERMISSION_REQUEST = 100;
-    private static final String SERVER_URL = "http://10.72.250.126:5000";
+    private static final String SERVER_URL = "http://10.91.73.126:5000";
 
     private TextView statusText, resultsText, instructionsText, performanceText;
     private Button btnStartRecognition, btnStopRecognition, btnBack, btnAddFriend;
