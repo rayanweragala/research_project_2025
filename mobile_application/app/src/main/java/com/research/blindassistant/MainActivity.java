@@ -1,653 +1,469 @@
 package com.research.blindassistant;
 
-import android.Manifest;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.os.Build;
 import android.os.Bundle;
-
-import android.os.Handler;
-import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.speech.RecognitionListener;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
-import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.ImageView;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import androidx.core.app.NotificationManagerCompat;
-
-import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Locale;
 
-import static com.research.blindassistant.StringResources.Main;
+public class MainActivity extends AppCompatActivity {
 
-public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener,RecognitionListener {
+    private static final String TAG = "MainActivity";
 
-    private Button btnPeopleRecognition,btnVoiceCommand,btnNavigation,btnSettings, btnStopSmartGlasses;
-    private TextView statusText;
-    private TextToSpeech ttsEngine;
+    private Button btnStopSmartGlasses, btnPeopleRecognition, btnTextRecognition;
+    private Button btnFieldDescribe, btnNavigation, btnVoiceCommand;
+    private Button btnSettings, btnHelp;
+    private TextView distanceValueText, distanceZoneText;
+    private TextView navigationStatusText, featureStatusText;
+    private ImageView voiceIndicator;
+    private android.view.View distanceSensorIndicator;
+
+    private DistanceSensorService distanceSensorService;
     private SpeechRecognizer speechRecognizer;
     private Intent speechRecognizerIntent;
+    private TextToSpeech textToSpeech;
     private boolean isListening = false;
-    private static final int PERMISSION_REQUEST_RECORD_AUDIO = 1;
-    private static final int PERMISSION_REQUEST_NOTIFICATIONS = 2;
-
-    private void loadSavedLanguagePreference() {
-        String langCode = getSharedPreferences("blind_assistant_prefs",MODE_PRIVATE)
-                .getString("selected_language", "en");
-        Locale savedLocale = langCode.equals("si") ? StringResources.LOCALE_SINHALA : StringResources.LOCALE_ENGLISH;
-        StringResources.setLocale(savedLocale);
-    }
-
-    private void updateSpeechRecognitionLanguage() {
-        if (speechRecognizerIntent == null) {
-            speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        }
-
-        Locale currentLocale = StringResources.getCurrentLocale();
-        speechRecognizerIntent.removeExtra(RecognizerIntent.EXTRA_LANGUAGE);
-        speechRecognizerIntent.removeExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE);
-
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
-
-        if (currentLocale.equals(StringResources.LOCALE_SINHALA)) {
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK");
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "si-LK");
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_CONFIDENCE_SCORES, true);
-        } else {
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US");
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-US");
-        }
-    }
+    private boolean isTtsReady = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        loadSavedLanguagePreference();
 
-        ttsEngine = new TextToSpeech(this, this);
-        initializeComponents();
-        setupVoiceRecognition();
-        setupButtons();
-        addHapticFeedback();
-
-        speak(StringResources.getString(Main.ASSISTANT_READY), StringResources.getCurrentLocale());
-
-        ensureForegroundMonitoring();
+        initializeViews();
+        initializeServices();
+        setupButtonListeners();
     }
-    private void initializeComponents() {
-        btnPeopleRecognition = findViewById(R.id.btnPeopleRecognition);
-        btnVoiceCommand = findViewById(R.id.btnVoiceCommand);
-        btnNavigation = findViewById(R.id.btnNavigation);
-        btnSettings = findViewById(R.id.btnSettings);
-        statusText = findViewById(R.id.statusText);
+
+    private void initializeViews() {
+        distanceValueText = findViewById(R.id.distanceValueText);
+        distanceZoneText = findViewById(R.id.distanceZoneText);
+        distanceSensorIndicator = findViewById(R.id.distanceSensorIndicator);
+        navigationStatusText = findViewById(R.id.navigationStatusText);
+        featureStatusText = findViewById(R.id.featureStatusText);
+        voiceIndicator = findViewById(R.id.voiceIndicator);
+
         btnStopSmartGlasses = findViewById(R.id.btnStopSmartGlasses);
+        btnPeopleRecognition = findViewById(R.id.btnPeopleRecognition);
+        btnTextRecognition = findViewById(R.id.btnTextRecognition);
+        btnFieldDescribe = findViewById(R.id.btnFieldDescribe);
+        btnNavigation = findViewById(R.id.btnNavigation);
+        btnVoiceCommand = findViewById(R.id.btnVoiceCommand);
+        btnSettings = findViewById(R.id.btnSettings);
+        btnHelp = findViewById(R.id.btnHelp);
     }
 
-    private void setupVoiceRecognition() {
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSION_REQUEST_RECORD_AUDIO);
-        }
-
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Log.e("MainActivity", "Speech recognition is not available on this device");
-            updateStatus("Speech recognition not available on this device");
-            speak("Speech recognition is not available on this device", StringResources.getCurrentLocale());
-            return;
-        }
-
-        try {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-            speechRecognizer.setRecognitionListener(this);
-
-            speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-
-            updateSpeechRecognitionLanguage();
-            speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        } catch (Exception e) {
-            Log.e("MainActivity", "Error initializing speech recognizer: " + e.getMessage());
-            updateStatus("Error initializing speech recognition");
-            speak("Error initializing speech recognition", StringResources.getCurrentLocale());
-        }
+    private void initializeServices() {
+        initializeTextToSpeech();
+        initializeDistanceSensor();
+        initializeSpeechRecognition();
     }
 
-    private void ensureForegroundMonitoring() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
-                        PERMISSION_REQUEST_NOTIFICATIONS);
-            }
-        }
+    private void initializeTextToSpeech() {
+        textToSpeech = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) {
+                // Try Sinhala first, fallback to English
+                int sinhalaResult = textToSpeech.setLanguage(new Locale("si", "LK"));
+                if (sinhalaResult == TextToSpeech.LANG_MISSING_DATA ||
+                        sinhalaResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.w(TAG, "Sinhala TTS not available, using English");
+                    textToSpeech.setLanguage(Locale.US);
+                }
 
-        try {
-            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
-                    .edit().putBoolean("monitoring_enabled", true).apply();
-
-            Intent svc = new Intent(this, SmartGlassesForegroundService.class);
-            svc.setAction(SmartGlassesForegroundService.ACTION_START);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(svc);
+                textToSpeech.setSpeechRate(0.9f);
+                textToSpeech.setPitch(1.0f);
+                isTtsReady = true;
+                Log.d(TAG, "Text-to-Speech initialized");
             } else {
-                startService(svc);
+                Log.e(TAG, "Text-to-Speech initialization failed");
             }
-        } catch (Exception e) {
-            Log.e("MainActivity", "Failed to start monitoring service", e);
-        }
-    }
-    private void setupButtons() {
-        btnPeopleRecognition.setOnClickListener(v -> {
-            speak(StringResources.getString(Main.FACE_RECOGNITION_STARTING), StringResources.getCurrentLocale());
-            updateStatus("Opening face recognition...");
-            new android.os.Handler().postDelayed(() -> {
-                startActivity(new Intent(this, EnhancedFaceRecognitionActivity.class));
-            },1500);
         });
-
-
-
-        btnVoiceCommand.setOnClickListener(v -> {
-            toggleVoiceListening();
-        });
-
-        btnNavigation.setOnClickListener(v -> {
-            stopListening();
-            speak(StringResources.getString(Main.NAVIGATION_STARTING), StringResources.getCurrentLocale());
-            updateStatus("Loading navigation...");
-
-        });
-
-        btnSettings.setOnClickListener(v -> {
-            stopListening();
-            speak(StringResources.getString(Main.SETTINGS_OPENING), StringResources.getCurrentLocale());
-            updateStatus("Loading settings...");
-            new android.os.Handler().postDelayed(() -> {
-                startActivity(new Intent(this, SettingsActivity.class));
-            }, 1500);
-        });
-
-        btnStopSmartGlasses.setOnClickListener(v->{
-            stopSmartGlasses();
-        });
-    }
-
-    private void addHapticFeedback() {
-        View [] buttons = {btnPeopleRecognition,btnVoiceCommand,btnNavigation,btnSettings};
-        for(View button:buttons) {
-            button.setOnLongClickListener(v->{
-                v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-                String buttonText = ((Button) v).getText().toString();
-                speak(String.format(StringResources.getString(Main.BUTTON_TAP_ACTIVATE), buttonText), StringResources.LOCALE_SINHALA);
-                return true;
-            });
-        }
-    }
-
-    private void toggleVoiceListening() {
-        if(isListening){
-            stopListening();
-        } else {
-            startListening();
-        }
-    }
-
-    private void startListening(){
-        if(!isListening){
-            if (speechRecognizer == null) {
-                Log.e("MainActivity", "Speech recognizer is null, reinitializing...");
-                recreaeSpeechRecognizer();
-                if (speechRecognizer == null) {
-                    updateStatus("Speech recognition not available");
-                    speak("Speech recognition is not available", StringResources.getCurrentLocale());
-                    return;
-                }
-            }
-
-            if(ttsEngine == null && ttsEngine.isSpeaking()){
-                Log.d("MainActivity", "TTS is speaking, waiting before starting recognition");
-                new Handler().postDelayed(this::startListening, 1000);
-                return;
-            }
-
-            try {
-                isListening = true;
-                updateStatus("Voice assistant active");
-                speak(StringResources.getString(Main.VOICE_COMMAND_ACTIVATED), StringResources.getCurrentLocale());
-                new Handler().postDelayed(() -> {
-                    if (isListening && speechRecognizer != null) {
-                        try {
-                            updateSpeechRecognitionLanguage();
-                            speechRecognizer.startListening(speechRecognizerIntent);
-                            btnVoiceCommand.setText("Stop listening");
-                            btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_red_dark));
-                            updateStatus("Ready for voice command");
-                        } catch (Exception e) {
-                            Log.e("MainActivity", "Error in delayed start: " + e.getMessage());
-                            isListening = false;
-                            recreaeSpeechRecognizer();
-                        }
-                    }
-                }, 2000);
-            } catch (Exception e) {
-                Log.e("MainActivity", "Error starting speech recognition: " + e.getMessage());
-                isListening = false;
-                updateStatus("Error starting speech recognition");
-                speak("Error starting speech recognition", StringResources.getCurrentLocale());
-            }
-        }
-    }
-
-    private void stopListening() {
-        if (isListening) {
-            isListening = false;
-            try {
-                if (speechRecognizer != null) {
-                    speechRecognizer.stopListening();
-                }
-                updateStatus("Voice recognition stopped");
-                btnVoiceCommand.setText("Voice Assistant");
-                btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
-            } catch (Exception e) {
-                Log.e("MainActivity", "Error stopping speech recognition: " + e.getMessage());
-                updateStatus("Error stopping speech recognition");
-            }
-        }
-    }
-
-    private void processVoiceCommand(String command){
-        String lowerCommand = command.toLowerCase().trim();
-        Log.d("VoiceCommand", "Received command: " + command);
-
-        double faceMatchScore = calculateSimilarity(lowerCommand, "muhuna");
-        double navMatchScore = calculateSimilarity(lowerCommand, "sanchalanaya");
-        double settingsMatchScore = calculateSimilarity(lowerCommand, "sakesum");
-        double paperMatchScore = calculateSimilarity(lowerCommand, "puwathpatha");
-
-        Log.d("VoiceCommand", "Face match score: " + faceMatchScore);
-        Log.d("VoiceCommand", "Navigation match score: " + navMatchScore);
-        Log.d("VoiceCommand", "Settings match score: " + settingsMatchScore);
-        Log.d("VoiceCommand", "Paper match score: " + paperMatchScore);
-
-
-        if(lowerCommand.equals("face") || lowerCommand.contains("people") ||
-                lowerCommand.contains("recognition") || lowerCommand.contains("recognize") ||
-                lowerCommand.contains("muhuna") || lowerCommand.contains("muhuṇa") ||
-                lowerCommand.contains("mohana") || lowerCommand.contains("mohuna") ||
-                lowerCommand.contains("මුහුණ") || lowerCommand.contains("හඳුනාගැනීම") ||
-                lowerCommand.contains("handunaganeema") || lowerCommand.contains("handuna") ||
-                lowerCommand.startsWith("muh") || lowerCommand.startsWith("moh")) {
-            stopListening();
-            speak(StringResources.getString(Main.OPENING_FACE_RECOGNITION), StringResources.getCurrentLocale());
-            startActivity(new Intent(this,EnhancedFaceRecognitionActivity.class));
-
-        } else if(lowerCommand.contains("navigation") || lowerCommand.contains("navigate") ||
-                lowerCommand.contains("sanchalanaya") || lowerCommand.contains("සංචාලනය") ||
-                lowerCommand.contains("sanchalan") || lowerCommand.contains("direction")) {
-            stopListening();
-            speak(StringResources.getString(Main.OPENING_NAVIGATION), StringResources.getCurrentLocale());
-
-        } else if(lowerCommand.contains("paper") || lowerCommand.contains("news") ||
-                lowerCommand.contains("newspaper") || lowerCommand.contains("puwathpatha") ||
-                lowerCommand.contains("පුවත්පත") || lowerCommand.contains("puwath") ||
-                lowerCommand.contains("නිව්ස්") || lowerCommand.contains("news reading")) {
-            stopListening();
-//            speak(StringResources.getString(Main.OPENING_PAPER), StringResources.getCurrentLocale());
-            // startActivity(new Intent(this, PaperReadingActivity.class)); // Uncomment when activity is ready
-
-        } else if(lowerCommand.contains("settings") || lowerCommand.contains("setting") ||
-                lowerCommand.contains("sakesum") || lowerCommand.contains("සැකසුම්") ||
-                lowerCommand.contains("sakasuma") || lowerCommand.contains("config")) {
-            stopListening();
-            speak(StringResources.getString(Main.SETTINGS_OPENING), StringResources.getCurrentLocale());
-            startActivity(new Intent(this, SettingsActivity.class));
-
-        } else if(lowerCommand.contains("stop") || lowerCommand.contains("exit") ||
-                lowerCommand.contains("navattanna") || lowerCommand.contains("නවත්වන්න") ||
-                lowerCommand.contains("navatta") || lowerCommand.contains("thamba")) {
-
-            speak(StringResources.getString(Main.STOPPING_VOICE_COMMANDS), StringResources.getCurrentLocale());
-            stopListening();
-
-        } else if(lowerCommand.contains("stop") || lowerCommand.contains("shutdown") || lowerCommand.contains("turn off")
-                || lowerCommand.contains("stop smart glasses")) {
-            stopListening();
-            stopSmartGlasses();
-        }else {
-            Log.d("VoiceCommand", "Command not recognized: " + command);
-            speak("Command not recognized. You said: " + command, StringResources.getCurrentLocale());
-
-            speak("Try saying: face, navigation, paper, settings, or stop", StringResources.getCurrentLocale());
-        }
-    }
-
-    private void stopSmartGlasses(){
-        speak("Stopping smart glasses...",StringResources.getCurrentLocale());
-        updateStatus("Stopping smart glasses...");
-
-        Intent stopIntent = new Intent(this, SmartGlassesForegroundService.class);
-        stopIntent.setAction(SmartGlassesForegroundService.ACTION_COMPLETE_SHUTDOWN);
-        startService(stopIntent);
-    }
-
-    private double calculateSimilarity(String s1, String s2) {
-        if (s1 == null || s2 == null) return 0.0;
-
-        int maxLength = Math.max(s1.length(), s2.length());
-        if (maxLength == 0) return 1.0;
-
-        int editDistance = levenshteinDistance(s1, s2);
-        return 1.0 - ((double) editDistance / maxLength);
-    }
-
-    private int levenshteinDistance(String s1, String s2) {
-        int[][] dp = new int[s1.length() + 1][s2.length() + 1];
-
-        for (int i = 0; i <= s1.length(); i++) {
-            dp[i][0] = i;
-        }
-        for (int j = 0; j <= s2.length(); j++) {
-            dp[0][j] = j;
-        }
-
-        for (int i = 1; i <= s1.length(); i++) {
-            for (int j = 1; j <= s2.length(); j++) {
-                int cost = (s1.charAt(i-1) == s2.charAt(j-1)) ? 0 : 1;
-                dp[i][j] = Math.min(Math.min(
-                                dp[i-1][j] + 1,
-                                dp[i][j-1] + 1),
-                        dp[i-1][j-1] + cost
-                );
-            }
-        }
-
-        return dp[s1.length()][s2.length()];
-    }
-    private void updateStatus(String message) {
-        statusText.setText(message);
-        statusText.setContentDescription(message);
     }
 
     private void speak(String text) {
-        speak(text, null);
-    }
-
-    private void speak(String text, Locale locale) {
-        if (ttsEngine != null) {
-            if (isListening && speechRecognizer != null) {
-                try {
-                    speechRecognizer.stopListening();
-                } catch (Exception e) {
-                    Log.e("MainActivity", "Error stopping recognition for TTS: " + e.getMessage());
-                }
-            }
-
-            if (locale != null) {
-                int result = ttsEngine.setLanguage(locale);
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.w("MainActivity", "Language not supported, using default");
-                }
-            }
-
-            String utteranceId = "BLIND_ASSISTANT_" + System.currentTimeMillis();
-            Bundle params = new Bundle();
-            ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId);
+        if (isTtsReady && textToSpeech != null) {
+            textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "MainActivity");
+        } else {
+            Log.w(TAG, "TTS not ready, cannot speak: " + text);
         }
     }
 
-    @Override
-    public void onReadyForSpeech(Bundle params) {
-        updateStatus("Ready for voice input");
+    private void initializeDistanceSensor() {
+        distanceSensorService = new DistanceSensorService(this);
+
+        distanceSensorService.setCallback(new DistanceSensorService.DistanceSensorCallback() {
+            @Override
+            public void onDistanceMeasured(double distance, String zone) {
+                runOnUiThread(() -> {
+                    distanceValueText.setText(String.format(Locale.US, "Distance: %.1f cm", distance));
+                    distanceZoneText.setText("Zone: " + zone);
+
+                    int color = getZoneColor(zone);
+                    distanceValueText.setTextColor(color);
+
+                    featureStatusText.setText(String.format(Locale.US,
+                            "Distance Sensor Active\nDistance: %.1f cm | Zone: %s\nLast Update: %s",
+                            distance, zone, getCurrentTime()));
+                });
+            }
+
+            @Override
+            public void onObstacleDetected(double distance) {
+                runOnUiThread(() -> {
+                    distanceValueText.setTextColor(getResources().getColor(android.R.color.holo_red_dark));
+                    distanceValueText.setTextSize(28);
+
+                    Toast.makeText(MainActivity.this,
+                            String.format(Locale.US, "⚠️ OBSTACLE! %.1f cm", distance),
+                            Toast.LENGTH_SHORT).show();
+
+                    distanceValueText.postDelayed(() -> {
+                        distanceValueText.setTextColor(getResources().getColor(R.color.primary_text));
+                        distanceValueText.setTextSize(24);
+                    }, 2000);
+                });
+            }
+
+            @Override
+            public void onServerStarted(boolean success, String message) {
+                runOnUiThread(() -> {
+                    navigationStatusText.setText(success ? "Distance Sensor Active" : "Sensor Error");
+                    Log.d(TAG, (success ? "Sensor started: " : "Sensor failed: ") + message);
+                });
+            }
+
+            @Override
+            public void onConnectionError(String error) {
+                runOnUiThread(() -> {
+                    Log.e(TAG, "Distance sensor error: " + error);
+                    featureStatusText.setText("Connection Error: " + error);
+                });
+            }
+        });
     }
 
-    @Override
-    public void onBeginningOfSpeech(){
-        updateStatus("Voice detected");
-    }
-
-    @Override
-    public void onRmsChanged(float rmsdB) {
-
-    }
-
-    @Override
-    public void onBufferReceived(byte[] buffer) {}
-
-    @Override
-    public void onEndOfSpeech() {
-        updateStatus("Processing...");
-    }
-
-    @Override
-    public void onError(int error) {
-        String errorMessage;
-        Log.e("MainActivity", "Speech recognition error: " + error);
-        boolean shouldRecreateRecognizer = false;
-        switch (error) {
-            case SpeechRecognizer.ERROR_AUDIO:
-                errorMessage = StringResources.getString(Main.ERROR_AUDIO);
-                shouldRecreateRecognizer = true;
-                Log.e("MainActivity", "Audio recording error");
-                break;
-            case SpeechRecognizer.ERROR_CLIENT:
-                errorMessage = StringResources.getString(Main.ERROR_CLIENT);
-                Log.e("MainActivity", "Client side error");
-                shouldRecreateRecognizer = true;
-                break;
-            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
-                errorMessage = StringResources.getString(Main.ERROR_INSUFFICIENT_PERMISSIONS);
-                Log.e("MainActivity", "Insufficient permissions");
-                break;
-            case SpeechRecognizer.ERROR_NETWORK:
-                errorMessage = StringResources.getString(Main.ERROR_NETWORK);
-                Log.e("MainActivity", "Network error");
-                break;
-            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
-                errorMessage = StringResources.getString(Main.ERROR_NETWORK_TIMEOUT);
-                Log.e("MainActivity", "Network timeout");
-                break;
-            case SpeechRecognizer.ERROR_NO_MATCH:
-                errorMessage = StringResources.getString(Main.ERROR_NO_MATCH);
-                Log.d("MainActivity", "No speech match found");
-                restartListening();
-                break;
-            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                errorMessage = StringResources.getString(Main.ERROR_RECOGNIZER_BUSY);
-                Log.e("MainActivity", "Speech recognizer busy");
-                break;
-            case SpeechRecognizer.ERROR_SERVER:
-                errorMessage = StringResources.getString(Main.ERROR_SERVER);
-                Log.e("MainActivity", "Server error");
-                break;
-            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
-                errorMessage = StringResources.getString(Main.ERROR_SPEECH_TIMEOUT);
-                Log.d("MainActivity", "Speech timeout");
-                restartListening();
-                break;
+    private int getZoneColor(String zone) {
+        switch (zone.toLowerCase()) {
+            case "danger":
+                return getResources().getColor(android.R.color.holo_red_dark);
+            case "warning":
+                return getResources().getColor(android.R.color.holo_orange_dark);
+            case "caution":
+                return getResources().getColor(android.R.color.holo_orange_light);
             default:
-                errorMessage = "Speech recognition error: " + error;
-                Log.e("MainActivity", "Unknown speech recognition error: " + error);
-                break;
+                return getResources().getColor(android.R.color.holo_green_dark);
+        }
+    }
+
+    private void initializeSpeechRecognition() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            btnVoiceCommand.setEnabled(false);
+            return;
         }
 
-        updateStatus(errorMessage);
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
 
-        if(error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT){
-            speak(errorMessage);
-        }
+        // Create intent for both English and Sinhala
+        speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
 
-        isListening = false;
-        btnVoiceCommand.setText("Voice Assistant");
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            btnVoiceCommand.setBackgroundTintList(getColorStateList(android.R.color.holo_blue_bright));
-        }
+        // Support multiple languages
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "si-LK");
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "si-LK");
 
-        if(shouldRecreateRecognizer){
-            new Handler().postDelayed(()->{
-                recreaeSpeechRecognizer();
-                if(speechRecognizer != null){
-                    startListening();
+        // Add alternate languages
+        ArrayList<String> languages = new ArrayList<>();
+        languages.add("si-LK");  // Sinhala
+        languages.add("en-US");  // English
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_SUPPORTED_LANGUAGES, languages);
+
+        speechRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override
+            public void onReadyForSpeech(Bundle params) {
+                isListening = true;
+                runOnUiThread(() -> {
+                    if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.VISIBLE);
+                });
+            }
+
+            @Override
+            public void onBeginningOfSpeech() {}
+
+            @Override
+            public void onRmsChanged(float rmsdB) {}
+
+            @Override
+            public void onBufferReceived(byte[] buffer) {}
+
+            @Override
+            public void onEndOfSpeech() {
+                isListening = false;
+                runOnUiThread(() -> {
+                    if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.GONE);
+                });
+            }
+
+            @Override
+            public void onError(int error) {
+                isListening = false;
+                runOnUiThread(() -> {
+                    if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.GONE);
+                });
+            }
+
+            @Override
+            public void onResults(Bundle results) {
+                ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+
+                if (matches != null && !matches.isEmpty()) {
+                    String spokenText = matches.get(0);
+                    runOnUiThread(() -> {
+                        if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.GONE);
+                        handleVoiceCommand(spokenText);
+                    });
                 }
-            },2000);
-        }else {
-            new Handler().postDelayed(this::restartListening, 1000);
-        }
-
-    }
-
-    public void onResults(Bundle results){
-        ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-        float[] confidenceScores = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
-
-        if(matches != null && !matches.isEmpty()){
-            String recognizedText = matches.get(0);
-            float confidence = 0.0f;
-
-            if(confidenceScores != null && confidenceScores.length > 0) {
-                confidence = confidenceScores[0];
-                Log.d("VoiceCommand", "Confidence: " + confidence);
-
-                if(confidence < 0.5f) {
-                    Log.d("VoiceCommand", "Low confidence, ignoring: " + recognizedText);
-                    updateStatus("Speech unclear, try again");
-                    speak("Please speak more clearly", StringResources.getCurrentLocale());
-                    restartListening();
-                    return;
-                }
+                isListening = false;
             }
 
-            Log.d("VoiceCommand", "Processing: " + recognizedText + " (confidence: " + confidence + ")");
-            updateStatus("Processing command...");
-            processVoiceCommand(recognizedText);
-        }
+            @Override
+            public void onPartialResults(Bundle partialResults) {}
 
-        restartListening();
+            @Override
+            public void onEvent(int eventType, Bundle params) {}
+        });
     }
 
-    private void restartListening() {
-        if(isListening && speechRecognizer != null){
+    private void setupButtonListeners() {
+        btnStopSmartGlasses.setOnClickListener(v -> {
+            speak("නවතමින්");  // "Stopping" in Sinhala
+            stopAllServices();
+            Toast.makeText(this, "Smart Glasses Stopped", Toast.LENGTH_SHORT).show();
+        });
 
-            new Handler().postDelayed(()->{
-                if(isListening){
-                    try{
-                        updateSpeechRecognitionLanguage();
-                        speechRecognizer.startListening(speechRecognizerIntent);
-                    }catch (Exception e){
-                        Log.e("MainActivity", "Error restarting speech recognition: " + e.getMessage());
-                        recreaeSpeechRecognizer();
-                    }
-                }
-            },1000);
-        }
+        btnPeopleRecognition.setOnClickListener(v -> {
+            speak("මුහුණු හඳුනාගැනීම විවෘත කරමින්");  // "Opening face recognition" in Sinhala
+            Intent intent = new Intent(this, EnhancedFaceRecognitionActivity.class);
+            startActivity(intent);
+        });
+
+        btnTextRecognition.setOnClickListener(v -> {
+            speak("පෙළ කියවීම විවෘත කරමින්");  // "Opening text reading" in Sinhala
+            Intent intent = new Intent(this, SinhalaOCRActivity.class);
+            startActivity(intent);
+        });
+
+        btnFieldDescribe.setOnClickListener(v -> {
+            speak("දර්ශන විස්තර කිරීම විවෘත කරමින්");  // "Opening scene description" in Sinhala
+            Intent intent = new Intent(this, IntelligentCaptureManager.class);
+            startActivity(intent);
+        });
+
+        btnNavigation.setOnClickListener(v -> {
+            speak("නැවිගේෂන් ඉක්මනින් එනවා");  // "Navigation coming soon" in Sinhala
+            Toast.makeText(this, "Navigation feature coming soon", Toast.LENGTH_SHORT).show();
+        });
+
+        btnVoiceCommand.setOnClickListener(v -> {
+            startVoiceRecognition();
+        });
+
+        btnSettings.setOnClickListener(v -> {
+            speak("සැකසුම් විවෘත කරමින්");  // "Opening settings" in Sinhala
+            Intent intent = new Intent(this, SettingsActivity.class);
+            startActivity(intent);
+        });
+
+        btnHelp.setOnClickListener(v -> {
+            speak("උදව් ඉක්මනින් එනවා");  // "Help coming soon" in Sinhala
+            Toast.makeText(this, "Help section coming soon", Toast.LENGTH_SHORT).show();
+        });
     }
 
-    private void recreaeSpeechRecognizer() {
-        Log.d("MainActivity", "Recreating speech recognizer");
-        if(speechRecognizer != null){
-            try{
-                speechRecognizer.destroy();
-            }catch (Exception e){
-                Log.e("MainActivity", "Error destroying speech recognizer: " + e.getMessage());
-            }
-        }
-        try{
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-            speechRecognizer.setRecognitionListener(this);
-            updateSpeechRecognitionLanguage();
-        }catch (Exception e){
-            Log.e("MainActivity", "Error recreating speech recognizer: " + e.getMessage());
-            speechRecognizer = null;
-        }
-    }
+    private void startVoiceRecognition() {
+        if (speechRecognizer == null) return;
 
-    @Override
-    public void onPartialResults(Bundle partialResults){
-        // Real-time voice-to-text display removed for privacy
-        // Voice recognition continues to work in background without showing partial text
-    }
-
-    @Override
-    public void onEvent(int eventType,Bundle params){}
-
-    @Override
-    public void onInit(int status) {
-        if (status == TextToSpeech.SUCCESS) {
-            Locale currentLocale = StringResources.getCurrentLocale();
-            int result = ttsEngine.setLanguage(currentLocale);
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                ttsEngine.setLanguage(Locale.US);
-            }
-
-            speak(StringResources.getString(Main.ASSISTANT_READY), currentLocale);
-
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_RECORD_AUDIO) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                setupVoiceRecognition();
-            } else {
-                speak(StringResources.getString(Main.MIC_PERMISSION_REQUIRED), StringResources.LOCALE_SINHALA);
-            }
-        }
-        if (requestCode == PERMISSION_REQUEST_NOTIFICATIONS) {
-            // No-op; foreground service still shows ongoing notification if denied
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (ttsEngine != null) {
-            ttsEngine.stop();
-            ttsEngine.shutdown();
-        }
-        if(speechRecognizer != null){
+        if (isListening) {
+            speechRecognizer.stopListening();
+            isListening = false;
+            if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.GONE);
+            speak("නැවතී");  // "Stopped" in Sinhala
+            Toast.makeText(this, "Stopped listening", Toast.LENGTH_SHORT).show();
+        } else {
             try {
-                speechRecognizer.stopListening();
-                speechRecognizer.destroy();
+                speechRecognizer.startListening(speechRecognizerIntent);
+                speak("අහනවා");  // "Listening" in Sinhala
+                Toast.makeText(this, "🎤 Listening...", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
-                Log.e("MainActivity", "Error destroying speech recognizer: " + e.getMessage());
+                Log.e(TAG, "Error starting speech recognition", e);
+                Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
+        }
+    }
+
+    private void handleVoiceCommand(String command) {
+        command = command.toLowerCase().trim();
+        Log.d(TAG, "Voice command received: " + command);
+        Toast.makeText(this, "Command: " + command, Toast.LENGTH_SHORT).show();
+
+        // English commands
+        if (command.contains("face") || command.contains("people") ||
+                command.contains("recognition") || command.contains("person")) {
+            btnPeopleRecognition.performClick();
+        }
+        // Sinhala commands for face recognition: මුහුණ, මුහුණු, හඳුනාගන්න
+        else if (command.contains("මුහුණ") || command.contains("මුහුණු") ||
+                command.contains("හඳුනාගන්න") || command.contains("පුද්ගල")) {
+            btnPeopleRecognition.performClick();
+        }
+        // English text commands
+        else if (command.contains("text") || command.contains("read") ||
+                command.contains("ocr") || command.contains("sinhala")) {
+            btnTextRecognition.performClick();
+        }
+        // Sinhala commands for text: පෙළ, කියවන්න, කියවන, ලියන
+        else if (command.contains("පෙළ") || command.contains("කියවන") ||
+                command.contains("කියවන්න") || command.contains("ලියන")) {
+            btnTextRecognition.performClick();
+        }
+        // English describe commands
+        else if (command.contains("describe") || command.contains("scene") ||
+                command.contains("field") || command.contains("view") ||
+                command.contains("capture")) {
+            btnFieldDescribe.performClick();
+        }
+        // Sinhala commands for describe: විස්තර, දර්ශන, බලන්න
+        else if (command.contains("විස්තර") || command.contains("දර්ශන") ||
+                command.contains("බලන්න") || command.contains("බලන")) {
+            btnFieldDescribe.performClick();
+        }
+        // English navigation commands
+        else if (command.contains("navigate") || command.contains("navigation") ||
+                command.contains("direction")) {
+            btnNavigation.performClick();
+        }
+        // Sinhala navigation: මග, දිශාව, යන්න
+        else if (command.contains("මග") || command.contains("දිශාව") ||
+                command.contains("යන්න")) {
+            btnNavigation.performClick();
+        }
+        // English stop commands
+        else if (command.contains("stop") || command.contains("exit") ||
+                command.contains("quit")) {
+            btnStopSmartGlasses.performClick();
+        }
+        // Sinhala stop: නවතන්න, නවත, වසන්න
+        else if (command.contains("නවතන්න") || command.contains("නවත") ||
+                command.contains("වසන්න")) {
+            btnStopSmartGlasses.performClick();
+        }
+        // English settings commands
+        else if (command.contains("settings") || command.contains("setting") ||
+                command.contains("configuration")) {
+            btnSettings.performClick();
+        }
+        // Sinhala settings: සැකසුම්, සැකසුම
+        else if (command.contains("සැකසුම්") || command.contains("සැකසුම")) {
+            btnSettings.performClick();
+        }
+        // English help commands
+        else if (command.contains("help") || command.contains("tutorial")) {
+            btnHelp.performClick();
+        }
+        // Sinhala help: උදව්, උදව
+        else if (command.contains("උදව්") || command.contains("උදව")) {
+            btnHelp.performClick();
+        }
+        // Distance sensor commands
+        else if (command.contains("distance") || command.contains("sensor") ||
+                command.contains("දුර") || command.contains("සංවේදකය")) {
+            String currentDistance = distanceValueText.getText().toString();
+            String currentZone = distanceZoneText.getText().toString();
+            speak(currentDistance + ", " + currentZone);
+            Toast.makeText(this, currentDistance + ", " + currentZone, Toast.LENGTH_LONG).show();
+        }
+        // Restart commands
+        else if (command.contains("restart") || command.contains("reset") ||
+                command.contains("නැවත ආරම්භ") || command.contains("යළි")) {
+            if (distanceSensorService != null) {
+                distanceSensorService.restart();
+                speak("නැවත ආරම්භ කරමින්");  // "Restarting" in Sinhala
+                Toast.makeText(this, "Restarting distance sensor", Toast.LENGTH_SHORT).show();
+            }
+        }
+        else {
+            speak("විධානය හඳුනාගත නොහැක");  // "Command not recognized" in Sinhala
+            Toast.makeText(this, "Command not recognized. Try: 'face', 'text', 'describe'",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String getCurrentTime() {
+        return new java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(new java.util.Date());
+    }
+
+    private void stopAllServices() {
+        if (distanceSensorService != null) {
+            distanceSensorService.cleanup();
+        }
+
+        if (speechRecognizer != null && isListening) {
+            speechRecognizer.stopListening();
+            isListening = false;
+        }
+
+        if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.GONE);
+
+        distanceValueText.setText("Distance: -- cm");
+        distanceZoneText.setText("Zone: --");
+        navigationStatusText.setText("Services Stopped");
+        featureStatusText.setText("All services stopped");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (distanceSensorService != null && !distanceSensorService.isMonitoringActive()) {
+            distanceSensorService.restart();
         }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if(isListening){
-            stopListening();
+        if (speechRecognizer != null && isListening) {
+            speechRecognizer.stopListening();
+            isListening = false;
+            if (voiceIndicator != null) voiceIndicator.setVisibility(android.view.View.GONE);
         }
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        loadSavedLanguagePreference();
-        if(speechRecognizer != null){
-            updateSpeechRecognitionLanguage();
+    protected void onDestroy() {
+        super.onDestroy();
+
+        if (distanceSensorService != null) {
+            distanceSensorService.cleanup();
         }
-        try {
-            getSharedPreferences("blind_assistant_prefs", MODE_PRIVATE)
-                    .edit().putBoolean("ui_recognition_active", false).apply();
-        } catch (Exception ignored) {}
+
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
+        }
+
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+            textToSpeech = null;
+        }
     }
 }
