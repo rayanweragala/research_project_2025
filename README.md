@@ -22,6 +22,8 @@ Key Features
 
 - Smart Glasses Integration - Designed to work with wearable smart glasses
 
+- Speech Recognition - Recognize speech and invoke function accodingly
+
 **Live Demo:** [https://researchproject2025.vercel.app/]
 
 ## Technical Architecture
@@ -104,6 +106,7 @@ blind-assistant-platform/
 - **Framework**: Flask with CORS enabled
 - **Computer Vision**: OpenCV, InsightFace, scikit-learn, TensorFlow, EasyOCR, Tesseract (pytesseract)
 - **Text-to-Speech**: pyttsx3
+- **Speech to Text**: Model train from Whisper
 - **Database**: SQLite for storing face data and analytics
 - **Camera Support**: Picamera2 (Raspberry Pi camera) with fallback to USB cameras
 
@@ -113,6 +116,8 @@ blind-assistant-platform/
   - Endpoints: /api/recognize, /api/recognize_realtime, /api/register_enhanced, /api/people, /api/health
 - **Ultrasonic Sensor Server** (ultrasonic_sensor.py) - Port 5001
   - Provides distance readings via HTTP
+- **Speech to Text** (stt_model.py)-port 5004
+  - Recognize Sinhala Speech for Sinhala Language
 - **OCR Server** (ocr_server.py) - Port 5002
   - Endpoints: /api/ocr/process, /api/ocr/results, /api/ocr/health
 - **Dashboard** (start_dashboard.py) - Web-based monitoring interface
