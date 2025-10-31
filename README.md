@@ -116,7 +116,7 @@ blind-assistant-platform/
   - Endpoints: /api/recognize, /api/recognize_realtime, /api/register_enhanced, /api/people, /api/health
 - **Ultrasonic Sensor Server** (ultrasonic_sensor.py) - Port 5001
   - Provides distance readings via HTTP
-- **Speech to Text** (stt_model.py)-port 5004
+- **Speech to Text** (stt_model.py)- Port 5004
   - Recognize Sinhala Speech for Sinhala Language
 - **OCR Server** (ocr_server.py) - Port 5002
   - Endpoints: /api/ocr/process, /api/ocr/results, /api/ocr/health
